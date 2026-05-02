@@ -1,0 +1,6 @@
+/target
+*.wav
+!test_wavs/*.wav
+test/TestScripts/
+.DS_Store
+test/hydrogen_src/
