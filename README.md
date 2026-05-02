@@ -1,4 +1,4 @@
-# ardftsrc
+# ARDFTSRC
 
 A rust implementation of the Real Discrete Fourier Transform Sample Rate Conversion (ARDFTSRC) algorithm.
 
