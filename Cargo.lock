@@ -40,6 +40,7 @@ dependencies = [
  "dasp_signal",
  "hound",
  "num-traits",
+ "rayon",
  "realfft",
  "rubato",
  "thiserror 2.0.18",

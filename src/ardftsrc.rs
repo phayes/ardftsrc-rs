@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use num_traits::Float;
+#[cfg(feature = "batch")]
+use rayon::prelude::*;
 use realfft::num_complex::Complex;
 use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
 
@@ -233,11 +235,8 @@ where
 
     /// Resamples a complete interleaved input buffer and returns all output samples.
     ///
-    /// This is a convenience wrapper around the streaming API. It resets internal state before
-    /// processing and again before returning, so repeated calls on the same instance are
-    /// independent and do not share stream history.
+    /// This is a convenience wrapper around the streaming API. 
     pub fn process_all(&mut self, input: &[T]) -> Result<Vec<T>, Error> {
-        self.reset();
         let expected_samples = self.output_sample_count(input.len())?;
 
         let mut output = Vec::with_capacity(expected_samples);
@@ -259,6 +258,66 @@ where
         output.extend_from_slice(&chunk_output_buffer[..written]);
 
         Ok(output)
+    }
+
+    /// Process multiple independent tracks in parallel.
+    ///
+    /// Each input slice is treated as its own stream with no inter-track context.
+    #[cfg(feature = "batch")]
+    pub fn batch(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let config = self.config.clone();
+        inputs
+            .par_iter()
+            .map(|input| {
+                let mut resampler = Ardftsrc::new(config.clone())?;
+                resampler.process_all(input)
+            })
+            .collect()
+    }
+
+    /// Process multiple tracks in parallel while preserving adjacent-track context.
+    /// 
+    /// Use this when you want to resample an entire album or track collection that is
+    /// meant to be played back to back with no gaps.
+    ///
+    /// For each track:
+    /// - `pre` is filled from the tail of the previous track when one exists.
+    /// - `post` is filled from the head of the next track when one exists.
+    #[cfg(feature = "batch")]
+    pub fn batch_gapless(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let config = self.config.clone();
+        let context_samples = self.input_buffer_size();
+        let channels = self.config.channels;
+
+        inputs
+            .par_iter()
+            .enumerate()
+            .map(|(idx, input)| {
+                let mut resampler = Ardftsrc::new(config.clone())?;
+
+                if idx > 0 {
+                    let pre = Self::batch_context_tail(inputs[idx - 1], context_samples, channels);
+                    if !pre.is_empty() {
+                        resampler.pre(pre)?;
+                    }
+                }
+
+                if idx + 1 < inputs.len() {
+                    let post = Self::batch_context_head(inputs[idx + 1], context_samples, channels);
+                    if !post.is_empty() {
+                        resampler.post(post)?;
+                    }
+                }
+
+                resampler.process_all(input)
+            })
+            .collect()
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -428,6 +487,25 @@ where
             });
         }
         Ok(Some(context))
+    }
+
+    /// Returns up to `max_samples` aligned head samples for interleaved context.
+    #[cfg(feature = "batch")]
+    fn batch_context_head(input: &[T], max_samples: usize, channels: usize) -> Vec<T> {
+        let aligned_input_len = input.len() - (input.len() % channels);
+        let mut take = aligned_input_len.min(max_samples);
+        take -= take % channels;
+        input[..take].to_vec()
+    }
+
+    /// Returns up to `max_samples` aligned tail samples for interleaved context.
+    #[cfg(feature = "batch")]
+    fn batch_context_tail(input: &[T], max_samples: usize, channels: usize) -> Vec<T> {
+        let aligned_input_len = input.len() - (input.len() % channels);
+        let mut take = aligned_input_len.min(max_samples);
+        take -= take % channels;
+        let start = aligned_input_len - take;
+        input[start..aligned_input_len].to_vec()
     }
 
     /// Processes one interleaved chunk through the streaming resampler.
@@ -1541,6 +1619,43 @@ mod tests {
         let mut output = vec![0.0; resampler.output_chunk_frames()];
         assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
         assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
+    }
+
+    #[cfg(feature = "batch")]
+    #[test]
+    fn batch_test() {
+        let config = mono_config(44_100, 48_000);
+        let driver = Ardftsrc::new(config.clone()).unwrap();
+        let chunk = driver.input_chunk_frames();
+        let tracks: Vec<Vec<f32>> = vec![
+            (0..(chunk + 17))
+                .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
+                .collect(),
+            (0..(chunk * 2 + 5))
+                .map(|frame| (frame as f32 * 0.012).cos() * 0.15)
+                .collect(),
+            (0..(chunk / 2 + 11))
+                .map(|frame| (frame as f32 * 0.021).sin() * 0.25)
+                .collect(),
+        ];
+        let input_refs: Vec<&[f32]> = tracks.iter().map(Vec::as_slice).collect();
+
+        let expected: Vec<Vec<f32>> = tracks
+            .iter()
+            .map(|track| {
+                let mut resampler = Ardftsrc::new(config.clone()).unwrap();
+                resampler.process_all(track).unwrap()
+            })
+            .collect();
+        let actual = driver.batch(&input_refs).unwrap();
+
+        assert_eq!(actual.len(), expected.len());
+        for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
+            assert_eq!(actual_track.len(), expected_track.len());
+            for (left, right) in actual_track.iter().zip(expected_track.iter()) {
+                assert!((*left - *right).abs() < 1e-5);
+            }
+        }
     }
 
 }
