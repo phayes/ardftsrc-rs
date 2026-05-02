@@ -6,7 +6,7 @@ A rust implementation of the Real Discrete Fourier Transform Sample Rate Convers
 
 Generally `ardftsrc-rs` is preferred over other resamplers when extrme quality is desired.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
-If it's more compute and memory intensive than other resamplers, so consider [rodio](https://docs.rs/rodio/latest/rodio/) if you want more efficiency. 
+If it's more compute and memory intensive than other resamplers, so consider [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
 
 ## Quick Start
 
@@ -94,9 +94,9 @@ Both buffers must be interleaved and channel-aligned.
 
 Various presets are available. 
 
-| preset | params | notes | per-links |
+| preset | params | notes | Performance |
 | --- | --- | --- | --- |
-| `PRESET_FAST` | `quality=512`, `bandwidth=0.8323` | Low-latency preset for realtime workloads. You may prefer using a sinc resampler like rubato. | _fill later_ |
+| `PRESET_FAST` | `quality=512`, `bandwidth=0.8323` | Low-latency preset for realtime workloads. Prefer using a sinc resampler like [rubato](https://crates.io/crates/rubato). | _fill later_ |
 | `PRESET_GOOD` | `quality=2048`, `bandwidth=0.95` | Balanced preset for realtime quality. | _fill later_ |
 | `PRESET_HIGH` | `quality=65536`, `bandwidth=0.97` | High quality for offline or quality-focused realtime use | _fill later_ |
 | `PRESET_EXTREME` | `quality=524288`, `bandwidth=0.9932`| Maximum quality; intended for offline use | _fill later_ |
