@@ -125,7 +125,12 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 
 1. ardftsrc-rs has pathological RSS metrics. It's doing something that's making the allocator very unhappy. Need to track this down. 
 2. Add support for `phase` config.
-3. Refactor internal API so that `process_all` can do parallel processing via rayon. We can make this work by re-using `pre()` and `post()` for intra-track parallel processing. Will require significant internal API refactor (but perhaps worth it).
-4. Calc performance metrics and post link
-5. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
-6. Refactor `Ardftsrc` struct into `ArdftsrcCore` (single channel only, streaming) and `Ardftsrc` (top level orchestrator), do this in combination with todo#3. We could parallelize over both channels and within a single track, while organizing the internal API into a cleaner shape. The new `Ardftsrc` could also have a little per-channel buffer to let users write using any sized slice they want.
+3. Calc performance metrics and post link
+4. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
+5. Refactor internal API:
+   * Split `Ardftsrc` into:
+     * `ArdftsrcCore`: single-channel only, streaming, private.
+     * `Ardftsrc`: top-level orchestrator, public.
+   * Make `process_all` support parallel processing via `rayon` (Parallelize over channels).
+   * Add a small per-channel buffer to `Ardftsrc` so users can write using any sized slice they want.
+   * Remove the chunk-final method from the public API, so users only call `process_chunk` and then `finalize`.
