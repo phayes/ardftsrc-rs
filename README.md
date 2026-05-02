@@ -94,22 +94,24 @@ Both buffers must be interleaved and channel-aligned.
 
 Various presets are available. 
 
-| preset | params | notes | Performance |
-| --- | --- | --- | --- |
-| `PRESET_FAST` | `quality=512` `bandwidth=0.8323` | Fast preset for realtime workloads. Prefer using a sinc resampler like [rubato](https://crates.io/crates/rubato). | _fill later_ |
-| `PRESET_GOOD` | `quality=2048` `bandwidth=0.95` | Balanced preset for realtime quality. | _fill later_ |
-| `PRESET_HIGH` | `quality=65536` `bandwidth=0.97` | High quality for offline or quality-focused realtime use | _fill later_ |
-| `PRESET_EXTREME` | `quality=524288` `bandwidth=0.9932`| Maximum quality; intended for offline use | _fill later_ |
+| Preset           |                             Parameters | Recommended use                                                                                                  | Performance  |
+| ---------------- | -------------------------------------: | ---------------------------------------------------------------------------------------------------------------- | ------------ |
+| `PRESET_FAST`    |    `quality=512`<br>`bandwidth=0.8323` | Fast preset for realtime workloads. Prefer a sinc resampler such as [`rubato`](https://crates.io/crates/rubato). | *Fill later* |
+| `PRESET_GOOD`    |     `quality=2048`<br>`bandwidth=0.95` | Balanced preset for realtime quality.                                                                            | *Fill later* |
+| `PRESET_HIGH`    |    `quality=65536`<br>`bandwidth=0.97` | High quality for offline or quality-focused realtime use.                                                        | *Fill later* |
+| `PRESET_EXTREME` | `quality=524288`<br>`bandwidth=0.9932` | Maximum quality, intended for offline use.                                                                       | *Fill later* |
+
 
 ## Feature Flags
 
-| flag | enables | default |
-| --- | --- | --- |
-| `batch` | Parallel APIs via Rayon: `batch(...)`, `batch_gapless(...)` | no |
-| `avx` | `realfft` AVX backend | no |
-| `sse` | `realfft` SSE backend | no |
-| `neon` | `realfft` NEON backend | no |
-| `wasm_simd` | `realfft` WebAssembly SIMD backend | no |
+| Flag        | Enables                                                     | Default |
+| ----------- | ----------------------------------------------------------- | ------- |
+| `batch`     | Parallel APIs via Rayon: `batch(...)`, `batch_gapless(...)` | No      |
+| `avx`       | `realfft` AVX backend                                       | No      |
+| `sse`       | `realfft` SSE backend                                       | No      |
+| `neon`      | `realfft` NEON backend                                      | No      |
+| `wasm_simd` | `realfft` WebAssembly SIMD backend                          | No      |
+
 
 ## API Notes
 
