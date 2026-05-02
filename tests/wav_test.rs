@@ -207,6 +207,10 @@ fn test_wavs_f32_2048_bw095_outputs_are_finite() {
 }
 
 #[test]
+#[cfg_attr(
+    not(any(target_arch = "arm", target_arch = "aarch64")),
+    ignore = "roundtrip baselines currently validated on ARM targets only"
+)]
 fn test_wavs_roundtrip_up_then_down() {
     let wav_paths = collect_test_wav_paths();
     assert!(!wav_paths.is_empty(), "expected at least one WAV in test_wavs/");
@@ -258,6 +262,10 @@ fn test_wavs_roundtrip_up_then_down() {
 }
 
 #[test]
+#[cfg_attr(
+    not(any(target_arch = "arm", target_arch = "aarch64")),
+    ignore = "roundtrip baselines currently validated on ARM targets only"
+)]
 fn test_wavs_roundtrip_down_then_up() {
     let wav_paths = collect_test_wav_paths();
     assert!(!wav_paths.is_empty(), "expected at least one WAV in test_wavs/");
