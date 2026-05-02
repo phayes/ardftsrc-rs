@@ -127,7 +127,8 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 2. Add support for `phase` config.
 3. Calc performance metrics and post link
 4. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
-5. Refactor internal API:
+5. Add bindings to other languages, python, ts (wasm) etc. 
+6. Refactor internal API:
    * Split `Ardftsrc` into:
      * `ArdftsrcCore`: single-channel only, streaming, private.
      * `Ardftsrc`: top-level orchestrator, public.
