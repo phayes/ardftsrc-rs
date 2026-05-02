@@ -133,4 +133,4 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
      * `Ardftsrc`: top-level orchestrator, public.
    * Make `process_all` support parallel processing via `rayon` (Parallelize over channels).
    * Add a small per-channel buffer to `Ardftsrc` so users can write using any sized slice they want.
-   * Remove the chunk-final method from the public API, so users only call `process_chunk` and then `finalize`. (thinking more about this: output buffer size could be a problem...   If the per-channel buffer is not empty, processing the last final-chunk + plus finalize tail processing could end up having more data than output buffer.  Needs workshoping)
+   * Remove the chunk-final method from the public API, so users only call `process_chunk` and then `finalize`. (thinking more about this: output buffer size could be a problem...   If the per-channel buffer is not empty, processing the last final-chunk + plus finalize tail processing could end up having more data than output buffer.  Needs workshoping). This could be solved to moving to a reader / writer interface API?
