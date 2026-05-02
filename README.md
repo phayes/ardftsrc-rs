@@ -1,8 +1,8 @@
-# ardftsrc-rs
+# ardftsrc
 
 A rust implementation of the Real Discrete Fourier Transform Sample Rate Conversion (ARDFTSRC) algorithm.
 
-`ardftsrc-rs` is a streaming audio sample-rate converter for interleaved audio streams, and is appropriate for both realtime and offline resampling. 
+`ardftsrc` is a streaming audio sample-rate converter for interleaved audio streams, and is appropriate for both realtime and offline resampling. 
 
 Generally `ardftsrc-rs` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
