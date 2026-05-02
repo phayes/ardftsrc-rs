@@ -96,10 +96,10 @@ Various presets are available.
 
 | preset | params | notes | Performance |
 | --- | --- | --- | --- |
-| `PRESET_FAST` | `quality=512`, `bandwidth=0.8323` | Fast preset for realtime workloads. Prefer using a sinc resampler like [rubato](https://crates.io/crates/rubato). | _fill later_ |
-| `PRESET_GOOD` | `quality=2048`, `bandwidth=0.95` | Balanced preset for realtime quality. | _fill later_ |
-| `PRESET_HIGH` | `quality=65536`, `bandwidth=0.97` | High quality for offline or quality-focused realtime use | _fill later_ |
-| `PRESET_EXTREME` | `quality=524288`, `bandwidth=0.9932`| Maximum quality; intended for offline use | _fill later_ |
+| `PRESET_FAST` | `quality=512` `bandwidth=0.8323` | Fast preset for realtime workloads. Prefer using a sinc resampler like [rubato](https://crates.io/crates/rubato). | _fill later_ |
+| `PRESET_GOOD` | `quality=2048` `bandwidth=0.95` | Balanced preset for realtime quality. | _fill later_ |
+| `PRESET_HIGH` | `quality=65536` `bandwidth=0.97` | High quality for offline or quality-focused realtime use | _fill later_ |
+| `PRESET_EXTREME` | `quality=524288` `bandwidth=0.9932`| Maximum quality; intended for offline use | _fill later_ |
 
 ## Feature Flags
 
