@@ -206,6 +206,8 @@ fn test_wavs_f32_2048_bw095_outputs_are_finite() {
     }
 }
 
+
+// TODO: Investigate these tests on x86_64 targets
 #[test]
 #[cfg_attr(
     not(any(target_arch = "arm", target_arch = "aarch64")),
@@ -261,6 +263,7 @@ fn test_wavs_roundtrip_up_then_down() {
     }
 }
 
+// TODO: Investigate these tests on x86_64 targets
 #[test]
 #[cfg_attr(
     not(any(target_arch = "arm", target_arch = "aarch64")),
