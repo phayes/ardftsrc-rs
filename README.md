@@ -4,9 +4,9 @@ A rust implementation of the Real Discrete Fourier Transform Sample Rate Convers
 
 `ardftsrc-rs` is a streaming audio sample-rate converter for interleaved audio streams, and is appropriate for both realtime and offline resampling. 
 
-Generally `ardftsrc-rs` is preferred over other resamplers when extrme quality is desired.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
+Generally `ardftsrc-rs` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
-If it's more compute and memory intensive than other resamplers, so consider [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
+It is more compute and memory intensive than other resamplers, so consider [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
 
 ## Quick Start
 
@@ -92,14 +92,18 @@ Both buffers must be interleaved and channel-aligned.
 
 ## Presets
 
-Various presets are available. 
+Presets are pre-vetted `Config` for various quality levels. 
+
+```rust
+let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_000).with_channels(2);
+```
 
 | Preset           |                             Parameters | Recommended use                                                                                                  | Performance  |
 | ---------------- | -------------------------------------: | ---------------------------------------------------------------------------------------------------------------- | ------------ |
-| `PRESET_FAST`    |    `quality=512`<br>`bandwidth=0.8323` | Fast preset for realtime workloads. Prefer a sinc resampler such as [`rubato`](https://crates.io/crates/rubato). | *Fill later* |
-| `PRESET_GOOD`    |     `quality=2048`<br>`bandwidth=0.95` | Balanced preset for realtime quality.                                                                            | *Fill later* |
-| `PRESET_HIGH`    |    `quality=65536`<br>`bandwidth=0.97` | High quality for offline or quality-focused realtime use.                                                        | *Fill later* |
-| `PRESET_EXTREME` | `quality=524288`<br>`bandwidth=0.9932` | Maximum quality, intended for offline use.                                                                       | *Fill later* |
+| `PRESET_FAST`    | `quality=512` `bandwidth=0.8323`       | Fast preset for realtime workloads. Prefer a sinc resampler such as [`rubato`](https://crates.io/crates/rubato). | TODO         |
+| `PRESET_GOOD`    | `quality=2048` `bandwidth=0.95`        | Balanced preset for realtime quality.                                                                            | TODO         |
+| `PRESET_HIGH`    | `quality=65536` `bandwidth=0.97`       | High quality for offline or quality-focused realtime use.                                                        | TODO         |
+| `PRESET_EXTREME` | `quality=524288` `bandwidth=0.9932`    | Maximum quality, intended for offline use.                                                                       | TODO         |
 
 
 ## Feature Flags
@@ -119,3 +123,11 @@ Various presets are available.
 - Non-final `process_chunk(...)` input length must equal `input_buffer_size()`.
 - `process_chunk_final(...)` accepts the trailing partial chunk (or empty slice).
 - Call `finalize(...)` exactly once per stream to emit delayed tail samples.
+
+## TODOs:
+
+1. ardftsrc-rs has pathological RSS metrics. It's doing something that's making the allocator very unhappy. Need to track this down. 
+2. Add support for `phase` config.
+3. Refactor internal API so that `process_all` can do parallel processing via rayon. We can make this work by re-using `pre()` and `post()` for intra-track parallel processing.
+4. Calc performance metrics and post link
+5. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
