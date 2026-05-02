@@ -6,6 +6,8 @@ A rust implementation of the Real Discrete Fourier Transform Sample Rate Convers
 
 Generally `ardftsrc-rs` is preferred over other resamplers when extrme quality is desired.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
+If it's more compute and memory intensive than other resamplers, so consider [rodio](https://docs.rs/rodio/latest/rodio/) if you want more efficiency. 
+
 ## Quick Start
 
 Use `process_all` to resample a complete interleaved audio stream.
