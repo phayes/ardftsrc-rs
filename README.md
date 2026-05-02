@@ -134,3 +134,23 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
    * Make `process_all` support parallel processing via `rayon` (Parallelize over channels).
    * Add a small per-channel buffer to `Ardftsrc` so users can write using any sized slice they want.
    * Remove the chunk-final method from the public API, so users only call `process_chunk` and then `finalize`. (thinking more about this: output buffer size could be a problem...   If the per-channel buffer is not empty, processing the last final-chunk + plus finalize tail processing could end up having more data than output buffer.  Needs workshoping). This could be solved to moving to a reader / writer interface API?
+
+## Contributing
+
+Contribution are welcome!
+
+The `wav_golden_copy` test validates resampler determinism against checked-in golden outputs in `test_wavs/golden_hashes.json`. It is intended to catch unintended behavior changes. 
+
+Run it with:
+
+```bash
+cargo test --release wav_golden_copy -- --nocapture
+```
+
+To regenerate `test_wavs/golden_hashes.json`:
+
+```bash
+rust-script script/genreate_golden_hashes.rs
+```
+
+Updates to `test_wavs/golden_hashes.json` are allowed, but only when accompanied by verifiable quality improvements demonstrated with the HydrogenAudio SRC test suite.
