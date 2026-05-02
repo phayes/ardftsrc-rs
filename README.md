@@ -125,6 +125,6 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 
 1. ardftsrc-rs has pathological RSS metrics. It's doing something that's making the allocator very unhappy. Need to track this down. 
 2. Add support for `phase` config.
-3. Refactor internal API so that `process_all` can do parallel processing via rayon. We can make this work by re-using `pre()` and `post()` for intra-track parallel processing.
+3. Refactor internal API so that `process_all` can do parallel processing via rayon. We can make this work by re-using `pre()` and `post()` for intra-track parallel processing. Will require significant internal API refactor (but perhaps worth it).
 4. Calc performance metrics and post link
 5. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
