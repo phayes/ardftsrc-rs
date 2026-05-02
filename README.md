@@ -24,12 +24,11 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let mut resampler = Ardftsrc::<f64>::new(config).expect("invalid config");
+    let mut resampler = Ardftsrc::<f64>::new(config).unwrap();
 
-    let output = resampler
-        .process_all(&input_f64)
-        .expect("resample failed");
+    let output = resampler.process_all(&input_f64).unwrap();
 
+    // Convert back to the original f32
     output.into_iter().map(|v| v as f32).collect()
 }
 ```
@@ -48,7 +47,7 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let mut resampler = Ardftsrc::<f64>::new(config).expect("invalid config");
+    let mut resampler = Ardftsrc::<f64>::new(config).unwrap();
 
     // Get the input and output buffer sizes
     // You must read and write in these buffer sizes
@@ -60,21 +59,19 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
 
     while offset + input_buffer_size <= input_f64.len() {
         let chunk = &input_f64[offset..offset + input_buffer_size];
-        let written = resampler.process_chunk(chunk, &mut out_buf).expect("process_chunk failed");
+        let written = resampler.process_chunk(chunk, &mut out_buf).unwrap();
         out_f64.extend_from_slice(&out_buf[..written]);
         offset += input_buffer_size;
     }
 
     // The final chunk can be undersized (or even zero sized)
     let final_chunk = &input_f64[offset..];
-    let written = resampler
-        .process_chunk_final(final_chunk, &mut out_buf)
-        .expect("process_chunk_final failed");
+    let written = resampler.process_chunk_final(final_chunk, &mut out_buf).unwrap();
     out_f64.extend_from_slice(&out_buf[..written]);
 
     // After processing the final chunk, you must call "finalize()" to get tail content.
     // finalize() also resets the resampler instance so it can be used again.
-    let written = resampler.finalize(&mut out_buf).expect("finalize failed");
+    let written = resampler.finalize(&mut out_buf).unwrap();
     out_f64.extend_from_slice(&out_buf[..written]);
 
     out_f64.into_iter().map(|v| v as f32).collect()
