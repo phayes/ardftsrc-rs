@@ -1,6 +1,6 @@
 # ARDFTSRC
 
-A rust implementation of the Real Discrete Fourier Transform Sample Rate Conversion (ARDFTSRC) algorithm.
+A rust implementation of the Arbitrary Sample Rate Discrete Fourier Transform Sample Rate Converter (ARDFTSRC) algorithm.
 
 `ardftsrc` is a streaming audio sample-rate converter for interleaved audio streams, and is appropriate for both realtime and offline resampling. 
 
