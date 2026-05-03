@@ -1,15 +1,11 @@
-// "Fast" quality: f32, quality=512, bandwidth=0.95
-
 use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
-use ardftsrc::{Ardftsrc, Config, TaperType};
+use ardftsrc::{Ardftsrc, PRESET_HIGH};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use wavers::{Wav, read};
 
-const BENCH_QUALITY: usize = 512;
-const BENCH_BANDWIDTH: f32 = 0.95;
 const TARGET_SAMPLE_RATES: &[(usize, &str)] = &[(22_050, "22k05"), (48_000, "48k"), (96_000, "96k")];
 const FIXTURE_PATHS: &[&str] = &[
     "test_wavs/example-pcm16-44k1-stereo.wav",
@@ -23,7 +19,7 @@ struct WavData {
     name: String,
     sample_rate_hz: usize,
     channels: usize,
-    samples: Vec<f32>,
+    samples: Vec<f64>,
 }
 
 fn read_wav_f32(path: &Path) -> WavData {
@@ -40,7 +36,7 @@ fn read_wav_f32(path: &Path) -> WavData {
             .to_string(),
         sample_rate_hz: wav.sample_rate() as usize,
         channels: wav.n_channels() as usize,
-        samples: samples.to_vec(),
+        samples: samples.iter().map(|&sample| sample as f64).collect(),
     }
 }
 
@@ -51,19 +47,31 @@ fn load_fixtures() -> Vec<WavData> {
         .collect()
 }
 
+fn assert_supported_feature_combo() {
+    let rayon_enabled = cfg!(feature = "rayon");
+    let avx_enabled = cfg!(feature = "avx");
+    let neon_enabled = cfg!(feature = "neon");
+    let sse_enabled = cfg!(feature = "sse");
+    let wasm_simd_enabled = cfg!(feature = "wasm_simd");
+    let simd_present = avx_enabled || neon_enabled || sse_enabled || wasm_simd_enabled;
+
+    if rayon_enabled || !simd_present {
+        panic!(
+            "unsupported bench feature combo: rayon is enabled or SIMD is not present \
+             (rayon={rayon_enabled}, avx={avx_enabled}, neon={neon_enabled}, sse={sse_enabled}, wasm_simd={wasm_simd_enabled})"
+        );
+    }
+}
+
 fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
-    let mut group = c.benchmark_group("process_all");
+    let mut group = c.benchmark_group("fast");
     for fixture in fixtures {
         for (target_sample_rate_hz, target_label) in TARGET_SAMPLE_RATES {
-            let config = Config {
-                input_sample_rate: fixture.sample_rate_hz,
-                output_sample_rate: *target_sample_rate_hz,
-                channels: fixture.channels,
-                quality: BENCH_QUALITY,
-                bandwidth: BENCH_BANDWIDTH,
-                taper_type: TaperType::Cosine(3.45),
-            };
-            let mut resampler: Ardftsrc<f32> = Ardftsrc::new(config).unwrap();
+            let config = PRESET_HIGH
+                .with_input_rate(fixture.sample_rate_hz)
+                .with_output_rate(*target_sample_rate_hz)
+                .with_channels(fixture.channels);
+            let mut resampler: Ardftsrc<f64> = Ardftsrc::new(config).unwrap();
             let input_frames = fixture.samples.len() / fixture.channels;
             let output_frames = resampler.expected_output_size(input_frames);
             let output_samples = output_frames * fixture.channels;
@@ -82,6 +90,7 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
+    assert_supported_feature_combo();
     // Preload and decode all WAV fixtures before any timed benchmark loops.
     let fixtures = load_fixtures();
     benchmark_process_all(c, &fixtures);
