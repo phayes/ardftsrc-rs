@@ -71,7 +71,7 @@ struct Args {
     output_rate: usize,
 
     /// Resampler quality preset.
-    #[arg(long, value_enum, default_value_t = PresetArg::Good)]
+    #[arg(long, value_enum, default_value_t = PresetArg::High)]
     preset: PresetArg,
 
     /// Override preset quality (higher is slower, typically higher quality).
