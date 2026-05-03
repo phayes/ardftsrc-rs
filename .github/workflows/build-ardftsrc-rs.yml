@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v[0-9]*"
+      - "v.[0-9]*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,6 +13,8 @@ jobs:
   build-binary:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -58,8 +61,24 @@ jobs:
             echo "artifact_name=ardftsrc-rs-linux" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload binary artifact
+      - name: Create zip package
+        id: package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $artifactName = "${{ steps.artifact.outputs.artifact_name }}"
+          $archiveName = "$artifactName-$tag.zip"
+          Compress-Archive -Path "${{ steps.artifact.outputs.binary_path }}" -DestinationPath $archiveName -Force
+          "archive_path=$archiveName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.artifact.outputs.artifact_name }}
-          path: ${{ steps.artifact.outputs.binary_path }}
+          path: ${{ steps.package.outputs.archive_path }}
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.package.outputs.archive_path }}
