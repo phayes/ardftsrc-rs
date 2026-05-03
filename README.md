@@ -196,7 +196,11 @@ fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels:
 }
 ```
 
-## Presets
+## Quality Tuning and Presets
+
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64` (even when resampling `f32` audio). To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using ARDFTSRC as `f64`, then convert back to `f32`. 
+
+If you want speed over quality, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
 Presets are pre-vetted `Config` for various quality levels. 
 
@@ -222,13 +226,6 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 | `neon`      | `realfft` NEON backend                                      | No      |
 | `wasm_simd` | `realfft` WebAssembly SIMD backend                          | No      |
 
-
-## API Notes
-
-- Buffers are interleaved by channel.
-- Non-final `process_chunk(...)` input length must equal `input_chunk_size()`.
-- `process_chunk_final(...)` accepts the trailing partial chunk (or empty slice).
-- Call `finalize(...)` exactly once per stream to emit delayed tail samples.
 
 ## TODOs:
 
