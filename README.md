@@ -93,7 +93,7 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
 Use sample streaming when you do not control buffer sizes. This API supports arbitrary input lengths (including single frames / samples), and handles internal chunking for you.
 
 1. Call `write_samples(...)` with any incoming input size and call `read_samples(...)` to drain available output.
-2. For multichannel streams, writes must be interleaved.
+2. For multichannel streams, samples must be written interleaved.
 3. Before calling `finalize_samples(...)` all previously written samples must be frame aligned.
 3. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
 
