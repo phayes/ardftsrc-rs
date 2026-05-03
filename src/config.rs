@@ -232,8 +232,8 @@ impl Config {
 
     /// Computes derived FFT/chunk geometry from validated user configuration.
     ///
-    /// Returns `DerivedConfig` for internal processing, or an error if validation fails.
-    pub(crate) fn derive_config<T>(&self) -> Result<DerivedConfig<T>, Error>
+    /// Returns `DerivedConfig` for processing, or an error if validation fails.
+    pub fn derive_config<T>(&self) -> Result<DerivedConfig<T>, Error>
     where
         T: Float,
     {
@@ -256,7 +256,9 @@ impl Default for Config {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct DerivedConfig<T> {
+pub struct DerivedConfig<T> {
+    pub(crate) input_sample_rate: usize,
+    pub(crate) output_sample_rate: usize,
     pub(crate) input_chunk_frames: usize,
     pub(crate) output_chunk_frames: usize,
     pub(crate) input_fft_size: usize,
@@ -304,6 +306,8 @@ where
         );
 
         Self {
+            input_sample_rate: config.input_sample_rate,
+            output_sample_rate: config.output_sample_rate,
             input_chunk_frames,
             output_chunk_frames,
             input_fft_size,
@@ -503,6 +507,8 @@ mod tests {
         let config = Config::new(44_100, 48_000, 2);
         let derived = config.derive_config::<f32>().unwrap();
 
+        assert_eq!(derived.input_sample_rate, 44_100);
+        assert_eq!(derived.output_sample_rate, 48_000);
         assert_eq!(derived.input_chunk_frames, 2058);
         assert_eq!(derived.output_chunk_frames, 2240);
         assert_eq!(derived.input_fft_size, 4116);
@@ -518,6 +524,8 @@ mod tests {
         let config = Config::new(44_100, 96_000, 2);
         let derived = config.derive_config::<f32>().unwrap();
 
+        assert_eq!(derived.input_sample_rate, 44_100);
+        assert_eq!(derived.output_sample_rate, 96_000);
         assert_eq!(derived.input_chunk_frames, 2058);
         assert_eq!(derived.output_chunk_frames, 4480);
         assert_eq!(derived.input_fft_size, 4116);

@@ -6,14 +6,12 @@ use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
 
 use crate::config::DerivedConfig;
 use crate::lpc::{ExtrapolateFallback, extrapolate_backward, extrapolate_forward};
-use crate::{Config, Error};
+use crate::Error;
 
-pub struct ArdftsrcCore<T = f32>
+pub(crate) struct ArdftsrcCore<T = f32>
 where
     T: Float + FftNum,
 {
-    /// User-supplied runtime config (rates/channels/quality), kept immutable after construction.
-    config: Config,
     /// Precomputed FFT/chunk/offset dimensions and taper.
     derived: DerivedConfig<T>,
     /// Planned forward real FFT instance reused across all chunks.
@@ -86,12 +84,10 @@ where
         self.derived.output_chunk_frames
     }
 
-    /// Constructs a single-channel core resampler from `config`.
+    /// Constructs a single-channel core resampler from `derived`.
     ///
-    /// Returns a ready-to-use core instance, or an error if `config` is invalid or derived
-    /// FFT geometry cannot be prepared.
-    pub fn new(config: Config) -> Result<Self, Error> {
-        let derived = config.derive_config::<T>()?;
+    /// Returns a ready-to-use core instance.
+    pub fn new(derived: DerivedConfig<T>) -> Result<Self, Error> {
         let mut planner = RealFftPlanner::<T>::new();
         let forward = planner.plan_fft_forward(derived.input_fft_size);
         let inverse = planner.plan_fft_inverse(derived.output_fft_size);
@@ -107,7 +103,6 @@ where
         let prev_input_window = vec![T::zero(); derived.input_chunk_frames * 2];
 
         Ok(Self {
-            config,
             derived,
             forward,
             inverse,
@@ -124,11 +119,6 @@ where
             input_sample_count: 0,
             output_sample_count: 0,
         })
-    }
-
-    /// Returns the configuration this instance was built with.
-    pub fn config(&self) -> &Config {
-        &self.config
     }
 
     /// Returns the total number of input samples processed.
@@ -208,7 +198,7 @@ where
     ///
     /// Returns the ceil-rounded number of output samples expected for `input_samples`.
     pub fn output_sample_count_for_input(&self, input_samples: usize) -> usize {
-        (input_samples * self.config.output_sample_rate).div_ceil(self.config.input_sample_rate)
+        (input_samples * self.derived.output_sample_rate).div_ceil(self.derived.input_sample_rate)
     }
 
     /// Output samples needed for a complete input length.
@@ -442,7 +432,7 @@ where
 
     /// Returns true when rates match and FFT processing can be bypassed losslessly.
     fn is_passthrough(&self) -> bool {
-        self.config.input_sample_rate == self.config.output_sample_rate
+        self.derived.input_sample_rate == self.derived.output_sample_rate
     }
 
     /// Normalizes empty edge context vectors to `None`.

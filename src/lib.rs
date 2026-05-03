@@ -5,6 +5,7 @@ mod error;
 mod lpc;
 
 pub use ardftsrc::Ardftsrc;
-pub use ardftsrc_core::ArdftsrcCore;
-pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
+pub use config::{Config, DerivedConfig, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
 pub use error::Error;
+
+pub(crate) use ardftsrc_core::ArdftsrcCore;

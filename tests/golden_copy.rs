@@ -10,7 +10,7 @@ struct GoldenManifestEntry {
     sample_wav: String,
     preset: String,
     target_rate: usize,
-    output_wav: String,
+    pcm_md5_by_channel: Vec<String>,
 }
 
 fn preset_from_name(name: &str) -> Config {
@@ -100,6 +100,17 @@ fn wav_golden_copy() {
     for entry in entries {
         let source_path = root.join("test_wavs").join(&entry.sample_wav);
         let (input_samples, input_rate, channels) = read_wav_as_f32(&source_path);
+        if entry.pcm_md5_by_channel.len() != channels {
+            failed = true;
+            eprintln!(
+                "manifest channel hash count mismatch: sample='{}', expected={}, actual={}",
+                entry.sample_wav,
+                channels,
+                entry.pcm_md5_by_channel.len()
+            );
+            continue;
+        }
+
         let config = preset_from_name(&entry.preset)
             .with_input_rate(input_rate)
             .with_output_rate(entry.target_rate)
@@ -140,49 +151,16 @@ fn wav_golden_copy() {
         };
 
         let actual_hashes = pcm_md5_by_channel(&output_samples_f32, channels);
-        let expected_wav_path = root.join("test_wavs").join(&entry.output_wav);
-        let (expected_samples, expected_rate, expected_channels) = read_wav_as_f32(&expected_wav_path);
-        let expected_hashes = pcm_md5_by_channel(&expected_samples, expected_channels);
-
-        if expected_rate != entry.target_rate {
+        if actual_hashes != entry.pcm_md5_by_channel {
             failed = true;
             eprintln!(
-                "golden WAV rate mismatch: sample='{}', preset='{}', rate={}, float_type='{}', golden='{}', expected_rate={}, manifest_rate={}",
+                "golden per-channel PCM hash mismatch: sample='{}', preset='{}', rate={}, float_type='{}', actual={:?}, expected={:?}",
                 entry.sample_wav,
                 entry.preset,
                 entry.target_rate,
                 entry.float_type,
-                entry.output_wav,
-                expected_rate,
-                entry.target_rate
-            );
-        }
-
-        if expected_channels != channels {
-            failed = true;
-            eprintln!(
-                "golden WAV channel mismatch: sample='{}', preset='{}', rate={}, float_type='{}', golden='{}', expected_channels={}, actual_channels={}",
-                entry.sample_wav,
-                entry.preset,
-                entry.target_rate,
-                entry.float_type,
-                entry.output_wav,
-                expected_channels,
-                channels
-            );
-        }
-
-        if actual_hashes != expected_hashes {
-            failed = true;
-            eprintln!(
-                "golden per-channel PCM hash mismatch: sample='{}', preset='{}', rate={}, float_type='{}', golden='{}', actual={:?}, expected={:?}",
-                entry.sample_wav,
-                entry.preset,
-                entry.target_rate,
-                entry.float_type,
-                entry.output_wav,
                 actual_hashes,
-                expected_hashes
+                entry.pcm_md5_by_channel
             );
         }
     }
