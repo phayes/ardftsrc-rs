@@ -156,6 +156,39 @@ For adjacent tracks, you can set edge context before processing:
 
 Both buffers must be interleaved and channel-aligned.
 
+## Batching
+
+Use batching when you have multiple full tracks to convert with the same configuration.
+
+- `batch(...)`: processes each input as an independent stream (no context shared between tracks).
+- `batch_gapless(...)`: preserves adjacent-track context for gapless album-style playback.
+
+Both APIs accept `&[&[T]]` (a list of interleaved, channel-aligned tracks) and return `Vec<Vec<T>>` in the same order as input.
+
+Enable the `rayon` feature to parallelize work across tracks.
+
+```rust
+use ardftsrc::{Ardftsrc, PRESET_GOOD};
+
+fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels: usize) -> Vec<Vec<f64>> {
+    let config = PRESET_GOOD
+        .with_input_rate(in_rate)
+        .with_output_rate(out_rate)
+        .with_channels(channels);
+
+    let driver = Ardftsrc::<f64>::new(config).unwrap();
+
+    // Independent tracks (podcasts, unrelated files, etc.).
+    let _independent = driver.batch(inputs).unwrap();
+
+    // Gapless sequence (album tracks played back-to-back).
+    let gapless = driver.batch_gapless(inputs).unwrap();
+
+    // Return one of the two results based on your use case.
+    gapless
+}
+```
+
 ## Presets
 
 Presets are pre-vetted `Config` for various quality levels. 
@@ -197,13 +230,6 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 3. Calc performance metrics and post link
 4. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
 5. Add bindings to other languages, python, ts (wasm) etc. 
-6. Refactor internal API:
-   * Split `Ardftsrc` into:
-     * `ArdftsrcCore`: single-channel only, streaming, private.
-     * `Ardftsrc`: top-level orchestrator, public.
-   * Make `process_all` support parallel processing via `rayon` (Parallelize over channels).
-   * Add a small per-channel buffer to `Ardftsrc` so users can write using any sized slice they want.
-   * Remove the chunk-final method from the public API, so users only call `process_chunk` and then `finalize`. (thinking more about this: output buffer size could be a problem...   If the per-channel buffer is not empty, processing the last final-chunk + plus finalize tail processing could end up having more data than output buffer.  Needs workshoping). This could be solved to moving to a reader / writer interface API?
 
 ## Contributing
 
