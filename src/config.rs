@@ -298,7 +298,7 @@ where
         let input_offset = (input_fft_size - input_chunk_frames) / 2;
         let output_offset = (output_fft_size - output_chunk_frames) / 2;
         let cutoff_bins = input_chunk_frames.min(output_chunk_frames) + 1;
-        let taper_bins = (cutoff_bins as f32 * (1.0 - config.bandwidth)).ceil() as usize;
+        let taper_bins = (cutoff_bins as f64 * (1.0 - f64::from(config.bandwidth))).ceil() as usize;
         let is_passthrough = config.input_sample_rate == config.output_sample_rate;
         let taper = Self::build_taper(
             input_fft_size,

@@ -87,7 +87,7 @@ where
     /// Constructs a single-channel core resampler from `derived`.
     ///
     /// Returns a ready-to-use core instance.
-    pub fn new(derived: DerivedConfig<T>) -> Result<Self, Error> {
+    pub fn new(derived: DerivedConfig<T>) -> Self {
         let mut planner = RealFftPlanner::<T>::new();
         let forward = planner.plan_fft_forward(derived.input_fft_size);
         let inverse = planner.plan_fft_inverse(derived.output_fft_size);
@@ -102,7 +102,7 @@ where
         let output_block = vec![T::zero(); derived.output_chunk_frames];
         let prev_input_window = vec![T::zero(); derived.input_chunk_frames * 2];
 
-        Ok(Self {
+        Self {
             derived,
             forward,
             inverse,
@@ -118,7 +118,7 @@ where
             post: None,
             input_sample_count: 0,
             output_sample_count: 0,
-        })
+        }
     }
 
     /// Returns the total number of input samples processed.
@@ -166,9 +166,8 @@ where
     ///
     /// Shorter buffers are still valid: any missing start context falls back to LPC
     /// extrapolation.
-    pub fn pre(&mut self, pre: Vec<T>) -> Result<(), Error> {
+    pub fn pre(&mut self, pre: Vec<T>) {
         self.pre = self.normalize_context(pre);
-        Ok(())
     }
 
     /// Sets next-track context.
@@ -186,9 +185,8 @@ where
     ///
     /// Shorter buffers are still valid: any missing stop context falls back to LPC
     /// extrapolation.
-    pub fn post(&mut self, post: Vec<T>) -> Result<(), Error> {
+    pub fn post(&mut self, post: Vec<T>) {
         self.post = self.normalize_context(post);
-        Ok(())
     }
 
     /// Output samples for a complete input length.

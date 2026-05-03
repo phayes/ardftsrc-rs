@@ -33,7 +33,7 @@ where
         let derived = config.derive_config::<T>()?;
         let cores = (0..config.channels)
             .map(|_| ArdftsrcCore::new(derived.clone()))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect();
         let input_staging = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
         let output_staging = vec![vec![T::zero(); derived.output_chunk_frames]; config.channels];
 
@@ -576,13 +576,13 @@ where
         match self.normalize_context(pre)? {
             None => {
                 for core in &mut self.cores {
-                    core.pre(Vec::new())?;
+                    core.pre(Vec::new());
                 }
             }
             Some(pre) => {
                 let per_channel = self.deinterleave_context(pre);
                 for (core, samples) in self.cores.iter_mut().zip(per_channel) {
-                    core.pre(samples)?;
+                    core.pre(samples);
                 }
             }
         }
@@ -614,13 +614,13 @@ where
         match self.normalize_context(post)? {
             None => {
                 for core in &mut self.cores {
-                    core.post(Vec::new())?;
+                    core.post(Vec::new());
                 }
             }
             Some(post) => {
                 let per_channel = self.deinterleave_context(post);
                 for (core, samples) in self.cores.iter_mut().zip(per_channel) {
-                    core.post(samples)?;
+                    core.post(samples);
                 }
             }
         }
@@ -930,13 +930,13 @@ mod tests {
             ..config.clone()
         };
         let derived = mono_config.derive_config::<f32>().unwrap();
-        let mut left_core = ArdftsrcCore::<f32>::new(derived.clone()).unwrap();
-        let mut right_core = ArdftsrcCore::<f32>::new(derived).unwrap();
+        let mut left_core = ArdftsrcCore::<f32>::new(derived.clone());
+        let mut right_core = ArdftsrcCore::<f32>::new(derived);
 
-        left_core.pre(deinterleave_channel(&pre, 2, 0)).unwrap();
-        right_core.pre(deinterleave_channel(&pre, 2, 1)).unwrap();
-        left_core.post(deinterleave_channel(&post, 2, 0)).unwrap();
-        right_core.post(deinterleave_channel(&post, 2, 1)).unwrap();
+        left_core.pre(deinterleave_channel(&pre, 2, 0));
+        right_core.pre(deinterleave_channel(&pre, 2, 1));
+        left_core.post(deinterleave_channel(&post, 2, 0));
+        right_core.post(deinterleave_channel(&post, 2, 1));
 
         let left_output = run_core_process_all(&mut left_core, &deinterleave_channel(&input, 2, 0));
         let right_output = run_core_process_all(&mut right_core, &deinterleave_channel(&input, 2, 1));
