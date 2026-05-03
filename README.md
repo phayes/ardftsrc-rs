@@ -200,7 +200,7 @@ fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels:
 
 ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using ARDFTSRC as `f64`, then convert back to `f32`. 
 
-If you want speed over quality, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
+If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
 Presets are pre-vetted `Config` for various quality levels. 
 
