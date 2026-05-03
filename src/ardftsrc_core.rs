@@ -4,9 +4,9 @@ use num_traits::Float;
 use realfft::num_complex::Complex;
 use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
 
+use crate::Error;
 use crate::config::DerivedConfig;
 use crate::lpc::{ExtrapolateFallback, extrapolate_backward, extrapolate_forward};
-use crate::Error;
 
 pub(crate) struct ArdftsrcCore<T = f32>
 where
@@ -145,8 +145,7 @@ where
 
     /// Returns the recommended per-call `output` capacity in samples.
     ///
-    /// For chunked streaming, size output slices passed to `process_chunk()` and
-    /// `process_chunk_final()` to at least this value.
+    /// For chunked streaming, size output slices passed to chunk processing to at least this value.
     pub fn output_buffer_size(&self) -> usize {
         self.output_chunk_samples()
     }
@@ -231,51 +230,12 @@ where
         self.post = None;
     }
 
-    /// Processes a streaming chunk.
-    ///
-    /// `input` must contain exactly `input_buffer_size()` samples, and `output` should provide at
-    /// least `output_buffer_size()` capacity.
-    ///
-    /// The method returns the actual sample count written for this chunk, which may be smaller
-    /// (for example while startup delay is being trimmed).
-    ///
-    /// Returns the number of samples written to the output buffer.
-    pub fn process_chunk(&mut self, input: &[T], output: &mut [T]) -> Result<usize, Error> {
-        let expected = self.input_chunk_len_samples();
-        if input.len() != expected {
-            return Err(Error::WrongChunkLength {
-                expected,
-                actual: input.len(),
-            });
-        }
-        self.process_chunk_inner(input, self.input_chunk_len_samples(), output, false)
-    }
-
-    /// Processes the final chunk, which may be shorter than the regular chunk size.
-    ///
-    /// Call this exactly once at end-of-stream for the trailing partial chunk (it may be empty if
-    /// input length is an exact multiple of `input_chunk_samples()`). After this call, no further
-    /// chunk-processing calls should be made; call `finalize()` to drain remaining delayed tail.
-    /// Size `output` to at least `output_buffer_size()`.
-    ///
-    /// Returns the number of samples written to the output buffer.
-    pub fn process_chunk_final(&mut self, input: &[T], output: &mut [T]) -> Result<usize, Error> {
-        let input_samples = input.len();
-        if input_samples > self.input_chunk_len_samples() {
-            return Err(Error::WrongChunkLength {
-                expected: self.input_chunk_len_samples(),
-                actual: input.len(),
-            });
-        }
-        self.process_chunk_inner(input, input_samples, output, true)
-    }
-
     /// Emits delayed tail samples, then resets stream state.
     ///
     /// This flushes any remaining overlap/delay samples that were held back by the chunked
     /// processing pipeline. It is the terminal step of a stream and should be called once per
-    /// stream. If `process_chunk_final()` was not called, this treats the last accepted full chunk
-    /// as terminal input.
+    /// stream. If the final chunk was not marked by `process_chunk_inner(..., is_final=true)`,
+    /// this treats the last accepted full chunk as terminal input.
     ///
     /// Returns the number of samples written to the output buffer.
     pub fn finalize(&mut self, output: &mut [T]) -> Result<usize, Error> {
@@ -290,14 +250,17 @@ where
         } else {
             let flush_candidate = self.flush_remaining;
             let written_samples = self.cap_write_to_output_budget(flush_candidate);
-            self.ensure_output_sample_capacity(output, written_samples)?;
+            debug_assert!(output.len() >= written_samples);
             self.flushed = true;
 
             self.add_synthetic_finalize_tail_to_overlap()?;
 
             let scale = T::from(self.output_chunk_len_samples()).unwrap_or(T::one())
                 / T::from(self.input_chunk_len_samples()).unwrap_or(T::one());
-            for (dst, src) in output[..written_samples].iter_mut().zip(self.overlap[..written_samples].iter()) {
+            for (dst, src) in output[..written_samples]
+                .iter_mut()
+                .zip(self.overlap[..written_samples].iter())
+            {
                 *dst = *src * scale;
             }
             written_samples
@@ -332,7 +295,7 @@ where
 
     /// Processes one chunk through the streaming core resampler.
     ///
-    /// This internal entry point assumes `input_samples` has already been validated from `input`.
+    /// This internal entry point assumes `input` has already been validated by the caller.
     /// It handles stream-level control flow (passthrough, first/final chunk state, transform
     /// dispatch, and trim/flush accounting).
     ///
@@ -346,24 +309,19 @@ where
     /// # Parameters
     ///
     /// - `input`: Input samples for this chunk.
-    /// - `input_samples`: Number of valid samples represented by `input`.
     /// - `output`: Destination buffer for produced output samples.
     /// - `is_final`: Marks this chunk as the final chunk in the stream.
     ///
     /// Returns the number of samples written into `output`.
-    fn process_chunk_inner(
-        &mut self,
-        input: &[T],
-        input_samples: usize,
-        output: &mut [T],
-        is_final: bool,
-    ) -> Result<usize, Error> {
+    pub(crate) fn process_chunk(&mut self, input: &[T], output: &mut [T], is_final: bool) -> Result<usize, Error> {
+        let input_samples = input.len();
+
         if self.final_input_seen {
             return Err(Error::StreamFinished);
         }
 
         if self.is_passthrough() {
-            self.ensure_output_sample_capacity(output, input.len())?;
+            debug_assert!(output.len() >= input.len());
             if is_final {
                 self.final_input_seen = true;
             }
@@ -374,7 +332,7 @@ where
             return Ok(written_samples);
         }
 
-        self.ensure_output_sample_capacity(output, self.output_buffer_size())?;
+        debug_assert!(output.len() >= self.output_buffer_size());
 
         if is_final {
             self.final_input_seen = true;
@@ -416,20 +374,6 @@ where
         Ok(written_samples)
     }
 
-    /// Rejects undersized output slices before mutating stream state.
-    ///
-    /// Returns `Ok(())` when `output` can hold at least `expected` samples, or
-    /// `Error::InsufficientOutputBuffer` when it cannot.
-    fn ensure_output_sample_capacity(&self, output: &[T], expected: usize) -> Result<(), Error> {
-        if output.len() < expected {
-            return Err(Error::InsufficientOutputBuffer {
-                expected,
-                actual: output.len(),
-            });
-        }
-        Ok(())
-    }
-
     /// Returns true when rates match and FFT processing can be bypassed losslessly.
     fn is_passthrough(&self) -> bool {
         self.derived.input_sample_rate == self.derived.output_sample_rate
@@ -437,11 +381,7 @@ where
 
     /// Normalizes empty edge context vectors to `None`.
     fn normalize_context(&self, context: Vec<T>) -> Option<Vec<T>> {
-        if context.is_empty() {
-            None
-        } else {
-            Some(context)
-        }
+        if context.is_empty() { None } else { Some(context) }
     }
 
     /// Loads input samples into the FFT window at the configured offset.

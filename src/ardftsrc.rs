@@ -307,12 +307,7 @@ where
         self.process_chunk_inner(input, output, true)
     }
 
-    fn process_chunk_inner(
-        &mut self,
-        input: &[T],
-        output: &mut [T],
-        is_final: bool,
-    ) -> Result<usize, Error> {
+    fn process_chunk_inner(&mut self, input: &[T], output: &mut [T], is_final: bool) -> Result<usize, Error> {
         let frames = input.len() / self.config.channels;
 
         // Deinterleave the input samples into the input staging buffers (one input buffer per channel).
@@ -325,12 +320,7 @@ where
             let core = &mut self.cores[channel_idx];
             let core_input = &self.input_staging[channel_idx][..frames];
             let core_output = &mut self.output_staging[channel_idx];
-
-            total_written += if is_final {
-                core.process_chunk_final(core_input, core_output)?
-            } else {
-                core.process_chunk(core_input, core_output)?
-            };
+            total_written += core.process_chunk(core_input, core_output, is_final)?;
         }
 
         // If there is only one channel, copy the output directly to the output buffer.
@@ -360,7 +350,6 @@ where
     ///
     /// Returns the number of samples written to the output buffer.
     pub fn finalize(&mut self, output: &mut [T]) -> Result<usize, Error> {
-
         // Ensure the output buffer is large enough.
         self.ensure_output_buffer_size(output)?;
 
@@ -590,13 +579,14 @@ mod tests {
 
         while offset + input_chunk <= input.len() {
             let written = core
-                .process_chunk(&input[offset..offset + input_chunk], &mut chunk_output)
+                .process_chunk(&input[offset..offset + input_chunk], &mut chunk_output, false)
                 .unwrap();
             output.extend_from_slice(&chunk_output[..written]);
             offset += input_chunk;
         }
 
-        let written = core.process_chunk_final(&input[offset..], &mut chunk_output).unwrap();
+        let final_input = &input[offset..];
+        let written = core.process_chunk(final_input, &mut chunk_output, true).unwrap();
         output.extend_from_slice(&chunk_output[..written]);
 
         let written = core.finalize(&mut chunk_output).unwrap();

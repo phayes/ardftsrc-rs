@@ -77,18 +77,10 @@ fn pcm_md5_by_channel(samples: &[f32], channels: usize) -> Vec<String> {
 fn wav_golden_copy() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest_path = root.join("test_wavs").join("golden_hashes.json");
-    let manifest_text = fs::read_to_string(&manifest_path).unwrap_or_else(|err| {
-        panic!(
-            "failed to read golden manifest '{}': {err}",
-            manifest_path.display()
-        )
-    });
-    let entries: Vec<GoldenManifestEntry> = serde_json::from_str(&manifest_text).unwrap_or_else(|err| {
-        panic!(
-            "failed to parse golden manifest '{}': {err}",
-            manifest_path.display()
-        )
-    });
+    let manifest_text = fs::read_to_string(&manifest_path)
+        .unwrap_or_else(|err| panic!("failed to read golden manifest '{}': {err}", manifest_path.display()));
+    let entries: Vec<GoldenManifestEntry> = serde_json::from_str(&manifest_text)
+        .unwrap_or_else(|err| panic!("failed to parse golden manifest '{}': {err}", manifest_path.display()));
     assert!(
         !entries.is_empty(),
         "golden manifest '{}' has no entries",
