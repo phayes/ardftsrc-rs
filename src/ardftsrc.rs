@@ -1,5 +1,5 @@
 use num_traits::Float;
-#[cfg(feature = "batch")]
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use realfft::FftNum;
 
@@ -183,17 +183,102 @@ where
 
         let mut output = Vec::with_capacity(expected_samples);
         let mut offset = 0;
+        let channels = self.config.channels;
         let input_buffer_size = self.input_buffer_size();
         let output_buffer_size = self.output_buffer_size();
         let mut chunk_output_buffer = vec![T::zero(); output_buffer_size];
 
         while offset + input_buffer_size <= input.len() {
-            let written = self.process_chunk(&input[offset..offset + input_buffer_size], &mut chunk_output_buffer)?;
+            let chunk = &input[offset..offset + input_buffer_size];
+            let frames = chunk.len() / channels;
+            self.stage_input_channels(chunk);
+
+            #[cfg(feature = "rayon")]
+            let written = {
+                let written_per_channel = self
+                    .cores
+                    .par_iter_mut()
+                    .zip(self.input_staging.par_iter())
+                    .zip(self.output_staging.par_iter_mut())
+                    .map(|((core, core_input), core_output)| {
+                        core.process_chunk(&core_input[..frames], core_output, false)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                written_per_channel.into_iter().sum()
+            };
+
+            #[cfg(not(feature = "rayon"))]
+            let written = {
+                let mut total_written = 0;
+                for channel_idx in 0..channels {
+                    let core = &mut self.cores[channel_idx];
+                    let core_input = &self.input_staging[channel_idx][..frames];
+                    let core_output = &mut self.output_staging[channel_idx];
+                    total_written += core.process_chunk(core_input, core_output, false)?;
+                }
+                total_written
+            };
+
+            if channels == 1 {
+                chunk_output_buffer[..written].copy_from_slice(&self.output_staging[0][..written]);
+            } else {
+                let written_per_channel = written / channels;
+                for frame_idx in 0..written_per_channel {
+                    for channel_idx in 0..channels {
+                        chunk_output_buffer[frame_idx * channels + channel_idx] =
+                            self.output_staging[channel_idx][frame_idx];
+                    }
+                }
+            }
+
             output.extend_from_slice(&chunk_output_buffer[..written]);
             offset += input_buffer_size;
         }
 
-        let written = self.process_chunk_final(&input[offset..], &mut chunk_output_buffer)?;
+        let final_chunk = &input[offset..];
+        let final_frames = final_chunk.len() / channels;
+        self.stage_input_channels(final_chunk);
+
+        #[cfg(feature = "rayon")]
+        let written = {
+            let written_per_channel = self
+                .cores
+                .par_iter_mut()
+                .zip(self.input_staging.par_iter())
+                .zip(self.output_staging.par_iter_mut())
+                .map(|((core, core_input), core_output)| {
+                    core.process_chunk(&core_input[..final_frames], core_output, true)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            written_per_channel.into_iter().sum()
+        };
+
+        #[cfg(not(feature = "rayon"))]
+        let written = {
+            let mut total_written = 0;
+            for channel_idx in 0..channels {
+                let core = &mut self.cores[channel_idx];
+                let core_input = &self.input_staging[channel_idx][..final_frames];
+                let core_output = &mut self.output_staging[channel_idx];
+                total_written += core.process_chunk(core_input, core_output, true)?;
+            }
+            total_written
+        };
+
+        if channels == 1 {
+            chunk_output_buffer[..written].copy_from_slice(&self.output_staging[0][..written]);
+        } else {
+            let written_per_channel = written / channels;
+            for frame_idx in 0..written_per_channel {
+                for channel_idx in 0..channels {
+                    chunk_output_buffer[frame_idx * channels + channel_idx] =
+                        self.output_staging[channel_idx][frame_idx];
+                }
+            }
+        }
+
         output.extend_from_slice(&chunk_output_buffer[..written]);
 
         let written = self.finalize(&mut chunk_output_buffer)?;
@@ -205,19 +290,33 @@ where
     /// Process multiple independent tracks in parallel.
     ///
     /// Each input slice is treated as its own stream with no inter-track context.
-    #[cfg(feature = "batch")]
     pub fn batch(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
     where
         T: Send + Sync,
     {
         let config = self.config.clone();
-        inputs
-            .par_iter()
-            .map(|input| {
-                let mut resampler = Ardftsrc::new(config.clone())?;
-                resampler.process_all(input)
-            })
-            .collect()
+
+        #[cfg(feature = "rayon")]
+        {
+            inputs
+                .par_iter()
+                .map(|input| {
+                    let mut resampler = Ardftsrc::new(config.clone())?;
+                    resampler.process_all(input)
+                })
+                .collect()
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            inputs
+                .iter()
+                .map(|input| {
+                    let mut resampler = Ardftsrc::new(config.clone())?;
+                    resampler.process_all(input)
+                })
+                .collect()
+        }
     }
 
     /// Process multiple tracks in parallel while preserving adjacent-track context.
@@ -228,7 +327,6 @@ where
     /// For each track:
     /// - `pre` is filled from the tail of the previous track when one exists.
     /// - `post` is filled from the head of the next track when one exists.
-    #[cfg(feature = "batch")]
     pub fn batch_gapless(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
     where
         T: Send + Sync,
@@ -237,6 +335,8 @@ where
         let context_samples = self.input_buffer_size();
         let channels = self.config.channels;
 
+        #[cfg(feature = "rayon")]
+        {
         inputs
             .par_iter()
             .enumerate()
@@ -260,6 +360,34 @@ where
                 resampler.process_all(input)
             })
             .collect()
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            inputs
+                .iter()
+                .enumerate()
+                .map(|(idx, input)| {
+                    let mut resampler = Ardftsrc::new(config.clone())?;
+    
+                    if idx > 0 {
+                        let pre = Self::batch_context_tail(inputs[idx - 1], context_samples, channels);
+                        if !pre.is_empty() {
+                            resampler.pre(pre)?;
+                        }
+                    }
+    
+                    if idx + 1 < inputs.len() {
+                        let post = Self::batch_context_head(inputs[idx + 1], context_samples, channels);
+                        if !post.is_empty() {
+                            resampler.post(post)?;
+                        }
+                    }
+    
+                    resampler.process_all(input)
+                })
+                .collect()
+            }
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -434,7 +562,6 @@ where
     }
 
     /// Returns up to `max_samples` aligned head samples for interleaved context.
-    #[cfg(feature = "batch")]
     fn batch_context_head(input: &[T], max_samples: usize, channels: usize) -> Vec<T> {
         let aligned_input_len = input.len() - (input.len() % channels);
         let mut take = aligned_input_len.min(max_samples);
@@ -443,7 +570,6 @@ where
     }
 
     /// Returns up to `max_samples` aligned tail samples for interleaved context.
-    #[cfg(feature = "batch")]
     fn batch_context_tail(input: &[T], max_samples: usize, channels: usize) -> Vec<T> {
         let aligned_input_len = input.len() - (input.len() % channels);
         let mut take = aligned_input_len.min(max_samples);
@@ -1210,7 +1336,6 @@ mod tests {
         assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
     }
 
-    #[cfg(feature = "batch")]
     #[test]
     fn batch_test() {
         let config = mono_config(44_100, 48_000);
