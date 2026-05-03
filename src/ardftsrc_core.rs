@@ -181,6 +181,9 @@ where
     /// Use this when resampling gapless material, for example an album where tracks are played
     /// back-to-back. In that case, pass the head samples of the next track.
     ///
+    /// This can be called any time before the final chunk is processed (`is_final = true`). If called
+    /// multiple times, the most recent value is used for stop-edge tail prediction.
+    ///
     /// Recommended size:
     ///
     /// - Pass one full input chunk from the start of the next track.
@@ -219,11 +222,7 @@ where
         let mut chunk_output = vec![T::zero(); self.output_buffer_size()];
 
         while offset + input_chunk_size <= input.len() {
-            let written = self.process_chunk(
-                &input[offset..offset + input_chunk_size],
-                &mut chunk_output,
-                false,
-            )?;
+            let written = self.process_chunk(&input[offset..offset + input_chunk_size], &mut chunk_output, false)?;
             output.extend_from_slice(&chunk_output[..written]);
             offset += input_chunk_size;
         }
