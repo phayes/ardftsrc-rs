@@ -7,10 +7,10 @@
 //! wavers = "1.5.1"
 //!
 //! [target.'cfg(any(target_arch = "x86_64"))'.dependencies]
-//! ardftsrc = { path = "..", features = ["avx"] }
+//! ardftsrc = { path = "../ardftsrc", features = ["avx"] }
 //!
 //! [target.'cfg(any(target_arch = "aarch64"))'.dependencies]
-//! ardftsrc = { path = "..", features = ["neon"] }
+//! ardftsrc = { path = "../ardftsrc", features = ["neon"] }
 //! ```
 //!
 use ardftsrc::{Ardftsrc, Config};
