@@ -14,13 +14,13 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum PresetArg {
-    /// Fastest preset; lowest quality (quality = 512).
+    /// Fastest preset; lowest quality (quality = 512, bandwidth = 0.8323).
     Fast,
-    /// Balanced quality/speed preset (quality = 2048).
+    /// Balanced quality/speed preset (quality = 2048, bandwidth = 0.95).
     Good,
-    /// High quality preset for offline or quality-sensitive use (quality = 65536).
+    /// High quality preset for offline or quality-sensitive use (quality = 65536, bandwidth = 0.97).
     High,
-    /// Maximum quality preset; slowest (quality = 524288).
+    /// Maximum quality preset; slowest (quality = 524288, bandwidth = 0.9932).
     Extreme,
 }
 
