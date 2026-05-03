@@ -159,6 +159,7 @@ impl Config {
     /// Builds a config with explicit sample rates/channel count and default quality settings.
     ///
     /// Returns a new `Config` value; semantic validation is deferred to `validate`.
+    #[must_use] 
     pub fn new(input_sample_rate: usize, output_sample_rate: usize, channels: usize) -> Self {
         Self {
             input_sample_rate,
@@ -171,6 +172,7 @@ impl Config {
     /// Sets the input sample rate.
     ///
     /// Useful for completing a preset configuration before validation/stream creation.
+    #[must_use] 
     pub fn with_input_rate(mut self, input_sample_rate: usize) -> Self {
         self.input_sample_rate = input_sample_rate;
         self
@@ -179,6 +181,7 @@ impl Config {
     /// Sets the output sample rate.
     ///
     /// Useful for completing a preset configuration before validation/stream creation.
+    #[must_use] 
     pub fn with_output_rate(mut self, output_sample_rate: usize) -> Self {
         self.output_sample_rate = output_sample_rate;
         self
@@ -187,6 +190,7 @@ impl Config {
     /// Sets the number of interleaved channels.
     ///
     /// Useful for completing a preset configuration before validation/stream creation.
+    #[must_use] 
     pub fn with_channels(mut self, channels: usize) -> Self {
         self.channels = channels;
         self

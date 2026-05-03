@@ -50,6 +50,7 @@ where
     }
 
     /// Returns the configuration this instance was built with.
+    #[must_use] 
     pub fn config(&self) -> &Config {
         &self.config
     }
@@ -67,6 +68,7 @@ where
     /// Returns the required `input` length (interleaved samples) for each `process_chunk()` call.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
+    #[must_use] 
     pub fn input_chunk_size(&self) -> usize {
         self.derived.input_chunk_frames * self.config.channels
     }
@@ -75,11 +77,13 @@ where
     ///
     /// For chunked streaming, size output slices passed to `process_chunk()` and
     /// `process_chunk_final()` to at least this value.
+    #[must_use] 
     pub fn output_chunk_size(&self) -> usize {
         self.derived.output_chunk_frames * self.config.channels
     }
 
     /// Returns algorithmic latency to trim/flush, or zero in same-rate passthrough mode.
+    #[must_use] 
     pub fn output_delay_frames(&self) -> usize {
         if self.is_passthrough() {
             0
@@ -92,6 +96,7 @@ where
     ///
     /// `input_size` can be expressed in either frames or samples; the
     /// returned value uses the same unit.
+    #[must_use] 
     pub fn expected_output_size(&self, input_size: usize) -> usize {
         (input_size * self.config.output_sample_rate).div_ceil(self.config.input_sample_rate)
     }
