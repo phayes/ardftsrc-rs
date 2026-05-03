@@ -2,6 +2,11 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 use ardftsrc::{Ardftsrc, PRESET_FAST};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use wavers::{Wav, read};

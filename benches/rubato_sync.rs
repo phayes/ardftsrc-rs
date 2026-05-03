@@ -4,6 +4,11 @@ use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
 use rubato::{Fft, FixedSync, Resampler};
