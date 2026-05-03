@@ -22,6 +22,9 @@
 //! Updates to test_wavs/golden_hashes.aarch64.json are allowed, but only when accompanied
 //! by verifiable quality improvements demonstrated with the HydrogenAudio SRC
 //! test suite.
+//! 
+//! TODO: Generate golden hashes for x86_64 and remove the target_arch guard.
+//! 
 use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use serde::Deserialize;
 use std::collections::BTreeMap;
