@@ -241,6 +241,21 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 
 Contributions are welcome!
 
+### Architectural Overview
+
+At a high level there are two layers:
+
+- `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithim. It is private.
+- `Ardftsrc<T>` is the public orchestrator. It owns one `ArdftsrcCore` per channel, and routes incomming interleaved audio to channel-specific `ArdftsrcCore<T>` cores. 
+
+Interaction model:
+
+1. Caller uses `Ardftsrc` APIs (`process_chunk`, `write_samples`, `process_all`, etc.) with interleaved audio.
+2. `Ardftsrc` maps that stream into per-channel slices and routes each slice to the corresponding `ArdftsrcCore`. There is one core per channel.
+3. Each `ArdftsrcCore` advances independently (but in sync), then `Ardftsrc` combines channel outputs back into interleaved form.
+
+### Golden Hashes
+
 The `golden_hashes` test validates resampler determinism against checked-in golden outputs in `test_wavs/golden_hashes.<arch>.json`. It is intended to catch unintended behavior changes.
 
 Run it with:
