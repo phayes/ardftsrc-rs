@@ -512,7 +512,7 @@ where
     }
 
     /// Returns up to `max_samples` aligned head samples for interleaved context.
-    fn batch_context_head<'a>(input: &'a [T], max_samples: usize, channels: usize) -> &'a [T] {
+    fn batch_context_head(input: &[T], max_samples: usize, channels: usize) -> &[T] {
         let aligned_input_len = input.len() - (input.len() % channels);
         let mut take = aligned_input_len.min(max_samples);
         take -= take % channels;
@@ -520,7 +520,7 @@ where
     }
 
     /// Returns up to `max_samples` aligned tail samples for interleaved context.
-    fn batch_context_tail<'a>(input: &'a [T], max_samples: usize, channels: usize) -> &'a [T] {
+    fn batch_context_tail(input: &[T], max_samples: usize, channels: usize) -> &[T] {
         let aligned_input_len = input.len() - (input.len() % channels);
         let mut take = aligned_input_len.min(max_samples);
         take -= take % channels;
@@ -575,8 +575,8 @@ where
                 }
             }
             Some(pre) => {
-                let per_channel = self.deinterleave_context(&pre);
-                for (core, samples) in self.cores.iter_mut().zip(per_channel.into_iter()) {
+                let per_channel = self.deinterleave_context(pre);
+                for (core, samples) in self.cores.iter_mut().zip(per_channel) {
                     core.pre(samples)?;
                 }
             }
@@ -613,8 +613,8 @@ where
                 }
             }
             Some(post) => {
-                let per_channel = self.deinterleave_context(&post);
-                for (core, samples) in self.cores.iter_mut().zip(per_channel.into_iter()) {
+                let per_channel = self.deinterleave_context(post);
+                for (core, samples) in self.cores.iter_mut().zip(per_channel) {
                     core.post(samples)?;
                 }
             }

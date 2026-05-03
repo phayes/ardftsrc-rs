@@ -221,11 +221,10 @@ impl Config {
             return Err(Error::InvalidBandwidth(self.bandwidth));
         }
 
-        if let TaperType::Cosine(alpha) = self.taper_type {
-            if alpha <= 0.0 || !alpha.is_finite() {
+        if let TaperType::Cosine(alpha) = self.taper_type
+            && (alpha <= 0.0 || !alpha.is_finite()) {
                 return Err(Error::InvalidAlpha(alpha));
             }
-        }
 
         Ok(())
     }

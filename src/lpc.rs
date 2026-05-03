@@ -174,7 +174,7 @@ where
         return vec![T::zero(); extra];
     }
 
-    let order = EXTRAPOLATION_MAX_ORDER.min((input.len() + 1) / 2).max(1);
+    let order = EXTRAPOLATION_MAX_ORDER.min(input.len().div_ceil(2)).max(1);
     let lpc = lpc_coefficients(input, order, fallback);
     let mut work = input.to_vec();
     let mut output = Vec::with_capacity(extra);
