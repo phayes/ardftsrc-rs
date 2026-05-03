@@ -16,7 +16,9 @@ where
     output_staging: Vec<Vec<T>>,
 
     // Samples API state
-    sample_pending_input: Vec<T>,
+    sample_pending_input: Vec<Vec<T>>,
+    sample_pending_input_start_frame: usize,
+    sample_pending_partial_frame: Vec<T>,
     samples_pending_output: Vec<T>,
     samples_finalized: bool,
 }
@@ -37,14 +39,22 @@ where
         let input_staging = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
         let output_staging = vec![vec![T::zero(); derived.output_chunk_frames]; config.channels];
 
+        let input_chunk_frames = derived.input_chunk_frames;
+        let channels = config.channels;
+        let output_chunk_size = derived.output_chunk_frames * config.channels;
+
         Ok(Self {
             config,
             derived,
             cores,
             input_staging,
             output_staging,
-            sample_pending_input: Vec::new(),
-            samples_pending_output: Vec::new(),
+            sample_pending_input: (0..channels)
+                .map(|_| Vec::with_capacity(input_chunk_frames))
+                .collect(),
+            sample_pending_input_start_frame: 0,
+            sample_pending_partial_frame: Vec::with_capacity(channels.saturating_sub(1)),
+            samples_pending_output: Vec::with_capacity(output_chunk_size),
             samples_finalized: false,
         })
     }
@@ -275,7 +285,11 @@ where
         for core in &mut self.cores {
             core.reset();
         }
-        self.sample_pending_input.clear();
+        for channel_input in &mut self.sample_pending_input {
+            channel_input.clear();
+        }
+        self.sample_pending_input_start_frame = 0;
+        self.sample_pending_partial_frame.clear();
         self.samples_pending_output.clear();
         self.samples_finalized = false;
     }
@@ -290,13 +304,9 @@ where
             self.reset();
         }
 
-        self.sample_pending_input.extend_from_slice(input);
+        self.buffer_interleaved_input(input);
 
-        let chunk_samples = self.input_chunk_size();
-        while self.sample_pending_input.len() >= chunk_samples {
-            let chunk: Vec<T> = self.sample_pending_input.drain(..chunk_samples).collect();
-            self.process_pending_chunk(&chunk, false)?;
-        }
+        self.process_available_pending_chunks(false)?;
 
         Ok(())
     }
@@ -334,16 +344,19 @@ where
             return Ok(());
         }
 
-        if !self.sample_pending_input.len().is_multiple_of(self.config.channels) {
+        if !self.sample_pending_partial_frame.is_empty() {
             return Err(Error::MalformedInputLength {
                 channels: self.config.channels,
-                samples: self.sample_pending_input.len(),
+                samples: self.pending_input_frames() * self.config.channels
+                    + self.sample_pending_partial_frame.len(),
             });
         }
 
-        if !self.sample_pending_input.is_empty() {
-            let final_input: Vec<T> = self.sample_pending_input.drain(..).collect();
-            self.process_pending_chunk(&final_input, true)?;
+        let final_frames = self.pending_input_frames();
+        if final_frames > 0 {
+            self.process_pending_frames(self.sample_pending_input_start_frame, final_frames, true)?;
+            self.sample_pending_input_start_frame += final_frames;
+            self.compact_pending_input(true);
         }
 
         self.append_finalize_output()?;
@@ -477,11 +490,123 @@ where
         Ok(())
     }
 
-    fn process_pending_chunk(&mut self, input: &[T], is_final: bool) -> Result<(), Error> {
-        let mut chunk_output = vec![T::zero(); self.output_chunk_size()];
-        let written = self.process_chunk_inner(input, &mut chunk_output, is_final)?;
-        self.samples_pending_output.extend_from_slice(&chunk_output[..written]);
+    fn pending_input_frames(&self) -> usize {
+        self.sample_pending_input[0]
+            .len()
+            .saturating_sub(self.sample_pending_input_start_frame)
+    }
+
+    fn process_available_pending_chunks(&mut self, is_final: bool) -> Result<(), Error> {
+        let chunk_frames = self.derived.input_chunk_frames;
+        while self.pending_input_frames() >= chunk_frames {
+            self.process_pending_frames(self.sample_pending_input_start_frame, chunk_frames, is_final)?;
+            self.sample_pending_input_start_frame += chunk_frames;
+            self.compact_pending_input(false);
+        }
         Ok(())
+    }
+
+    fn process_pending_frames(
+        &mut self,
+        start_frame: usize,
+        frames: usize,
+        is_final: bool,
+    ) -> Result<(), Error> {
+        let mut total_written = 0;
+        let end_frame = start_frame + frames;
+
+        for channel_idx in 0..self.config.channels {
+            let core = &mut self.cores[channel_idx];
+            let core_input = &self.sample_pending_input[channel_idx][start_frame..end_frame];
+            let core_output = &mut self.output_staging[channel_idx];
+            total_written += core.process_chunk(core_input, core_output, is_final)?;
+        }
+
+        self.append_interleaved_staging_output(total_written);
+        Ok(())
+    }
+
+    fn append_interleaved_staging_output(&mut self, total_written: usize) {
+        if total_written == 0 {
+            return;
+        }
+
+        if self.config.channels == 1 {
+            self.samples_pending_output
+                .extend_from_slice(&self.output_staging[0][..total_written]);
+            return;
+        }
+
+        let written_per_channel = total_written / self.config.channels;
+        self.samples_pending_output.reserve(total_written);
+        for frame_idx in 0..written_per_channel {
+            for channel_idx in 0..self.config.channels {
+                self.samples_pending_output
+                    .push(self.output_staging[channel_idx][frame_idx]);
+            }
+        }
+    }
+
+    fn compact_pending_input(&mut self, force: bool) {
+        let consumed = self.sample_pending_input_start_frame;
+        if consumed == 0 {
+            return;
+        }
+
+        let total_frames = self.sample_pending_input[0].len();
+        let should_compact = force || consumed >= self.derived.input_chunk_frames || consumed * 2 >= total_frames;
+        if !should_compact {
+            return;
+        }
+
+        for channel_input in &mut self.sample_pending_input {
+            channel_input.copy_within(consumed.., 0);
+            channel_input.truncate(channel_input.len() - consumed);
+        }
+        self.sample_pending_input_start_frame = 0;
+    }
+
+    fn buffer_interleaved_input(&mut self, input: &[T]) {
+        let channels = self.config.channels;
+        if channels == 1 {
+            self.sample_pending_input[0].extend_from_slice(input);
+            return;
+        }
+
+        let mut offset = 0;
+
+        if !self.sample_pending_partial_frame.is_empty() {
+            let needed = channels - self.sample_pending_partial_frame.len();
+            let take = needed.min(input.len());
+            self.sample_pending_partial_frame
+                .extend_from_slice(&input[..take]);
+            offset += take;
+
+            if self.sample_pending_partial_frame.len() == channels {
+                for (channel_idx, sample) in self.sample_pending_partial_frame.iter().enumerate() {
+                    self.sample_pending_input[channel_idx].push(*sample);
+                }
+                self.sample_pending_partial_frame.clear();
+            }
+        }
+
+        let remaining = &input[offset..];
+        let full_samples = remaining.len() - (remaining.len() % channels);
+        let full_frames = full_samples / channels;
+        if full_frames > 0 {
+            for channel_input in &mut self.sample_pending_input {
+                channel_input.reserve(full_frames);
+            }
+
+            for frame in remaining[..full_samples].chunks_exact(channels) {
+                for (channel_idx, sample) in frame.iter().enumerate() {
+                    self.sample_pending_input[channel_idx].push(*sample);
+                }
+            }
+        }
+
+        self.sample_pending_partial_frame
+            .extend_from_slice(&remaining[full_samples..]);
     }
 
     fn append_finalize_output(&mut self) -> Result<(), Error> {
@@ -503,15 +628,7 @@ where
             return Ok(());
         }
 
-        let written_per_channel = total_written / self.config.channels;
-        let mut interleaved = vec![T::zero(); total_written];
-        for frame_idx in 0..written_per_channel {
-            for channel_idx in 0..self.config.channels {
-                interleaved[frame_idx * self.config.channels + channel_idx] =
-                    self.output_staging[channel_idx][frame_idx];
-            }
-        }
-        self.samples_pending_output.extend(interleaved);
+        self.append_interleaved_staging_output(total_written);
 
         Ok(())
     }
