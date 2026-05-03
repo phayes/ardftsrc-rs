@@ -232,7 +232,9 @@ let config = ardftsrc::PRESET_GOOD
 
 ## Command Line
 
-The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-rate conversion.
+The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-rate conversion. 
+
+You can use this as a utlity, or use it to benchmark this project.
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
