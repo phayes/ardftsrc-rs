@@ -85,70 +85,6 @@ where
         }
     }
 
-    /// Sets previous-track context.
-    ///
-    /// The buffer must use the same channel interleaving as stream input.
-    ///
-    /// Use this when resampling gapless material, for example an album where tracks are played
-    /// back-to-back. In that case, pass the last chunk of the previous track.
-    ///
-    /// Recommended size:
-    ///
-    /// - Pass one full input chunk from the end of the previous track.
-    /// - Query chunk size with `input_chunk_frames()` (frames per channel), or
-    ///   `input_buffer_size()` (interleaved samples).
-    ///
-    /// Shorter buffers are still valid: any missing start context falls back to LPC
-    /// extrapolation.
-    pub fn pre(&mut self, pre: Vec<T>) -> Result<(), Error> {
-        match self.normalize_context(pre)? {
-            None => {
-                for core in &mut self.cores {
-                    core.pre(Vec::new())?;
-                }
-            }
-            Some(pre) => {
-                let per_channel = self.deinterleave_context(&pre);
-                for (core, samples) in self.cores.iter_mut().zip(per_channel.into_iter()) {
-                    core.pre(samples)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Sets next-track context.
-    ///
-    /// The buffer must use the same channel interleaving as stream input.
-    ///
-    /// Use this when resampling gapless material, for example an album where tracks are played
-    /// back-to-back. In that case, pass the first chunk of the next track.
-    ///
-    /// Recommended size:
-    ///
-    /// - Pass one full input chunk from the start of the next track.
-    /// - Query chunk size with `input_chunk_frames()` (frames per channel), or
-    ///   `input_buffer_size()` (interleaved samples).
-    ///
-    /// Shorter buffers are still valid: any missing stop context falls back to LPC
-    /// extrapolation.
-    pub fn post(&mut self, post: Vec<T>) -> Result<(), Error> {
-        match self.normalize_context(post)? {
-            None => {
-                for core in &mut self.cores {
-                    core.post(Vec::new())?;
-                }
-            }
-            Some(post) => {
-                let per_channel = self.deinterleave_context(&post);
-                for (core, samples) in self.cores.iter_mut().zip(per_channel.into_iter()) {
-                    core.post(samples)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Output frames for a complete input length.
     ///
     /// Returns the ceil-rounded number of output frames expected for `input_frames`.
@@ -178,118 +114,67 @@ where
     /// Resamples a complete interleaved input buffer and returns all output samples.
     ///
     /// This is a convenience wrapper around the streaming API.
-    pub fn process_all(&mut self, input: &[T]) -> Result<Vec<T>, Error> {
-        let expected_samples = self.output_sample_count(input.len())?;
-
-        let mut output = Vec::with_capacity(expected_samples);
-        let mut offset = 0;
-        let channels = self.config.channels;
-        let input_buffer_size = self.input_buffer_size();
-        let output_buffer_size = self.output_buffer_size();
-        let mut chunk_output_buffer = vec![T::zero(); output_buffer_size];
-
-        while offset + input_buffer_size <= input.len() {
-            let chunk = &input[offset..offset + input_buffer_size];
-            let frames = chunk.len() / channels;
-            self.stage_input_channels(chunk);
-
-            #[cfg(feature = "rayon")]
-            let written = {
-                let written_per_channel = self
-                    .cores
-                    .par_iter_mut()
-                    .zip(self.input_staging.par_iter())
-                    .zip(self.output_staging.par_iter_mut())
-                    .map(|((core, core_input), core_output)| {
-                        core.process_chunk(&core_input[..frames], core_output, false)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                written_per_channel.into_iter().sum()
-            };
-
-            #[cfg(not(feature = "rayon"))]
-            let written = {
-                let mut total_written = 0;
-                for channel_idx in 0..channels {
-                    let core = &mut self.cores[channel_idx];
-                    let core_input = &self.input_staging[channel_idx][..frames];
-                    let core_output = &mut self.output_staging[channel_idx];
-                    total_written += core.process_chunk(core_input, core_output, false)?;
-                }
-                total_written
-            };
-
-            if channels == 1 {
-                chunk_output_buffer[..written].copy_from_slice(&self.output_staging[0][..written]);
-            } else {
-                let written_per_channel = written / channels;
-                for frame_idx in 0..written_per_channel {
-                    for channel_idx in 0..channels {
-                        chunk_output_buffer[frame_idx * channels + channel_idx] =
-                            self.output_staging[channel_idx][frame_idx];
-                    }
-                }
-            }
-
-            output.extend_from_slice(&chunk_output_buffer[..written]);
-            offset += input_buffer_size;
+    ///
+    /// When the `rayon` feature is enabled, each channel is processed in parallel.
+    pub fn process_all(&mut self, input: &[T]) -> Result<Vec<T>, Error>
+    where
+        T: Send + Sync,
+    {
+        if !input.len().is_multiple_of(self.config.channels) {
+            return Err(Error::MalformedInputLength {
+                channels: self.config.channels,
+                samples: input.len(),
+            });
         }
 
-        let final_chunk = &input[offset..];
-        let final_frames = final_chunk.len() / channels;
-        self.stage_input_channels(final_chunk);
+        if self.config.channels == 1 {
+            return self.cores[0].process_all(input);
+        }
+
+        let channel_inputs = self.deinterleave_context(input);
+        let mut channel_outputs: Vec<Vec<T>> = (0..self.config.channels).map(|_| Vec::new()).collect();
 
         #[cfg(feature = "rayon")]
-        let written = {
-            let written_per_channel = self
-                .cores
+        {
+            self.cores
                 .par_iter_mut()
-                .zip(self.input_staging.par_iter())
-                .zip(self.output_staging.par_iter_mut())
-                .map(|((core, core_input), core_output)| {
-                    core.process_chunk(&core_input[..final_frames], core_output, true)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            written_per_channel.into_iter().sum()
-        };
+                .zip(channel_inputs.par_iter())
+                .zip(channel_outputs.par_iter_mut())
+                .try_for_each(|((core, channel_input), channel_output)| -> Result<(), Error> {
+                    *channel_output = core.process_all(channel_input)?;
+                    Ok(())
+                })?;
+        }
 
         #[cfg(not(feature = "rayon"))]
-        let written = {
-            let mut total_written = 0;
-            for channel_idx in 0..channels {
-                let core = &mut self.cores[channel_idx];
-                let core_input = &self.input_staging[channel_idx][..final_frames];
-                let core_output = &mut self.output_staging[channel_idx];
-                total_written += core.process_chunk(core_input, core_output, true)?;
-            }
-            total_written
-        };
-
-        if channels == 1 {
-            chunk_output_buffer[..written].copy_from_slice(&self.output_staging[0][..written]);
-        } else {
-            let written_per_channel = written / channels;
-            for frame_idx in 0..written_per_channel {
-                for channel_idx in 0..channels {
-                    chunk_output_buffer[frame_idx * channels + channel_idx] =
-                        self.output_staging[channel_idx][frame_idx];
-                }
+        {
+            for ((core, channel_input), channel_output) in self
+                .cores
+                .iter_mut()
+                .zip(channel_inputs.iter())
+                .zip(channel_outputs.iter_mut())
+            {
+                *channel_output = core.process_all(channel_input)?;
             }
         }
 
-        output.extend_from_slice(&chunk_output_buffer[..written]);
-
-        let written = self.finalize(&mut chunk_output_buffer)?;
-        output.extend_from_slice(&chunk_output_buffer[..written]);
+        let written_per_channel = channel_outputs.first().map_or(0, Vec::len);
+        let mut output = vec![T::zero(); written_per_channel * self.config.channels];
+        for frame_idx in 0..written_per_channel {
+            for channel_idx in 0..self.config.channels {
+                output[frame_idx * self.config.channels + channel_idx] = channel_outputs[channel_idx][frame_idx];
+            }
+        }
 
         Ok(output)
     }
 
-    /// Process multiple independent tracks in parallel.
+    /// Process multiple independent tracks.
     ///
-    /// Each input slice is treated as its own stream with no inter-track context.
+    /// Each input slice is treated as its own stream with no inter-track context. See
+    /// `batch_gapless()` for gapless processing of multiple tracks.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
     pub fn batch(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
     where
         T: Send + Sync,
@@ -322,11 +207,13 @@ where
     /// Process multiple tracks in parallel while preserving adjacent-track context.
     ///
     /// Use this when you want to resample an entire album or track collection that is
-    /// meant to be played back to back with no gaps.
+    /// meant to be played back-to-back with no gaps.
     ///
     /// For each track:
     /// - `pre` is filled from the tail of the previous track when one exists.
     /// - `post` is filled from the head of the next track when one exists.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
     pub fn batch_gapless(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
     where
         T: Send + Sync,
@@ -337,29 +224,29 @@ where
 
         #[cfg(feature = "rayon")]
         {
-        inputs
-            .par_iter()
-            .enumerate()
-            .map(|(idx, input)| {
-                let mut resampler = Ardftsrc::new(config.clone())?;
+            inputs
+                .par_iter()
+                .enumerate()
+                .map(|(idx, input)| {
+                    let mut resampler = Ardftsrc::new(config.clone())?;
 
-                if idx > 0 {
-                    let pre = Self::batch_context_tail(inputs[idx - 1], context_samples, channels);
-                    if !pre.is_empty() {
-                        resampler.pre(pre)?;
+                    if idx > 0 {
+                        let pre = Self::batch_context_tail(inputs[idx - 1], context_samples, channels);
+                        if !pre.is_empty() {
+                            resampler.pre(pre)?;
+                        }
                     }
-                }
 
-                if idx + 1 < inputs.len() {
-                    let post = Self::batch_context_head(inputs[idx + 1], context_samples, channels);
-                    if !post.is_empty() {
-                        resampler.post(post)?;
+                    if idx + 1 < inputs.len() {
+                        let post = Self::batch_context_head(inputs[idx + 1], context_samples, channels);
+                        if !post.is_empty() {
+                            resampler.post(post)?;
+                        }
                     }
-                }
 
-                resampler.process_all(input)
-            })
-            .collect()
+                    resampler.process_all(input)
+                })
+                .collect()
         }
 
         #[cfg(not(feature = "rayon"))]
@@ -369,25 +256,25 @@ where
                 .enumerate()
                 .map(|(idx, input)| {
                     let mut resampler = Ardftsrc::new(config.clone())?;
-    
+
                     if idx > 0 {
                         let pre = Self::batch_context_tail(inputs[idx - 1], context_samples, channels);
                         if !pre.is_empty() {
                             resampler.pre(pre)?;
                         }
                     }
-    
+
                     if idx + 1 < inputs.len() {
                         let post = Self::batch_context_head(inputs[idx + 1], context_samples, channels);
                         if !post.is_empty() {
                             resampler.post(post)?;
                         }
                     }
-    
+
                     resampler.process_all(input)
                 })
                 .collect()
-            }
+        }
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -548,19 +435,6 @@ where
         Ok(())
     }
 
-    fn normalize_context(&self, context: Vec<T>) -> Result<Option<Vec<T>>, Error> {
-        if context.is_empty() {
-            return Ok(None);
-        }
-        if !context.len().is_multiple_of(self.config.channels) {
-            return Err(Error::MalformedInputLength {
-                channels: self.config.channels,
-                samples: context.len(),
-            });
-        }
-        Ok(Some(context))
-    }
-
     /// Returns up to `max_samples` aligned head samples for interleaved context.
     fn batch_context_head(input: &[T], max_samples: usize, channels: usize) -> Vec<T> {
         let aligned_input_len = input.len() - (input.len() % channels);
@@ -601,6 +475,84 @@ where
                 self.input_staging[channel_idx][frame_idx] = *sample;
             }
         }
+    }
+
+
+    /// Sets previous-track context.
+    ///
+    /// The buffer must use the same channel interleaving as stream input.
+    ///
+    /// Use this when resampling gapless material, for example an album where tracks are played
+    /// back-to-back. In that case, pass the last chunk of the previous track.
+    ///
+    /// Recommended size:
+    ///
+    /// - Pass one full input chunk from the end of the previous track.
+    /// - Query chunk size with `input_chunk_frames()` (frames per channel), or
+    ///   `input_buffer_size()` (interleaved samples).
+    ///
+    /// Shorter buffers are still valid: any missing start context falls back to LPC
+    /// extrapolation.
+    pub fn pre(&mut self, pre: Vec<T>) -> Result<(), Error> {
+        match self.normalize_context(pre)? {
+            None => {
+                for core in &mut self.cores {
+                    core.pre(Vec::new())?;
+                }
+            }
+            Some(pre) => {
+                let per_channel = self.deinterleave_context(&pre);
+                for (core, samples) in self.cores.iter_mut().zip(per_channel.into_iter()) {
+                    core.pre(samples)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Sets next-track context.
+    ///
+    /// The buffer must use the same channel interleaving as stream input.
+    ///
+    /// Use this when resampling gapless material, for example an album where tracks are played
+    /// back-to-back. In that case, pass the first chunk of the next track.
+    ///
+    /// Recommended size:
+    ///
+    /// - Pass one full input chunk from the start of the next track.
+    /// - Query chunk size with `input_chunk_frames()` (frames per channel), or
+    ///   `input_buffer_size()` (interleaved samples).
+    ///
+    /// Shorter buffers are still valid: any missing stop context falls back to LPC
+    /// extrapolation.
+    pub fn post(&mut self, post: Vec<T>) -> Result<(), Error> {
+        match self.normalize_context(post)? {
+            None => {
+                for core in &mut self.cores {
+                    core.post(Vec::new())?;
+                }
+            }
+            Some(post) => {
+                let per_channel = self.deinterleave_context(&post);
+                for (core, samples) in self.cores.iter_mut().zip(per_channel.into_iter()) {
+                    core.post(samples)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn normalize_context(&self, context: Vec<T>) -> Result<Option<Vec<T>>, Error> {
+        if context.is_empty() {
+            return Ok(None);
+        }
+        if !context.len().is_multiple_of(self.config.channels) {
+            return Err(Error::MalformedInputLength {
+                channels: self.config.channels,
+                samples: context.len(),
+            });
+        }
+        Ok(Some(context))
     }
 
     fn deinterleave_context(&self, context: &[T]) -> Vec<Vec<T>> {

@@ -43,7 +43,7 @@ name = "rubato_sync_f64"
 harness = false
 
 [features]
-batch = ["dep:rayon"]
+rayon = ["dep:rayon"]
 avx = ["realfft/avx"]
 neon = ["realfft/neon"]
 sse = ["realfft/sse"]

@@ -1,5 +1,6 @@
 use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use wavers::{Wav, WavType, read};
@@ -11,6 +12,28 @@ struct GoldenManifestEntry {
     preset: String,
     target_rate: usize,
     pcm_md5_by_channel: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct BatchKey {
+    preset: String,
+    input_rate: usize,
+    target_rate: usize,
+    channels: usize,
+}
+
+#[derive(Debug)]
+struct BatchCaseF32 {
+    sample_wav: String,
+    expected_hashes: Vec<String>,
+    input_samples: Vec<f32>,
+}
+
+#[derive(Debug)]
+struct BatchCaseF64 {
+    sample_wav: String,
+    expected_hashes: Vec<String>,
+    input_samples: Vec<f64>,
 }
 
 fn preset_from_name(name: &str) -> Config {
@@ -89,6 +112,9 @@ fn wav_golden_copy() {
 
     let mut failed = false;
 
+    let mut f32_groups: BTreeMap<BatchKey, Vec<BatchCaseF32>> = BTreeMap::new();
+    let mut f64_groups: BTreeMap<BatchKey, Vec<BatchCaseF64>> = BTreeMap::new();
+
     for entry in entries {
         let source_path = root.join("test_wavs").join(&entry.sample_wav);
         let (input_samples, input_rate, channels) = read_wav_as_f32(&source_path);
@@ -103,57 +129,122 @@ fn wav_golden_copy() {
             continue;
         }
 
-        let config = preset_from_name(&entry.preset)
-            .with_input_rate(input_rate)
-            .with_output_rate(entry.target_rate)
-            .with_channels(channels);
-
-        let output_samples_f32: Vec<f32> = match entry.float_type.as_str() {
-            "f32" => {
-                let mut resampler = Ardftsrc::<f32>::new(config).unwrap_or_else(|err| {
-                    panic!(
-                        "failed to initialize f32 resampler for '{}', preset='{}', rate={}: {err}",
-                        entry.sample_wav, entry.preset, entry.target_rate
-                    )
-                });
-                resampler.process_all(&input_samples).unwrap_or_else(|err| {
-                    panic!(
-                        "f32 resample failed for '{}', preset='{}', rate={}: {err}",
-                        entry.sample_wav, entry.preset, entry.target_rate
-                    )
-                })
-            }
-            "f64" => {
-                let mut resampler = Ardftsrc::<f64>::new(config).unwrap_or_else(|err| {
-                    panic!(
-                        "failed to initialize f64 resampler for '{}', preset='{}', rate={}: {err}",
-                        entry.sample_wav, entry.preset, entry.target_rate
-                    )
-                });
-                let input_f64: Vec<f64> = input_samples.iter().map(|sample| *sample as f64).collect();
-                let output_f64 = resampler.process_all(&input_f64).unwrap_or_else(|err| {
-                    panic!(
-                        "f64 resample failed for '{}', preset='{}', rate={}: {err}",
-                        entry.sample_wav, entry.preset, entry.target_rate
-                    )
-                });
-                output_f64.iter().map(|sample| *sample as f32).collect()
-            }
-            other => panic!("unknown float_type '{other}' in '{}'", manifest_path.display()),
+        let key = BatchKey {
+            preset: entry.preset.clone(),
+            input_rate,
+            target_rate: entry.target_rate,
+            channels,
         };
 
-        let actual_hashes = pcm_md5_by_channel(&output_samples_f32, channels);
-        if actual_hashes != entry.pcm_md5_by_channel {
-            failed = true;
-            eprintln!(
-                "golden per-channel PCM hash mismatch: sample='{}', preset='{}', rate={}, float_type='{}', actual={:?}, expected={:?}",
-                entry.sample_wav,
-                entry.preset,
-                entry.target_rate,
-                entry.float_type,
-                actual_hashes,
-                entry.pcm_md5_by_channel
-            );
+        match entry.float_type.as_str() {
+            "f32" => {
+                f32_groups.entry(key).or_default().push(BatchCaseF32 {
+                    sample_wav: entry.sample_wav,
+                    expected_hashes: entry.pcm_md5_by_channel,
+                    input_samples,
+                });
+            }
+            "f64" => {
+                f64_groups.entry(key).or_default().push(BatchCaseF64 {
+                    sample_wav: entry.sample_wav,
+                    expected_hashes: entry.pcm_md5_by_channel,
+                    input_samples: input_samples.iter().map(|sample| *sample as f64).collect(),
+                });
+            }
+            other => panic!("unknown float_type '{other}' in '{}'", manifest_path.display()),
+        }
+    }
+
+    for (key, cases) in f32_groups {
+        let config = preset_from_name(&key.preset)
+            .with_input_rate(key.input_rate)
+            .with_output_rate(key.target_rate)
+            .with_channels(key.channels);
+
+        let driver = Ardftsrc::<f32>::new(config).unwrap_or_else(|err| {
+            panic!(
+                "failed to initialize f32 batch driver for preset='{}', input_rate={}, target_rate={}, channels={}: {err}",
+                key.preset, key.input_rate, key.target_rate, key.channels
+            )
+        });
+        let input_refs: Vec<&[f32]> = cases.iter().map(|case| case.input_samples.as_slice()).collect();
+        let outputs = driver.batch(&input_refs).unwrap_or_else(|err| {
+            panic!(
+                "f32 batch resample failed for preset='{}', input_rate={}, target_rate={}, channels={}: {err}",
+                key.preset, key.input_rate, key.target_rate, key.channels
+            )
+        });
+
+        assert_eq!(
+            outputs.len(),
+            cases.len(),
+            "f32 batch output count mismatch for preset='{}', input_rate={}, target_rate={}, channels={}",
+            key.preset,
+            key.input_rate,
+            key.target_rate,
+            key.channels
+        );
+
+        for (case, output_samples_f32) in cases.iter().zip(outputs.iter()) {
+            let actual_hashes = pcm_md5_by_channel(output_samples_f32, key.channels);
+            if actual_hashes != case.expected_hashes {
+                failed = true;
+                eprintln!(
+                    "golden per-channel PCM hash mismatch: sample='{}', preset='{}', rate={}, float_type='f32', actual={:?}, expected={:?}",
+                    case.sample_wav,
+                    key.preset,
+                    key.target_rate,
+                    actual_hashes,
+                    case.expected_hashes
+                );
+            }
+        }
+    }
+
+    for (key, cases) in f64_groups {
+        let config = preset_from_name(&key.preset)
+            .with_input_rate(key.input_rate)
+            .with_output_rate(key.target_rate)
+            .with_channels(key.channels);
+
+        let driver = Ardftsrc::<f64>::new(config).unwrap_or_else(|err| {
+            panic!(
+                "failed to initialize f64 batch driver for preset='{}', input_rate={}, target_rate={}, channels={}: {err}",
+                key.preset, key.input_rate, key.target_rate, key.channels
+            )
+        });
+        let input_refs: Vec<&[f64]> = cases.iter().map(|case| case.input_samples.as_slice()).collect();
+        let outputs = driver.batch(&input_refs).unwrap_or_else(|err| {
+            panic!(
+                "f64 batch resample failed for preset='{}', input_rate={}, target_rate={}, channels={}: {err}",
+                key.preset, key.input_rate, key.target_rate, key.channels
+            )
+        });
+
+        assert_eq!(
+            outputs.len(),
+            cases.len(),
+            "f64 batch output count mismatch for preset='{}', input_rate={}, target_rate={}, channels={}",
+            key.preset,
+            key.input_rate,
+            key.target_rate,
+            key.channels
+        );
+
+        for (case, output_samples_f64) in cases.iter().zip(outputs.iter()) {
+            let output_samples_f32: Vec<f32> = output_samples_f64.iter().map(|sample| *sample as f32).collect();
+            let actual_hashes = pcm_md5_by_channel(&output_samples_f32, key.channels);
+            if actual_hashes != case.expected_hashes {
+                failed = true;
+                eprintln!(
+                    "golden per-channel PCM hash mismatch: sample='{}', preset='{}', rate={}, float_type='f64', actual={:?}, expected={:?}",
+                    case.sample_wav,
+                    key.preset,
+                    key.target_rate,
+                    actual_hashes,
+                    case.expected_hashes
+                );
+            }
         }
     }
 

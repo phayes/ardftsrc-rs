@@ -207,6 +207,36 @@ where
         self.output_sample_count_for_input(input_samples)
     }
 
+    /// Resamples a complete single-channel input buffer and returns all output samples.
+    ///
+    /// This is a convenience wrapper around the chunked core API.
+    pub fn process_all(&mut self, input: &[T]) -> Result<Vec<T>, Error> {
+        let expected_samples = self.output_sample_count(input.len());
+        let mut output = Vec::with_capacity(expected_samples);
+
+        let mut offset = 0;
+        let input_chunk_size = self.input_buffer_size();
+        let mut chunk_output = vec![T::zero(); self.output_buffer_size()];
+
+        while offset + input_chunk_size <= input.len() {
+            let written = self.process_chunk(
+                &input[offset..offset + input_chunk_size],
+                &mut chunk_output,
+                false,
+            )?;
+            output.extend_from_slice(&chunk_output[..written]);
+            offset += input_chunk_size;
+        }
+
+        let written = self.process_chunk(&input[offset..], &mut chunk_output, true)?;
+        output.extend_from_slice(&chunk_output[..written]);
+
+        let written = self.finalize(&mut chunk_output)?;
+        output.extend_from_slice(&chunk_output[..written]);
+
+        Ok(output)
+    }
+
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
     ///
     /// Call this between unrelated audio inputs (for example, between files) when reusing the
