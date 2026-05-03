@@ -122,41 +122,32 @@ where
     }
 
     /// Returns the total number of input samples processed.
-    pub fn input_sample_count(&self) -> usize {
+    pub(crate) fn input_sample_count(&self) -> usize {
         self.input_sample_count
     }
 
     /// Returns the required non-final streaming chunk length in samples.
-    pub fn input_chunk_samples(&self) -> usize {
+    pub(crate) fn input_chunk_samples(&self) -> usize {
         self.input_chunk_len_samples()
     }
 
     /// Returns the required `input` length for each `process_chunk()` call.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
-    pub fn input_buffer_size(&self) -> usize {
+    pub(crate) fn input_buffer_size(&self) -> usize {
         self.input_chunk_samples()
     }
 
     /// Returns produced sample count for each non-passthrough transform block before trimming.
-    pub fn output_chunk_samples(&self) -> usize {
+    pub(crate) fn output_chunk_samples(&self) -> usize {
         self.output_chunk_len_samples()
     }
 
     /// Returns the recommended per-call `output` capacity in samples.
     ///
     /// For chunked streaming, size output slices passed to chunk processing to at least this value.
-    pub fn output_buffer_size(&self) -> usize {
+    pub(crate) fn output_buffer_size(&self) -> usize {
         self.output_chunk_samples()
-    }
-
-    /// Returns algorithmic latency to trim/flush, or zero in same-rate passthrough mode.
-    pub fn output_delay_samples(&self) -> usize {
-        if self.is_passthrough() {
-            0
-        } else {
-            self.derived.output_offset
-        }
     }
 
     /// Sets previous-track context.

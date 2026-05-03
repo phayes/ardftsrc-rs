@@ -59,28 +59,18 @@ where
         self.cores.iter().map(ArdftsrcCore::input_sample_count).sum()
     }
 
-    /// Returns the required non-final streaming chunk length in frames per channel.
-    pub fn input_chunk_frames(&self) -> usize {
-        self.derived.input_chunk_frames
-    }
-
     /// Returns the required `input` length (interleaved samples) for each `process_chunk()` call.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
-    pub fn input_buffer_size(&self) -> usize {
+    pub fn input_chunk_size(&self) -> usize {
         self.derived.input_chunk_frames * self.config.channels
-    }
-
-    /// Returns produced frame count for each non-passthrough transform block before trimming.
-    pub fn output_chunk_frames(&self) -> usize {
-        self.derived.output_chunk_frames
     }
 
     /// Returns the recommended per-call `output` capacity in interleaved samples.
     ///
     /// For chunked streaming, size output slices passed to `process_chunk()` and
     /// `process_chunk_final()` to at least this value.
-    pub fn output_buffer_size(&self) -> usize {
+    pub fn output_chunk_size(&self) -> usize {
         self.derived.output_chunk_frames * self.config.channels
     }
 
@@ -93,30 +83,12 @@ where
         }
     }
 
-    /// Output frames for a complete input length.
+    /// Returns the expected output length for a given input length.
     ///
-    /// Returns the ceil-rounded number of output frames expected for `input_frames`.
-    pub fn output_frame_count(&self, input_frames: usize) -> usize {
-        (input_frames * self.config.output_sample_rate).div_ceil(self.config.input_sample_rate)
-    }
-
-    /// Output samples needed for a complete interleaved input length.
-    ///
-    /// This validates that `input_samples` is divisible by channel count, then returns the number
-    /// of output samples needed. This can be used to size the output buffer for the entire input
-    /// stream.
-    ///
-    /// Returns `Error::MalformedInputLength` when `input_samples` is not channel-aligned.
-    pub fn output_sample_count(&self, input_samples: usize) -> Result<usize, Error> {
-        if !input_samples.is_multiple_of(self.config.channels) {
-            return Err(Error::MalformedInputLength {
-                channels: self.config.channels,
-                samples: input_samples,
-            });
-        }
-
-        let input_frames = input_samples / self.config.channels;
-        Ok(self.output_frame_count(input_frames) * self.config.channels)
+    /// `input_size` can be expressed in either frames or samples; the
+    /// returned value uses the same unit.
+    pub fn expected_output_size(&self, input_size: usize) -> usize {
+        (input_size * self.config.output_sample_rate).div_ceil(self.config.input_sample_rate)
     }
 
     /// Resamples a complete interleaved input buffer and returns all output samples.
@@ -227,7 +199,7 @@ where
         T: Send + Sync,
     {
         let config = self.config.clone();
-        let context_samples = self.input_buffer_size();
+        let context_samples = self.input_chunk_size();
         let channels = self.config.channels;
 
         #[cfg(feature = "rayon")]
@@ -310,7 +282,7 @@ where
 
         self.sample_pending_input.extend_from_slice(input);
 
-        let chunk_samples = self.input_buffer_size();
+        let chunk_samples = self.input_chunk_size();
         while self.sample_pending_input.len() >= chunk_samples {
             let chunk: Vec<T> = self.sample_pending_input.drain(..chunk_samples).collect();
             self.process_pending_chunk(&chunk, false)?;
@@ -390,7 +362,7 @@ where
     /// Processes the final chunk, which may be shorter than the regular chunk size.
     ///
     /// Call this exactly once at end-of-stream for the trailing partial chunk (it may be empty if
-    /// input length is an exact multiple of `input_chunk_frames()`). After this call, no further
+    /// input length is an exact multiple of `input_buffer_size()`). After this call, no further
     /// chunk-processing calls should be made; call `finalize()` to drain remaining delayed tail.
     /// Size `output` to at least `output_buffer_size()`.
     ///
@@ -473,7 +445,7 @@ where
         // Non-final chunks must match the fixed chunk size exactly. Final chunks may be shorter.
         if (!is_final && frames != expected_frames) || (is_final && frames > expected_frames) {
             return Err(Error::WrongChunkLength {
-                expected: self.input_buffer_size(),
+                expected: self.input_chunk_size(),
                 actual: input.len(),
             });
         }
@@ -485,7 +457,7 @@ where
     ///
     /// Callers should allocate at least `output_buffer_size()` samples before processing.
     fn ensure_output_buffer_size(&self, output: &[T]) -> Result<(), Error> {
-        let expected = self.output_buffer_size();
+        let expected = self.output_chunk_size();
         if output.len() < expected {
             return Err(Error::InsufficientOutputBuffer {
                 expected,
@@ -496,7 +468,7 @@ where
     }
 
     fn process_pending_chunk(&mut self, input: &[T], is_final: bool) -> Result<(), Error> {
-        let mut chunk_output = vec![T::zero(); self.output_buffer_size()];
+        let mut chunk_output = vec![T::zero(); self.output_chunk_size()];
         let written = self.process_chunk_inner(input, &mut chunk_output, is_final)?;
         self.samples_pending_output.extend_from_slice(&chunk_output[..written]);
         Ok(())
@@ -680,9 +652,12 @@ mod tests {
     use crate::{ArdftsrcCore, TaperType};
     use dasp_signal::Signal;
 
-    /// Computes ceil-rounded output frames for rational-rate conversion sizing.
-    fn output_frame_count(input_frames: usize, input_rate: usize, output_rate: usize) -> usize {
-        (input_frames * output_rate).div_ceil(input_rate)
+    fn input_chunk_frames(resampler: &Ardftsrc<f32>) -> usize {
+        resampler.input_chunk_size() / resampler.config().channels
+    }
+
+    fn output_chunk_frames(resampler: &Ardftsrc<f32>) -> usize {
+        resampler.output_chunk_size() / resampler.config().channels
     }
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
@@ -717,11 +692,11 @@ mod tests {
             resampler.post(post.to_vec()).unwrap();
         }
 
-        let input_buffer_size = resampler.input_buffer_size();
+        let input_buffer_size = resampler.input_chunk_size();
         let full_chunks = input.len() / input_buffer_size;
         let has_partial = !input.len().is_multiple_of(input_buffer_size);
         let output_blocks = full_chunks + usize::from(has_partial) + 1;
-        let mut output = vec![0.0; output_blocks * resampler.output_buffer_size()];
+        let mut output = vec![0.0; output_blocks * resampler.output_chunk_size()];
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
@@ -827,7 +802,7 @@ mod tests {
     #[test]
     fn silence_stays_silent() {
         let mut resampler = Ardftsrc::new(mono_config(48_000, 48_000)).unwrap();
-        let input = vec![0.0; resampler.input_chunk_frames()];
+        let input = vec![0.0; input_chunk_frames(&resampler)];
 
         let output = resampler.process_all(&input).unwrap();
 
@@ -837,7 +812,7 @@ mod tests {
     #[test]
     fn same_rate_passthrough_preserves_samples() {
         let mut resampler = Ardftsrc::new(mono_config(48_000, 48_000)).unwrap();
-        let input: Vec<f32> = (0..resampler.input_chunk_frames() * 2 + 7)
+        let input: Vec<f32> = (0..input_chunk_frames(&resampler) * 2 + 7)
             .map(|frame| (frame as f32 * 0.013).cos())
             .collect();
 
@@ -850,28 +825,28 @@ mod tests {
     #[test]
     fn impulse_output_is_finite() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let mut input = vec![0.0; resampler.input_chunk_frames()];
+        let mut input = vec![0.0; input_chunk_frames(&resampler)];
         input[0] = 1.0;
 
         let output = resampler.process_all(&input).unwrap();
 
-        assert_eq!(output.len(), output_frame_count(input.len(), 44_100, 48_000));
+        assert_eq!(output.len(), resampler.expected_output_size(input.len()));
         assert!(output.iter().all(|sample| sample.is_finite()));
     }
 
     #[test]
     fn first_chunk_lpc_start_edge_is_finite() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input: Vec<f32> = (0..resampler.input_chunk_frames())
+        let input: Vec<f32> = (0..input_chunk_frames(&resampler))
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         let written = resampler.process_chunk(&input, &mut output).unwrap();
 
         assert_eq!(
             written,
-            resampler.output_chunk_frames() - resampler.output_delay_frames()
+            output_chunk_frames(&resampler) - resampler.output_delay_frames()
         );
         assert!(output[..written].iter().all(|sample| sample.is_finite()));
         assert!(output[..written].iter().any(|sample| sample.abs() > 1e-6));
@@ -880,46 +855,41 @@ mod tests {
     #[test]
     fn short_final_chunk_lpc_stop_edge_is_finite_and_bounded() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input_frames = resampler.input_chunk_frames() / 3;
+        let input_frames = input_chunk_frames(&resampler) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.02).sin() * 0.1)
             .collect();
 
         let output = resampler.process_all(&input).unwrap();
 
-        assert_eq!(output.len(), output_frame_count(input_frames, 44_100, 48_000));
+        assert_eq!(output.len(), resampler.expected_output_size(input_frames));
         assert!(output.iter().all(|sample| sample.is_finite()));
         assert!(output.iter().all(|sample| sample.abs() < 1.0));
     }
 
     #[test]
-    fn output_sample_count_matches_frame_count_conversion() {
+    fn expected_output_size_matches_frame_count_conversion() {
         let resampler = Ardftsrc::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
-        let input_samples = resampler.input_buffer_size() * 2 + 14;
+        let input_samples = resampler.input_chunk_size() * 2 + 14;
         let input_frames = input_samples / resampler.config().channels;
 
-        let expected = resampler.output_frame_count(input_frames) * resampler.config().channels;
-        assert_eq!(resampler.output_sample_count(input_samples).unwrap(), expected);
+        let expected_from_frames = resampler.expected_output_size(input_frames) * resampler.config().channels;
+        let expected_from_samples = resampler.expected_output_size(input_samples);
+        assert_eq!(expected_from_samples, expected_from_frames);
     }
 
     #[test]
-    fn output_sample_count_rejects_non_interleaved_length() {
+    fn expected_output_size_accepts_non_interleaved_length() {
         let resampler = Ardftsrc::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
-
-        assert!(matches!(
-            resampler.output_sample_count(3),
-            Err(Error::MalformedInputLength {
-                channels: 2,
-                samples: 3
-            })
-        ));
+        let expected = (3usize * 48_000).div_ceil(44_100);
+        assert_eq!(resampler.expected_output_size(3), expected);
     }
 
     #[test]
     fn stereo_wrapper_matches_channel_core_outputs() {
         let config = stereo_config(44_100, 48_000);
         let mut wrapper = Ardftsrc::<f32>::new(config.clone()).unwrap();
-        let input_frames = wrapper.input_chunk_frames() * 2 + 37;
+        let input_frames = input_chunk_frames(&wrapper) * 2 + 37;
         let input: Vec<f32> = (0..input_frames)
             .flat_map(|frame| {
                 let t = frame as f32;
@@ -927,7 +897,7 @@ mod tests {
             })
             .collect();
 
-        let context_frames = wrapper.input_chunk_frames() / 2;
+        let context_frames = input_chunk_frames(&wrapper) / 2;
         let pre: Vec<f32> = (0..context_frames)
             .flat_map(|frame| {
                 let t = frame as f32;
@@ -996,15 +966,17 @@ mod tests {
     fn pre_context_changes_first_chunk_output() {
         let mut with_zero_pre = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
         let mut with_one_pre = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input: Vec<f32> = (0..with_zero_pre.input_chunk_frames())
+        let input: Vec<f32> = (0..input_chunk_frames(&with_zero_pre))
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
-        let mut out_zero = vec![0.0; with_zero_pre.output_chunk_frames()];
-        let mut out_one = vec![0.0; with_one_pre.output_chunk_frames()];
+        let mut out_zero = vec![0.0; output_chunk_frames(&with_zero_pre)];
+        let mut out_one = vec![0.0; output_chunk_frames(&with_one_pre)];
         with_zero_pre
-            .pre(vec![0.0; with_zero_pre.input_chunk_frames()])
+            .pre(vec![0.0; input_chunk_frames(&with_zero_pre)])
             .unwrap();
-        with_one_pre.pre(vec![1.0; with_one_pre.input_chunk_frames()]).unwrap();
+        with_one_pre
+            .pre(vec![1.0; input_chunk_frames(&with_one_pre)])
+            .unwrap();
 
         let written_zero = with_zero_pre.process_chunk(&input, &mut out_zero).unwrap();
         let written_one = with_one_pre.process_chunk(&input, &mut out_one).unwrap();
@@ -1022,17 +994,17 @@ mod tests {
     fn post_context_changes_flush_output() {
         let mut with_zero_post = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
         let mut with_one_post = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input: Vec<f32> = (0..with_zero_post.input_chunk_frames())
+        let input: Vec<f32> = (0..input_chunk_frames(&with_zero_post))
             .map(|frame| (frame as f32 * 0.015).cos() * 0.125)
             .collect();
-        let mut chunk_out = vec![0.0; with_zero_post.output_chunk_frames()];
-        let mut flush_zero = vec![0.0; with_zero_post.output_chunk_frames()];
-        let mut flush_one = vec![0.0; with_one_post.output_chunk_frames()];
+        let mut chunk_out = vec![0.0; output_chunk_frames(&with_zero_post)];
+        let mut flush_zero = vec![0.0; output_chunk_frames(&with_zero_post)];
+        let mut flush_one = vec![0.0; output_chunk_frames(&with_one_post)];
         with_zero_post
-            .post(vec![0.0; with_zero_post.input_chunk_frames()])
+            .post(vec![0.0; input_chunk_frames(&with_zero_post)])
             .unwrap();
         with_one_post
-            .post(vec![1.0; with_one_post.input_chunk_frames()])
+            .post(vec![1.0; input_chunk_frames(&with_one_post)])
             .unwrap();
 
         with_zero_post.process_chunk(&input, &mut chunk_out).unwrap();
@@ -1052,15 +1024,15 @@ mod tests {
     #[test]
     fn flush_after_full_chunk_uses_lpc_tail_edge() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input: Vec<f32> = (0..resampler.input_chunk_frames())
+        let input: Vec<f32> = (0..input_chunk_frames(&resampler))
             .map(|frame| (frame as f32 * 0.015).cos() * 0.125)
             .collect();
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         let first_written = resampler.process_chunk(&input, &mut output).unwrap();
         let flush_written = resampler.finalize(&mut output).unwrap();
 
-        assert_eq!(first_written + flush_written, resampler.output_chunk_frames());
+        assert_eq!(first_written + flush_written, output_chunk_frames(&resampler));
         assert!(output[..flush_written].iter().all(|sample| sample.is_finite()));
     }
 
@@ -1069,19 +1041,19 @@ mod tests {
         let config = mono_config(44_100, 48_000);
         let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let mut streaming = Ardftsrc::new(config).unwrap();
-        let input_frames = streaming.input_chunk_frames() * 2 + streaming.input_chunk_frames() / 3;
+        let input_frames = input_chunk_frames(&streaming) * 2 + input_chunk_frames(&streaming) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
 
         let offline_output = offline.process_all(&input).unwrap();
 
-        let full_chunks = input.len() / streaming.input_chunk_frames();
-        let has_partial = !input.len().is_multiple_of(streaming.input_chunk_frames());
+        let full_chunks = input.len() / input_chunk_frames(&streaming);
+        let has_partial = !input.len().is_multiple_of(input_chunk_frames(&streaming));
         let output_blocks = full_chunks + usize::from(has_partial) + 1;
-        let mut streaming_output = vec![0.0; output_blocks * streaming.output_chunk_frames()];
+        let mut streaming_output = vec![0.0; output_blocks * output_chunk_frames(&streaming)];
         let mut written = 0;
-        let chunk_len = streaming.input_chunk_frames();
+        let chunk_len = input_chunk_frames(&streaming);
         let mut offset = 0;
         while offset + chunk_len <= input.len() {
             written += streaming
@@ -1107,7 +1079,7 @@ mod tests {
         let mut config = mono_config(44_100, 48_000);
         config.taper_type = TaperType::Cosine(1.55);
         let mut full_resampler = Ardftsrc::new(config.clone()).unwrap();
-        let context_len = full_resampler.input_buffer_size();
+        let context_len = full_resampler.input_chunk_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
         let output_sample_rate = config.output_sample_rate;
@@ -1161,7 +1133,7 @@ mod tests {
     fn split_resampling_is_worse_without_pre_post() {
         let config = mono_config(44_100, 48_000);
         let mut full_resampler = Ardftsrc::new(config.clone()).unwrap();
-        let context_len = full_resampler.input_buffer_size();
+        let context_len = full_resampler.input_chunk_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
         let output_sample_rate = config.output_sample_rate;
@@ -1228,10 +1200,10 @@ mod tests {
         let config = mono_config(44_100, 48_000);
         let mut reused = Ardftsrc::new(config.clone()).unwrap();
         let mut reference = Ardftsrc::new(config).unwrap();
-        let first_input: Vec<f32> = (0..(reused.input_chunk_frames() * 2 + 11))
+        let first_input: Vec<f32> = (0..(input_chunk_frames(&reused) * 2 + 11))
             .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
             .collect();
-        let second_input: Vec<f32> = (0..(reused.input_chunk_frames() + 7))
+        let second_input: Vec<f32> = (0..(input_chunk_frames(&reused) + 7))
             .map(|frame| (frame as f32 * 0.013).cos() * 0.15)
             .collect();
 
@@ -1253,14 +1225,14 @@ mod tests {
     #[test]
     fn stereo_channels_are_processed_independently() {
         let mut resampler = Ardftsrc::new(stereo_config(44_100, 48_000)).unwrap();
-        let mut input = vec![0.0; resampler.input_buffer_size()];
+        let mut input = vec![0.0; resampler.input_chunk_size()];
         input[0] = 1.0;
 
         let output = resampler.process_all(&input).unwrap();
 
         assert_eq!(
             output.len(),
-            output_frame_count(resampler.input_chunk_frames(), 44_100, 48_000) * 2
+            resampler.expected_output_size(input_chunk_frames(&resampler)) * 2
         );
         assert!(output.iter().all(|sample| sample.is_finite()));
         assert!(output.chunks_exact(2).any(|frame| frame[0].abs() > 1e-6));
@@ -1272,7 +1244,7 @@ mod tests {
         let config = stereo_config(44_100, 48_000);
         let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let mut streaming = Ardftsrc::new(config).unwrap();
-        let input_frames = streaming.input_chunk_frames() * 2 + streaming.input_chunk_frames() / 3;
+        let input_frames = input_chunk_frames(&streaming) * 2 + input_chunk_frames(&streaming) / 3;
         let mut input = Vec::with_capacity(input_frames * 2);
         for frame in 0..input_frames {
             input.push((frame as f32 * 0.01).sin() * 0.25);
@@ -1281,11 +1253,11 @@ mod tests {
 
         let offline_output = offline.process_all(&input).unwrap();
 
-        let input_buffer_size = streaming.input_buffer_size();
+        let input_buffer_size = streaming.input_chunk_size();
         let full_chunks = input.len() / input_buffer_size;
         let has_partial = !input.len().is_multiple_of(input_buffer_size);
         let output_blocks = full_chunks + usize::from(has_partial) + 1;
-        let mut streaming_output = vec![0.0; output_blocks * streaming.output_buffer_size()];
+        let mut streaming_output = vec![0.0; output_blocks * streaming.output_chunk_size()];
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
@@ -1313,7 +1285,7 @@ mod tests {
     #[test]
     fn rejects_wrong_streaming_chunk_size() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; resampler.input_chunk_frames() - 1];
+        let input = vec![0.0; input_chunk_frames(&resampler) - 1];
 
         assert!(resampler.process_chunk(&input, &mut []).is_err());
     }
@@ -1321,8 +1293,8 @@ mod tests {
     #[test]
     fn too_small_output_does_not_advance_stream_state() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; resampler.input_chunk_frames()];
-        let mut too_small = vec![0.0; resampler.output_chunk_frames() - 1];
+        let input = vec![0.0; input_chunk_frames(&resampler)];
+        let mut too_small = vec![0.0; output_chunk_frames(&resampler) - 1];
 
         assert!(matches!(
             resampler.process_chunk(&input, &mut too_small),
@@ -1330,8 +1302,8 @@ mod tests {
         ));
         assert_eq!(resampler.input_sample_count(), 0);
 
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
-        let expected = resampler.output_chunk_frames() - resampler.output_delay_frames();
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
+        let expected = output_chunk_frames(&resampler) - resampler.output_delay_frames();
         assert_eq!(resampler.process_chunk(&input, &mut output).unwrap(), expected);
         assert_eq!(resampler.input_sample_count(), input.len());
     }
@@ -1339,8 +1311,8 @@ mod tests {
     #[test]
     fn input_sample_count_tracks_full_and_partial_stream_input() {
         let mut resampler = Ardftsrc::new(stereo_config(44_100, 48_000)).unwrap();
-        let mut output = vec![0.0; resampler.output_buffer_size()];
-        let full = vec![0.0; resampler.input_buffer_size()];
+        let mut output = vec![0.0; resampler.output_chunk_size()];
+        let full = vec![0.0; resampler.input_chunk_size()];
         let partial = vec![0.0; 10];
 
         assert_eq!(resampler.input_sample_count(), 0);
@@ -1353,8 +1325,8 @@ mod tests {
     #[test]
     fn too_small_finish_output_does_not_mark_flushed() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; resampler.input_chunk_frames()];
-        let mut first_output = vec![0.0; resampler.output_chunk_frames()];
+        let input = vec![0.0; input_chunk_frames(&resampler)];
+        let mut first_output = vec![0.0; output_chunk_frames(&resampler)];
         resampler.process_chunk(&input, &mut first_output).unwrap();
 
         let mut too_small = vec![0.0; resampler.output_delay_frames() - 1];
@@ -1364,7 +1336,7 @@ mod tests {
             Err(Error::InsufficientOutputBuffer { .. })
         ));
 
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
         assert_eq!(
             resampler.finalize(&mut output).unwrap(),
             resampler.output_delay_frames()
@@ -1374,16 +1346,16 @@ mod tests {
     #[test]
     fn first_chunk_is_delay_trimmed_and_flushes_tail() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; resampler.input_chunk_frames()];
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let input = vec![0.0; input_chunk_frames(&resampler)];
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         let first_written = resampler.process_chunk(&input, &mut output).unwrap();
         let flush_written = resampler.finalize(&mut output).unwrap();
 
-        assert_eq!(first_written + flush_written, resampler.output_chunk_frames());
+        assert_eq!(first_written + flush_written, output_chunk_frames(&resampler));
         assert_eq!(
             first_written,
-            resampler.output_chunk_frames() - resampler.output_delay_frames()
+            output_chunk_frames(&resampler) - resampler.output_delay_frames()
         );
         assert_eq!(flush_written, resampler.output_delay_frames());
     }
@@ -1391,10 +1363,10 @@ mod tests {
     #[test]
     fn finalize_without_explicit_final_chunk_caps_to_expected_total() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; resampler.input_chunk_frames()];
+        let input = vec![0.0; input_chunk_frames(&resampler)];
         let input_samples = input.len() * 2;
-        let expected_total = resampler.output_sample_count(input_samples).unwrap();
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let expected_total = resampler.expected_output_size(input_samples);
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         let first_written = resampler.process_chunk(&input, &mut output).unwrap();
         let second_written = resampler.process_chunk(&input, &mut output).unwrap();
@@ -1406,8 +1378,8 @@ mod tests {
     #[test]
     fn empty_finish_does_not_emit_extra_block() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; resampler.input_chunk_frames()];
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let input = vec![0.0; input_chunk_frames(&resampler)];
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         resampler.process_chunk(&input, &mut output).unwrap();
         assert_eq!(resampler.process_chunk_final(&[], &mut output).unwrap(), 0);
@@ -1420,7 +1392,7 @@ mod tests {
     #[test]
     fn empty_stream_flushes_no_samples() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         assert_eq!(resampler.process_chunk_final(&[], &mut output).unwrap(), 0);
         assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
@@ -1430,7 +1402,7 @@ mod tests {
     fn second_finish_after_reset_returns_zero_without_input() {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
 
-        let mut output = vec![0.0; resampler.output_chunk_frames()];
+        let mut output = vec![0.0; output_chunk_frames(&resampler)];
         assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
         assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
     }
@@ -1460,7 +1432,7 @@ mod tests {
         let config = mono_config(44_100, 48_000);
         let mut chunk_resampler = Ardftsrc::new(config.clone()).unwrap();
         let mut sample_resampler = Ardftsrc::new(config).unwrap();
-        let input: Vec<f32> = (0..chunk_resampler.input_buffer_size())
+        let input: Vec<f32> = (0..chunk_resampler.input_chunk_size())
             .map(|frame| (frame as f32 * 0.013).sin() * 0.3)
             .collect();
 
@@ -1468,10 +1440,10 @@ mod tests {
         sample_resampler.write_samples(&input[..split]).unwrap();
         sample_resampler.write_samples(&input[split..]).unwrap();
 
-        let mut sample_output = vec![0.0; sample_resampler.output_buffer_size()];
+        let mut sample_output = vec![0.0; sample_resampler.output_chunk_size()];
         let sample_written = sample_resampler.read_samples(&mut sample_output);
 
-        let mut chunk_output = vec![0.0; chunk_resampler.output_buffer_size()];
+        let mut chunk_output = vec![0.0; chunk_resampler.output_chunk_size()];
         let chunk_written = chunk_resampler.process_chunk(&input, &mut chunk_output).unwrap();
 
         assert_eq!(sample_written, chunk_written);
@@ -1488,7 +1460,7 @@ mod tests {
         let config = mono_config(44_100, 48_000);
         let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let driver = Ardftsrc::<f32>::new(config.clone()).unwrap();
-        let input_frames = driver.input_chunk_frames() * 2 + driver.input_chunk_frames() / 3;
+        let input_frames = input_chunk_frames(&driver) * 2 + input_chunk_frames(&driver) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.008).sin() * 0.25)
             .collect();
@@ -1507,7 +1479,7 @@ mod tests {
         let config = stereo_config(44_100, 48_000);
         let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let driver = Ardftsrc::<f32>::new(config.clone()).unwrap();
-        let input_frames = driver.input_chunk_frames() * 2 + 17;
+        let input_frames = input_chunk_frames(&driver) * 2 + 17;
         let mut input = Vec::with_capacity(input_frames * 2);
         for frame in 0..input_frames {
             input.push((frame as f32 * 0.01).sin() * 0.25);
@@ -1528,7 +1500,7 @@ mod tests {
         let config = mono_config(44_100, 48_000);
         let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let mut stream = Ardftsrc::new(config).unwrap();
-        let input_frames = stream.input_chunk_frames() + stream.input_chunk_frames() / 4;
+        let input_frames = input_chunk_frames(&stream) + input_chunk_frames(&stream) / 4;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.011).sin() * 0.2)
             .collect();
@@ -1557,7 +1529,7 @@ mod tests {
     #[test]
     fn write_samples_after_finalize_samples_starts_new_stream() {
         let mut stream = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
-        let chunk = stream.input_buffer_size();
+        let chunk = stream.input_chunk_size();
         let first = vec![0.1f32; chunk];
         let second = vec![0.2f32; chunk];
 
@@ -1574,7 +1546,7 @@ mod tests {
     fn batch_test() {
         let config = mono_config(44_100, 48_000);
         let driver = Ardftsrc::new(config.clone()).unwrap();
-        let chunk = driver.input_chunk_frames();
+        let chunk = input_chunk_frames(&driver);
         let tracks: Vec<Vec<f32>> = vec![
             (0..(chunk + 17))
                 .map(|frame| (frame as f32 * 0.009).sin() * 0.2)

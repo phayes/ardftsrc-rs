@@ -89,7 +89,7 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
             };
             let mut resampler: Ardftsrc<f64> = Ardftsrc::new(config).unwrap();
             let input_frames = fixture.samples.len() / fixture.channels;
-            let output_frames = resampler.output_frame_count(input_frames);
+            let output_frames = resampler.expected_output_size(input_frames);
             let output_samples = output_frames * fixture.channels;
             group.throughput(Throughput::Elements(output_samples as u64));
             let bench_id = BenchmarkId::new(&fixture.name, format!("to_{target_label}"));

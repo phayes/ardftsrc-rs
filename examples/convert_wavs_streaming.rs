@@ -55,7 +55,7 @@ fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error
         },
     )?;
 
-    let output_samples_target = resampler.output_frame_count(input_frames) * channels;
+    let output_samples_target = resampler.expected_output_size(input_frames) * channels;
     let samples_written = match spec.sample_format {
         SampleFormat::Float => stream_samples(
             reader.samples::<f32>(),
@@ -110,8 +110,8 @@ fn stream_samples<I>(
 where
     I: IntoIterator<Item = Result<f32, hound::Error>>,
 {
-    let input_buffer_size = resampler.input_buffer_size();
-    let output_buffer_size = resampler.output_buffer_size();
+    let input_buffer_size = resampler.input_chunk_size();
+    let output_buffer_size = resampler.output_chunk_size();
     let mut input_chunk = vec![0.0; input_buffer_size];
     let mut output_chunk = vec![0.0; output_buffer_size];
     let mut input_len = 0;
