@@ -211,12 +211,12 @@ let config = ardftsrc::PRESET_GOOD
   .with_channels(2);
 ```
 
-| Preset           |                             Parameters | Recommended use                                                                                                  | Performance  |
-| ---------------- | -------------------------------------: | ---------------------------------------------------------------------------------------------------------------- | ------------ |
-| `PRESET_FAST`    | `quality=512` `bandwidth=0.8323`       | Fast preset for realtime workloads. Prefer a sinc resampler such as [`rubato`](https://crates.io/crates/rubato). | TODO         |
-| `PRESET_GOOD`    | `quality=2048` `bandwidth=0.95`        | Balanced preset for realtime quality.                                                                            | TODO         |
-| `PRESET_HIGH`    | `quality=65536` `bandwidth=0.97`       | High quality for offline or quality-focused realtime use.                                                        | TODO         |
-| `PRESET_EXTREME` | `quality=524288` `bandwidth=0.9932`    | Maximum quality, intended for offline use.                                                                       | TODO         |
+| Preset           |                             Parameters | Recommended use                                                                                                  | Quality Metrics  |
+| ---------------- | -------------------------------------: | ---------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `PRESET_FAST`    | `quality=512` `bandwidth=0.8323`       | Fast preset for realtime workloads. Prefer a sinc resampler such as [`rubato`](https://crates.io/crates/rubato). | TODO             |
+| `PRESET_GOOD`    | `quality=2048` `bandwidth=0.95`        | Balanced preset for realtime quality.                                                                            | TODO             |
+| `PRESET_HIGH`    | `quality=65536` `bandwidth=0.97`       | High quality for offline or quality-focused realtime use.                                                        | TODO             |
+| `PRESET_EXTREME` | `quality=524288` `bandwidth=0.9932`    | Maximum quality, intended for offline use.                                                                       | TODO             |
 
 
 ## Feature Flags
