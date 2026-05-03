@@ -280,4 +280,6 @@ AI use is allowed for the following:
 3. Add support for `phase` config.
 4. Calc performance metrics and post links
 5. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
-6. Add bindings to other languages, python, ts (wasm) etc. 
+6. Add bindings to other languages, python, ts (wasm) etc.
+7. Seperate out lib from bin in a workspace
+8. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
