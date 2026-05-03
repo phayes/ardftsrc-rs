@@ -1,25 +1,36 @@
-#!/usr/bin/env rust-script
-
-//! ```cargo
-//! [dependencies]
-//! md5 = "0.8"
-//! serde = { version = "1.0", features = ["derive"] }
-//! serde_json = "1.0"
-//! wavers = "1.5.1"
-//! ardftsrc = { path = "..", features = ["rayon"] }
-//! ```
-
+#![cfg(all(
+    target_arch = "aarch64",
+    not(debug_assertions),
+    not(feature = "avx"),
+    not(feature = "neon"),
+    not(feature = "sse"),
+    not(feature = "wasm_simd")
+))]
+//!
+//! The golden_hashes test validates resampler determinism against checked-in
+//! golden outputs in test_wavs/golden_hashes.aarch64.json. It is intended to catch
+//! unintended behavior changes.
+//!
+//! Run it with:
+//!
+//! cargo test --release --features=rayon golden_hashes -- --nocapture
+//!
+//! To regenerate test_wavs/golden_hashes.aarch64.json:
+//!
+//! rust-script script/genreate_golden_hashes.rs
+//!
+//! Updates to test_wavs/golden_hashes.aarch64.json are allowed, but only when accompanied
+//! by verifiable quality improvements demonstrated with the HydrogenAudio SRC
+//! test suite.
 use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
-use serde::Serialize;
+use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use wavers::{Wav, read};
 
-const TARGET_RATES: [usize; 4] = [22_050, 44_100, 48_000, 96_000];
-const OUTPUT_DIR: &str = "test_wavs";
-const OUTPUT_BASENAME: &str = "golden_hashes";
+const GOLDEN_HASHES_PATH: &str = "test_wavs/golden_hashes.aarch64.json";
 const WAV_DIR: &str = "test_wavs";
 
 #[derive(Clone)]
@@ -55,7 +66,7 @@ struct WavInput {
     samples: Vec<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 struct GoldenEntry {
     float_type: String,
     preset: String,
@@ -63,16 +74,25 @@ struct GoldenEntry {
     hashes: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-struct GoldenHashesFile {
-    platform: String,
-    entries: Vec<GoldenEntry>,
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum GoldenHashesFileFormat {
+    PlatformTagged {
+        platform: String,
+        entries: Vec<GoldenEntry>,
+    },
+    Legacy(Vec<GoldenEntry>),
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let wav_paths = collect_wav_paths(Path::new(WAV_DIR))?;
+#[test]
+fn golden_hashes_match() -> Result<(), Box<dyn Error>> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let wav_dir = manifest_dir.join(WAV_DIR);
+    let golden_path = manifest_dir.join(GOLDEN_HASHES_PATH);
+
+    let wav_paths = collect_wav_paths(&wav_dir)?;
     if wav_paths.is_empty() {
-        return Err(format!("no WAV files found in '{WAV_DIR}'").into());
+        return Err(format!("no WAV files found in '{}'", wav_dir.display()).into());
     }
 
     let wavs = wav_paths
@@ -80,39 +100,57 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(|path| read_wav(path))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut entries = Vec::new();
-    for target_rate in TARGET_RATES {
-        for preset in PRESETS {
-            let f32_hashes = generate_hashes(&wavs, preset.base.clone(), target_rate)?;
-            entries.push(GoldenEntry {
-                float_type: "f32".to_owned(),
-                preset: preset.name.to_owned(),
-                target_rate,
-                hashes: f32_hashes,
-            });
+    let golden_json = fs::read_to_string(&golden_path)?;
+    let golden_entries = parse_golden_entries(&golden_json)?;
 
-            let f64_hashes = generate_hashes_f64_from_f32(&wavs, preset.base.clone(), target_rate)?;
-            entries.push(GoldenEntry {
-                float_type: "f64".to_owned(),
-                preset: preset.name.to_owned(),
-                target_rate,
-                hashes: f64_hashes,
-            });
-        }
+    if golden_entries.is_empty() {
+        return Err(format!("no entries found in '{}'", golden_path.display()).into());
     }
 
-    let platform = std::env::consts::ARCH.to_owned();
-    let output_path = output_path_for_platform(&platform);
-    let payload = GoldenHashesFile { platform, entries };
-    let json = serde_json::to_string_pretty(&payload)?;
-    fs::write(&output_path, json)?;
-    println!("Wrote {}", output_path);
+    for entry in golden_entries {
+        let preset_base = preset_config_for_name(&entry.preset)?;
+        let actual_hashes = match entry.float_type.as_str() {
+            "f32" => generate_hashes_f32(&wavs, preset_base, entry.target_rate)?,
+            "f64" => generate_hashes_f64_from_f32(&wavs, preset_base, entry.target_rate)?,
+            other => {
+                return Err(format!("unsupported float_type in golden hashes: '{other}'").into());
+            }
+        };
+
+        assert_eq!(
+            entry.hashes, actual_hashes,
+            "hash mismatch for float_type='{}', preset='{}', target_rate={}",
+            entry.float_type, entry.preset, entry.target_rate
+        );
+    }
 
     Ok(())
 }
 
-fn output_path_for_platform(platform: &str) -> String {
-    format!("{OUTPUT_DIR}/{OUTPUT_BASENAME}.{platform}.json")
+fn parse_golden_entries(golden_json: &str) -> Result<Vec<GoldenEntry>, Box<dyn Error>> {
+    let parsed: GoldenHashesFileFormat = serde_json::from_str(golden_json)?;
+    let entries = match parsed {
+        GoldenHashesFileFormat::PlatformTagged { platform, entries } => {
+            let expected_platform = std::env::consts::ARCH;
+            if platform != expected_platform {
+                return Err(format!(
+                    "golden hash platform mismatch: expected '{expected_platform}', found '{platform}'"
+                )
+                .into());
+            }
+            entries
+        }
+        GoldenHashesFileFormat::Legacy(entries) => entries,
+    };
+    Ok(entries)
+}
+
+fn preset_config_for_name(name: &str) -> Result<Config, Box<dyn Error>> {
+    PRESETS
+        .iter()
+        .find(|preset| preset.name == name)
+        .map(|preset| preset.base.clone())
+        .ok_or_else(|| format!("unknown preset in golden hashes: '{name}'").into())
 }
 
 fn collect_wav_paths(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
@@ -155,7 +193,7 @@ fn read_wav(path: &Path) -> Result<WavInput, Box<dyn Error>> {
     })
 }
 
-fn generate_hashes(
+fn generate_hashes_f32(
     wavs: &[WavInput],
     preset_base: Config,
     target_rate: usize,
@@ -212,7 +250,6 @@ fn generate_hashes_f64_from_f32(
             .with_output_rate(target_rate)
             .with_channels(channels);
         let driver = Ardftsrc::<f64>::new(config)?;
-
         let inputs_f64 = indices
             .iter()
             .map(|&i| wavs[i].samples.iter().map(|&v| v as f64).collect::<Vec<f64>>())
@@ -261,4 +298,3 @@ fn hash_interleaved_channels(
 
     Ok(channel_hashes)
 }
-
