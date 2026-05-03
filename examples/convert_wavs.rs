@@ -1,9 +1,9 @@
 use ardftsrc::{Ardftsrc, Config};
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wavers::{Wav, read, write};
 
 const OUTPUT_SAMPLE_RATE_HZ: usize = 48_000;
 const INPUT_WAVS: &[&str] = &[
@@ -60,51 +60,21 @@ struct WavData {
 }
 
 fn read_wav_f32(path: &Path) -> Result<WavData, Box<dyn Error>> {
-    let mut reader = WavReader::open(path)?;
-    let spec = reader.spec();
-    let samples = match spec.sample_format {
-        SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
-        SampleFormat::Int => read_int_samples(&mut reader, spec.bits_per_sample)?,
-    };
+    let wav = Wav::<f32>::from_path(path)?;
+    let channels = wav.n_channels() as usize;
+    let sample_rate_hz = wav.sample_rate() as u32;
+    let (samples, _) = read::<f32, _>(path)?;
 
     Ok(WavData {
-        samples,
-        channels: spec.channels as usize,
-        sample_rate_hz: spec.sample_rate,
+        samples: samples.to_vec(),
+        channels,
+        sample_rate_hz,
     })
 }
 
-fn read_int_samples<R: std::io::Read>(
-    reader: &mut WavReader<R>,
-    bits_per_sample: u16,
-) -> Result<Vec<f32>, hound::Error> {
-    let scale = (1_i64 << (bits_per_sample.saturating_sub(1) as u32)) as f32;
-
-    if bits_per_sample <= 16 {
-        reader
-            .samples::<i16>()
-            .map(|sample| sample.map(|sample| sample as f32 / scale))
-            .collect()
-    } else {
-        reader
-            .samples::<i32>()
-            .map(|sample| sample.map(|sample| sample as f32 / scale))
-            .collect()
-    }
-}
-
-fn write_wav_f32(path: &Path, channels: usize, sample_rate_hz: u32, samples: &[f32]) -> Result<(), hound::Error> {
-    let spec = WavSpec {
-        channels: channels as u16,
-        sample_rate: sample_rate_hz,
-        bits_per_sample: 32,
-        sample_format: SampleFormat::Float,
-    };
-    let mut writer = WavWriter::create(path, spec)?;
-    for sample in samples {
-        writer.write_sample(*sample)?;
-    }
-    writer.finalize()
+fn write_wav_f32(path: &Path, channels: usize, sample_rate_hz: u32, samples: &[f32]) -> Result<(), Box<dyn Error>> {
+    write(path, samples, sample_rate_hz as i32, channels as u16)?;
+    Ok(())
 }
 
 fn temp_output_dir() -> Result<PathBuf, Box<dyn Error>> {

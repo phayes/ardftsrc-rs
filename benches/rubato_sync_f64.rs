@@ -5,9 +5,9 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use hound::{SampleFormat, WavReader};
 use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
 use rubato::{Fft, FixedSync, Resampler};
+use wavers::{Wav, read};
 
 const BENCH_CHUNK_SIZE: usize = 512;
 const BENCH_SUB_CHUNKS: usize = 1;
@@ -30,17 +30,12 @@ struct WavData {
 }
 
 fn read_wav_f64(path: &Path) -> WavData {
-    let mut reader =
-        WavReader::open(path).unwrap_or_else(|err| panic!("failed to open fixture {}: {err}", path.display()));
-    let spec = reader.spec();
-    let samples = match spec.sample_format {
-        SampleFormat::Float => reader
-            .samples::<f32>()
-            .map(|sample| sample.map(f64::from))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap_or_else(|err| panic!("failed to read float samples {}: {err}", path.display())),
-        SampleFormat::Int => read_int_samples(&mut reader, spec.bits_per_sample, path),
-    };
+    let wav =
+        Wav::<f64>::from_path(path).unwrap_or_else(|err| panic!("failed to open fixture {}: {err}", path.display()));
+    let (samples, _) =
+        read::<f64, _>(path).unwrap_or_else(|err| panic!("failed to read samples {}: {err}", path.display()));
+    let channels = wav.n_channels() as usize;
+    let sample_vec = samples.to_vec();
 
     WavData {
         name: path
@@ -48,27 +43,10 @@ fn read_wav_f64(path: &Path) -> WavData {
             .and_then(|stem| stem.to_str())
             .unwrap_or("fixture")
             .to_string(),
-        sample_rate_hz: spec.sample_rate as usize,
-        channels: spec.channels as usize,
-        frame_count: samples.len() / spec.channels as usize,
-        planar_samples: interleaved_to_planar(&samples, spec.channels as usize),
-    }
-}
-
-fn read_int_samples<R: std::io::Read>(reader: &mut WavReader<R>, bits_per_sample: u16, path: &Path) -> Vec<f64> {
-    let scale = (1_i64 << (bits_per_sample.saturating_sub(1) as u32)) as f64;
-    if bits_per_sample <= 16 {
-        reader
-            .samples::<i16>()
-            .map(|sample| sample.map(|sample| sample as f64 / scale))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap_or_else(|err| panic!("failed to read int16 samples {}: {err}", path.display()))
-    } else {
-        reader
-            .samples::<i32>()
-            .map(|sample| sample.map(|sample| sample as f64 / scale))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap_or_else(|err| panic!("failed to read int32 samples {}: {err}", path.display()))
+        sample_rate_hz: wav.sample_rate() as usize,
+        channels,
+        frame_count: sample_vec.len() / channels,
+        planar_samples: interleaved_to_planar(&sample_vec, channels),
     }
 }
 

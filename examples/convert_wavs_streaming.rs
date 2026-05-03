@@ -1,9 +1,9 @@
 use ardftsrc::{Ardftsrc, Config};
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wavers::{Wav, write};
 
 const OUTPUT_SAMPLE_RATE_HZ: usize = 48_000;
 const INPUT_WAVS: &[&str] = &[
@@ -25,12 +25,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let mut reader = WavReader::open(input_path)?;
-    let spec = reader.spec();
-    let channels = spec.channels as usize;
-    let input_frames = reader.duration() as usize / channels;
+    let mut reader = Wav::<f32>::from_path(input_path)?;
+    let channels = reader.n_channels() as usize;
+    let input_samples = reader.n_samples();
+    let input_frames = input_samples / channels;
     let config = Config {
-        input_sample_rate: spec.sample_rate as usize,
+        input_sample_rate: reader.sample_rate() as usize,
         output_sample_rate: OUTPUT_SAMPLE_RATE_HZ,
         channels,
         ..Config::default()
@@ -45,53 +45,19 @@ fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error
             .unwrap_or("converted"),
         OUTPUT_SAMPLE_RATE_HZ
     ));
-    let mut writer = WavWriter::create(
-        &output_path,
-        WavSpec {
-            channels: channels as u16,
-            sample_rate: OUTPUT_SAMPLE_RATE_HZ as u32,
-            bits_per_sample: 32,
-            sample_format: SampleFormat::Float,
-        },
-    )?;
-
     let output_samples_target = resampler.expected_output_size(input_frames) * channels;
-    let samples_written = match spec.sample_format {
-        SampleFormat::Float => stream_samples(
-            reader.samples::<f32>(),
-            &mut resampler,
-            &mut writer,
-            output_samples_target,
-        )?,
-        SampleFormat::Int if spec.bits_per_sample <= 16 => {
-            let scale = int_scale(spec.bits_per_sample);
-            stream_samples(
-                reader
-                    .samples::<i16>()
-                    .map(move |sample| sample.map(|sample| sample as f32 / scale)),
-                &mut resampler,
-                &mut writer,
-                output_samples_target,
-            )?
-        }
-        SampleFormat::Int => {
-            let scale = int_scale(spec.bits_per_sample);
-            stream_samples(
-                reader
-                    .samples::<i32>()
-                    .map(move |sample| sample.map(|sample| sample as f32 / scale)),
-                &mut resampler,
-                &mut writer,
-                output_samples_target,
-            )?
-        }
-    };
-
-    writer.finalize()?;
+    let (samples_written, output_samples) =
+        stream_samples(&mut reader, &mut resampler, output_samples_target)?;
+    write(
+        &output_path,
+        &output_samples,
+        OUTPUT_SAMPLE_RATE_HZ as i32,
+        channels as u16,
+    )?;
     println!(
         "{}: {} Hz -> {} Hz, {} frames -> {} frames",
         input_path.display(),
-        spec.sample_rate,
+        reader.sample_rate(),
         OUTPUT_SAMPLE_RATE_HZ,
         input_frames,
         samples_written / channels
@@ -101,33 +67,38 @@ fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error
     Ok(())
 }
 
-fn stream_samples<I>(
-    samples: I,
+fn stream_samples(
+    reader: &mut Wav<f32>,
     resampler: &mut Ardftsrc,
-    writer: &mut WavWriter<std::io::BufWriter<std::fs::File>>,
     output_samples_target: usize,
-) -> Result<usize, Box<dyn Error>>
-where
-    I: IntoIterator<Item = Result<f32, hound::Error>>,
-{
+) -> Result<(usize, Vec<f32>), Box<dyn Error>> {
     let input_buffer_size = resampler.input_chunk_size();
     let output_buffer_size = resampler.output_chunk_size();
     let mut input_chunk = vec![0.0; input_buffer_size];
     let mut output_chunk = vec![0.0; output_buffer_size];
     let mut input_len = 0;
     let mut samples_written = 0;
+    let mut output_samples = Vec::with_capacity(output_samples_target);
+    let mut samples_read = 0;
+    let total_samples = reader.n_samples();
 
-    for sample in samples {
-        input_chunk[input_len] = sample?;
-        input_len += 1;
+    while samples_read < total_samples {
+        let read_count = (total_samples - samples_read).min(input_buffer_size - input_len);
+        let chunk = reader.read_samples(read_count)?;
+        if chunk.is_empty() {
+            break;
+        }
+        input_chunk[input_len..input_len + chunk.len()].copy_from_slice(&chunk);
+        input_len += chunk.len();
+        samples_read += chunk.len();
 
         if input_len == input_buffer_size {
             let written = resampler.process_chunk(&input_chunk, &mut output_chunk)?;
-            samples_written += write_limited(
-                writer,
+            samples_written += collect_limited(
+                &mut output_samples,
                 &output_chunk[..written],
                 output_samples_target - samples_written,
-            )?;
+            );
             input_len = 0;
         }
     }
@@ -141,37 +112,31 @@ where
             .into());
         }
         let written = resampler.process_chunk_final(&input_chunk[..input_len], &mut output_chunk)?;
-        samples_written += write_limited(
-            writer,
+        samples_written += collect_limited(
+            &mut output_samples,
             &output_chunk[..written],
             output_samples_target - samples_written,
-        )?;
+        );
     }
 
     let written = resampler.finalize(&mut output_chunk)?;
-    samples_written += write_limited(
-        writer,
+    samples_written += collect_limited(
+        &mut output_samples,
         &output_chunk[..written],
         output_samples_target - samples_written,
-    )?;
+    );
 
-    Ok(samples_written)
+    Ok((samples_written, output_samples))
 }
 
-fn write_limited(
-    writer: &mut WavWriter<std::io::BufWriter<std::fs::File>>,
+fn collect_limited(
+    output_samples: &mut Vec<f32>,
     samples: &[f32],
     remaining: usize,
-) -> Result<usize, hound::Error> {
+) -> usize {
     let samples_to_write = samples.len().min(remaining);
-    for sample in samples.iter().take(samples_to_write) {
-        writer.write_sample(*sample)?;
-    }
-    Ok(samples_to_write)
-}
-
-fn int_scale(bits_per_sample: u16) -> f32 {
-    (1_i64 << (bits_per_sample.saturating_sub(1) as u32)) as f32
+    output_samples.extend_from_slice(&samples[..samples_to_write]);
+    samples_to_write
 }
 
 fn temp_output_dir() -> Result<PathBuf, Box<dyn Error>> {
