@@ -230,14 +230,6 @@ let config = ardftsrc::PRESET_GOOD
 | `wasm_simd` | FFT WebAssembly SIMD backend                                | No      |
 
 
-## TODOs:
-
-1. ardftsrc-rs has pathological RSS metrics. It's doing something that's making the allocator very unhappy. Need to track this down. 
-2. Add support for `phase` config.
-3. Calc performance metrics and post link
-4. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
-5. Add bindings to other languages, python, ts (wasm) etc. 
-
 ## Contributing
 
 Contributions are welcome!
@@ -280,3 +272,11 @@ AI use is allowed for the following:
 1. Code exploration and understanding
 2. Generating tests
 3. Creating normal code / function blocks as long as the code is then manually and carefully hand-edited by a human
+
+### Development TODOs:
+
+1. ardftsrc-rs has pathological RSS metrics. It's doing something that's making the allocator very unhappy. Need to track this down. 
+2. Add support for `phase` config.
+3. Calc performance metrics and post links
+4. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
+5. Add bindings to other languages, python, ts (wasm) etc. 
