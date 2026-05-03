@@ -275,10 +275,9 @@ AI use is allowed for the following:
 
 ### Development TODOs:
 
-1. ardftsrc-rs has pathological RSS metrics. It's doing something that's making the allocator very unhappy. Need to track this down.
-2. It is very sensitive to the allocatior (mimalloc gives 50% performance improvements), so we are perhaps thrashing the allocator somewhere that we didn't expect.
-3. the samples API does some allocations on every read / write we could avoid (not related to #2), is related to #6. 
-4. Add support for `phase` config.
-5. Calc performance metrics and post links
-6. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
-7. Add bindings to other languages, python, ts (wasm) etc. 
+1. It is very sensitive to the allocatior (mimalloc gives 50% performance improvements), so we are perhaps thrashing the allocator somewhere that we didn't expect.
+2. the samples API does some allocations on every read / write we could avoid, do this at the same time as #5. 
+3. Add support for `phase` config.
+4. Calc performance metrics and post links
+5. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
+6. Add bindings to other languages, python, ts (wasm) etc. 

@@ -8,8 +8,7 @@ It's meant to help gauge where ardftsrc-rs might fit in the rust-audio ecosystem
 1. rubato is faster than ardftsrc in all instances, even when rubato is running at "high quality sync"
 2. at higher quality levels (> fast) ardftsrc beats out rubato in quality
 3. pre-ringing is a minor issue for ardftsrc. This can be ameliorated by introducing a "phase" param (not done yet)
-4. They both use about the same amount of memory, but ardftsrc has pathological RSS metrics. 
-   It's doing something that's making the allocator very unhappy. Need to track this down.
+4. They both use about the same amount of memory. 
 5. rubato f64 performs significantly better than rubato f32. We should investigate using rubato with f64 even in a f32 pipeline (f32 -> f64 -> rubato::<f64> -> f64 -> f32). 
 
 ## Conclusion
@@ -117,3 +116,31 @@ are not appropriate for realtime and should only be used in an offline workflow.
 | Implementation | Max RSS (bytes) | Peak memory (bytes) |
 | -------------- | --------------: | ------------------: |
 | ardftsrc-rs    |     765,034,496 |          27,640,960 |
+
+
+
+
+###  MISC NOTES
+
+
+# Top planck score
+cargo run --release -p ardftsrc_src_test -- --workdir=./workspace --f64 --local --quality=61656210 --bandwidth=0.99 --taper-type=planck
+
+# Top alpha score cluster:
+
+  score    quality    bandwidth     alpha
+--------  ---------  -----------  --------
+99.73475   61656210    0.9951797       3.5
+
+99.73313   61656159    0.9951377  3.487196
+
+99.72821   61647053    0.9961132  3.484811
+
+
+OPTIMUM 512 / fast:
+
+  "params": {
+    "alpha": 2.6486085116993427,
+    "bandwidth": 0.8719081527878331
+  },
+  "score": 69.19481931034483

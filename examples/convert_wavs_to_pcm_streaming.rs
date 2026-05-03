@@ -1,9 +1,11 @@
 use ardftsrc::{Ardftsrc, Config};
 use std::error::Error;
 use std::fs;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wavers::{Wav, write};
+use wavers::Wav;
 
 const OUTPUT_SAMPLE_RATE_HZ: usize = 48_000;
 const INPUT_WAVS: &[&str] = &[
@@ -38,24 +40,19 @@ fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error
     let mut resampler = Ardftsrc::new(config)?;
 
     let output_path = output_dir.join(format!(
-        "{}_streaming_to_{}hz.wav",
+        "{}_streaming_to_{}hz_f32le.pcm",
         input_path
             .file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or("converted"),
         OUTPUT_SAMPLE_RATE_HZ
     ));
-    let output_samples_target = resampler.expected_output_size(input_frames) * channels;
-    let (samples_written, output_samples) =
-        stream_samples(&mut reader, &mut resampler, output_samples_target)?;
-    write(
-        &output_path,
-        &output_samples,
-        OUTPUT_SAMPLE_RATE_HZ as i32,
-        channels as u16,
-    )?;
+    let file = File::create(&output_path)?;
+    let mut writer = BufWriter::new(file);
+    let samples_written = stream_samples(&mut reader, &mut resampler, &mut writer)?;
+    writer.flush()?;
     println!(
-        "{}: {} Hz -> {} Hz, {} frames -> {} frames",
+        "{}: {} Hz -> {} Hz, {} frames -> {} frames (raw f32 LE PCM)",
         input_path.display(),
         reader.sample_rate(),
         OUTPUT_SAMPLE_RATE_HZ,
@@ -70,15 +67,15 @@ fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error
 fn stream_samples(
     reader: &mut Wav<f32>,
     resampler: &mut Ardftsrc,
-    output_samples_target: usize,
-) -> Result<(usize, Vec<f32>), Box<dyn Error>> {
+    writer: &mut BufWriter<File>,
+) -> Result<usize, Box<dyn Error>> {
     let input_buffer_size = resampler.input_chunk_size();
     let output_buffer_size = resampler.output_chunk_size();
     let mut input_chunk = vec![0.0; input_buffer_size];
     let mut output_chunk = vec![0.0; output_buffer_size];
+    let mut output_bytes = Vec::with_capacity(output_buffer_size * std::mem::size_of::<f32>());
     let mut input_len = 0;
     let mut samples_written = 0;
-    let mut output_samples = Vec::with_capacity(output_samples_target);
     let mut samples_read = 0;
     let total_samples = reader.n_samples();
 
@@ -94,11 +91,8 @@ fn stream_samples(
 
         if input_len == input_buffer_size {
             let written = resampler.process_chunk(&input_chunk, &mut output_chunk)?;
-            samples_written += collect_limited(
-                &mut output_samples,
-                &output_chunk[..written],
-                output_samples_target - samples_written,
-            );
+            write_f32le_pcm(writer, &mut output_bytes, &output_chunk[..written])?;
+            samples_written += written;
             input_len = 0;
         }
     }
@@ -112,31 +106,29 @@ fn stream_samples(
             .into());
         }
         let written = resampler.process_chunk_final(&input_chunk[..input_len], &mut output_chunk)?;
-        samples_written += collect_limited(
-            &mut output_samples,
-            &output_chunk[..written],
-            output_samples_target - samples_written,
-        );
+        write_f32le_pcm(writer, &mut output_bytes, &output_chunk[..written])?;
+        samples_written += written;
     }
 
     let written = resampler.finalize(&mut output_chunk)?;
-    samples_written += collect_limited(
-        &mut output_samples,
-        &output_chunk[..written],
-        output_samples_target - samples_written,
-    );
+    write_f32le_pcm(writer, &mut output_bytes, &output_chunk[..written])?;
+    samples_written += written;
 
-    Ok((samples_written, output_samples))
+    Ok(samples_written)
 }
 
-fn collect_limited(
-    output_samples: &mut Vec<f32>,
+fn write_f32le_pcm(
+    writer: &mut BufWriter<File>,
+    output_bytes: &mut Vec<u8>,
     samples: &[f32],
-    remaining: usize,
-) -> usize {
-    let samples_to_write = samples.len().min(remaining);
-    output_samples.extend_from_slice(&samples[..samples_to_write]);
-    samples_to_write
+) -> Result<(), Box<dyn Error>> {
+    output_bytes.clear();
+    output_bytes.reserve(samples.len() * std::mem::size_of::<f32>());
+    for sample in samples {
+        output_bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    writer.write_all(output_bytes)?;
+    Ok(())
 }
 
 fn temp_output_dir() -> Result<PathBuf, Box<dyn Error>> {
