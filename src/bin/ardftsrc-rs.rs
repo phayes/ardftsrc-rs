@@ -74,7 +74,7 @@ struct Args {
     #[arg(long, value_enum, default_value_t = PresetArg::High)]
     preset: PresetArg,
 
-    /// Override preset quality (higher is slower, typically higher quality).
+    /// Override preset quality (higher is slower, typically higher quality). Useful values are between 512 and 524288.
     #[arg(long)]
     quality: Option<usize>,
 
