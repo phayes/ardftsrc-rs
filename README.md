@@ -37,7 +37,7 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 
 There are two streaming modes, chunk based and sample based. 
 
-Use chunk streaming when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient and is preffered when you are able to control the buffer sizes.
+Use chunk streaming when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient and is preferred when you are able to control the buffer sizes.
 
 1. `process_chunk(...)` for each chunk, input and output slice sizes should match `input_chunk_size()` and `output_chunk_size()`
 2. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
@@ -93,7 +93,7 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
 Use sample streaming when you do not control buffer sizes. This API supports arbitrary input lengths (including single frames / samples), and handles internal chunking for you.
 
 1. Call `write_samples(...)` with any incoming input size and call `read_samples(...)` to drain available output.
-2. For multichannel streams, writes must still be interleaved by channel and be channel-aligned before finalization.
+2. For multichannel streams, writes must still be interleaved by channel and be channel-aligned before calling `finalize_samples()`.
 3. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
 
 Expect bursty read behavior when writing small numbers of samples at a time. To end the stream early, you can always just stop and call `reset()` on the stream.
@@ -186,7 +186,7 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 ## API Notes
 
 - Buffers are interleaved by channel.
-- Non-final `process_chunk(...)` input length must equal `input_buffer_size()`.
+- Non-final `process_chunk(...)` input length must equal `input_chunk_size()`.
 - `process_chunk_final(...)` accepts the trailing partial chunk (or empty slice).
 - Call `finalize(...)` exactly once per stream to emit delayed tail samples.
 
@@ -207,23 +207,23 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 
 ## Contributing
 
-Contribution are welcome!
+Contributions are welcome!
 
-The `wav_golden_copy` test validates resampler determinism against checked-in golden outputs in `test_wavs/golden_hashes.json`. It is intended to catch unintended behavior changes. 
+The `golden_hashes` test validates resampler determinism against checked-in golden outputs in `test_wavs/golden_hashes.<arch>.json`. It is intended to catch unintended behavior changes.
 
 Run it with:
 
 ```bash
-cargo test --release --features=rayon wav_golden_copy -- --nocapture
+cargo test --release --features=rayon golden_hashes -- --nocapture
 ```
 
-To regenerate `test_wavs/golden_hashes.json`:
+To regenerate `test_wavs/golden_hashes.<arch>.json`:
 
 ```bash
-rust-script script/genreate_golden_hashes.rs
+rust-script script/generate_golden_hashes.rs
 ```
 
-Updates to `test_wavs/golden_hashes.json` are allowed, but only when accompanied by verifiable quality improvements demonstrated with the HydrogenAudio SRC test suite.
+Updates to `test_wavs/golden_hashes.<arch>.json` are allowed, but only when accompanied by verifiable quality improvements demonstrated with the HydrogenAudio SRC test suite.
 
 ### AI Usage Policy
 
