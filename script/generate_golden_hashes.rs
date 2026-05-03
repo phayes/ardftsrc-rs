@@ -63,12 +63,6 @@ struct GoldenEntry {
     hashes: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-struct GoldenHashesFile {
-    platform: String,
-    entries: Vec<GoldenEntry>,
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
     let wav_paths = collect_wav_paths(Path::new(WAV_DIR))?;
     if wav_paths.is_empty() {
@@ -102,17 +96,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let platform = std::env::consts::ARCH.to_owned();
-    let output_path = output_path_for_platform(&platform);
-    let payload = GoldenHashesFile { platform, entries };
-    let json = serde_json::to_string_pretty(&payload)?;
+    let output_path =format!("{OUTPUT_DIR}/{OUTPUT_BASENAME}.{platform}.json");
+    let json = serde_json::to_string_pretty(&entries)?;
     fs::write(&output_path, json)?;
     println!("Wrote {}", output_path);
 
     Ok(())
-}
-
-fn output_path_for_platform(platform: &str) -> String {
-    format!("{OUTPUT_DIR}/{OUTPUT_BASENAME}.{platform}.json")
 }
 
 fn collect_wav_paths(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
