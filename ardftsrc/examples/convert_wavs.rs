@@ -7,10 +7,10 @@ use wavers::{Wav, read, write};
 
 const OUTPUT_SAMPLE_RATE_HZ: usize = 48_000;
 const INPUT_WAVS: &[&str] = &[
-    "test_wavs/example-pcm16-44k1-stereo.wav",
-    "test_wavs/sweep-pcm16-22k05.wav",
-    "test_wavs/gaplesstest_s-f32-96k.wav",
-    "test_wavs/gaplesstest_m-f32-96k.wav",
+    "../test_wavs/example-pcm16-44k1-stereo.wav",
+    "../test_wavs/sweep-pcm16-22k05.wav",
+    "../test_wavs/gaplesstest_s-f32-96k.wav",
+    "../test_wavs/gaplesstest_m-f32-96k.wav",
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {

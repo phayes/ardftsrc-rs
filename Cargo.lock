@@ -80,11 +80,8 @@ dependencies = [
 name = "ardftsrc"
 version = "0.0.1-alpha1"
 dependencies = [
- "clap",
  "criterion",
  "dasp_signal",
- "flac-codec",
- "i24",
  "md5",
  "mimalloc",
  "num-traits",
@@ -94,6 +91,18 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "wavers",
+]
+
+[[package]]
+name = "ardftsrc-rs"
+version = "0.0.1-alpha1"
+dependencies = [
+ "ardftsrc",
+ "clap",
+ "flac-codec",
+ "i24",
+ "mimalloc",
  "wavers",
 ]
 

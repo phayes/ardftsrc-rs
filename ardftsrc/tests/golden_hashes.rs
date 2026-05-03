@@ -1,17 +1,17 @@
 //!
 //! The golden_hashes test validates resampler determinism against checked-in
-//! golden outputs in test_wavs/golden_hashes.<arch>json. It is intended to catch
+//! golden outputs in ../test_wavs/golden_hashes.<arch>json. It is intended to catch
 //! unintended behavior changes.
 //!
 //! Run it with:
 //!
-//! cargo test --release --features=rayon golden_hashes -- --nocapture
+//! cargo test -p ardftsrc --release --features=rayon golden_hashes -- --nocapture
 //!
-//! To regenerate test_wavs/golden_hashes.<arch>.json:
+//! To regenerate ../test_wavs/golden_hashes.<arch>.json:
 //!
 //! rust-script script/genreate_golden_hashes.rs
 //!
-//! Updates to test_wavs/golden_hashes.<arch>.json are allowed, but only when accompanied
+//! Updates to ../test_wavs/golden_hashes.<arch>.json are allowed, but only when accompanied
 //! by verifiable quality improvements demonstrated with the HydrogenAudio SRC
 //! test suite.
 //! 
@@ -25,8 +25,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use wavers::{Wav, read};
 
-const GOLDEN_HASHES_PATH: &str = "test_wavs/golden_hashes.aarch64.json";
-const WAV_DIR: &str = "test_wavs";
+const GOLDEN_HASHES_PATH: &str = "../test_wavs/golden_hashes.aarch64.json";
+const WAV_DIR: &str = "../test_wavs";
 
 #[derive(Clone)]
 struct PresetSpec {

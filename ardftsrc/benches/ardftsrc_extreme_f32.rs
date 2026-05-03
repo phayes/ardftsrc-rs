@@ -7,15 +7,15 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use ardftsrc::{Ardftsrc, PRESET_FAST};
+use ardftsrc::{Ardftsrc, PRESET_EXTREME};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use wavers::{Wav, read};
 
 const TARGET_SAMPLE_RATES: &[(usize, &str)] = &[(22_050, "22k05"), (48_000, "48k"), (96_000, "96k")];
 const FIXTURE_PATHS: &[&str] = &[
-    "test_wavs/example-pcm16-44k1-stereo.wav",
-    "test_wavs/sweep-pcm16-22k05.wav",
-    "test_wavs/sweep-f32-96k.wav",
+    "../test_wavs/example-pcm16-44k1-stereo.wav",
+    "../test_wavs/sweep-pcm16-22k05.wav",
+    "../test_wavs/sweep-f32-96k.wav",
 ];
 const INTER_TEST_SLEEP: Duration = Duration::from_millis(100);
 
@@ -24,7 +24,7 @@ struct WavData {
     name: String,
     sample_rate_hz: usize,
     channels: usize,
-    samples: Vec<f64>,
+    samples: Vec<f32>,
 }
 
 fn read_wav_f32(path: &Path) -> WavData {
@@ -41,7 +41,7 @@ fn read_wav_f32(path: &Path) -> WavData {
             .to_string(),
         sample_rate_hz: wav.sample_rate() as usize,
         channels: wav.n_channels() as usize,
-        samples: samples.iter().map(|&sample| sample as f64).collect(),
+        samples: samples.to_vec(),
     }
 }
 
@@ -72,11 +72,11 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
     let mut group = c.benchmark_group("fast");
     for fixture in fixtures {
         for (target_sample_rate_hz, target_label) in TARGET_SAMPLE_RATES {
-            let config = PRESET_FAST
+            let config = PRESET_EXTREME
                 .with_input_rate(fixture.sample_rate_hz)
                 .with_output_rate(*target_sample_rate_hz)
                 .with_channels(fixture.channels);
-            let mut resampler: Ardftsrc<f64> = Ardftsrc::new(config).unwrap();
+            let mut resampler: Ardftsrc<f32> = Ardftsrc::new(config).unwrap();
             let input_frames = fixture.samples.len() / fixture.channels;
             let output_frames = resampler.expected_output_size(input_frames);
             let output_samples = output_frames * fixture.channels;

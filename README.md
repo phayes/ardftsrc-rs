@@ -254,7 +254,7 @@ The `golden_hashes` test validates resampler determinism against checked-in gold
 Run it with:
 
 ```bash
-cargo test --release --features=rayon golden_hashes -- --nocapture
+cargo test -p ardftsrc --release --features=rayon golden_hashes -- --nocapture
 ```
 
 To regenerate `test_wavs/golden_hashes.<arch>.json`:

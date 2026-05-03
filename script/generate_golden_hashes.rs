@@ -6,7 +6,7 @@
 //! serde = { version = "1.0", features = ["derive"] }
 //! serde_json = "1.0"
 //! wavers = "1.5.1"
-//! ardftsrc = { path = "..", features = ["rayon"] }
+//! ardftsrc = { path = "../ardftsrc", features = ["rayon"] }
 //! ```
 
 use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};

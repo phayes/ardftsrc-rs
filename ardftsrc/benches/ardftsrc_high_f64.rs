@@ -7,15 +7,15 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use ardftsrc::{Ardftsrc, PRESET_GOOD};
+use ardftsrc::{Ardftsrc, PRESET_HIGH};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use wavers::{Wav, read};
 
 const TARGET_SAMPLE_RATES: &[(usize, &str)] = &[(22_050, "22k05"), (48_000, "48k"), (96_000, "96k")];
 const FIXTURE_PATHS: &[&str] = &[
-    "test_wavs/example-pcm16-44k1-stereo.wav",
-    "test_wavs/sweep-pcm16-22k05.wav",
-    "test_wavs/sweep-f32-96k.wav",
+    "../test_wavs/example-pcm16-44k1-stereo.wav",
+    "../test_wavs/sweep-pcm16-22k05.wav",
+    "../test_wavs/sweep-f32-96k.wav",
 ];
 const INTER_TEST_SLEEP: Duration = Duration::from_millis(100);
 
@@ -72,7 +72,7 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
     let mut group = c.benchmark_group("fast");
     for fixture in fixtures {
         for (target_sample_rate_hz, target_label) in TARGET_SAMPLE_RATES {
-            let config = PRESET_GOOD
+            let config = PRESET_HIGH
                 .with_input_rate(fixture.sample_rate_hz)
                 .with_output_rate(*target_sample_rate_hz)
                 .with_channels(fixture.channels);

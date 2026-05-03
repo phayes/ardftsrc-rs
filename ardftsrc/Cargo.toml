@@ -1,0 +1,70 @@
+[package]
+name = "ardftsrc"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+num-traits.workspace = true
+realfft.workspace = true
+thiserror.workspace = true
+rayon = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion.workspace = true
+dasp_signal.workspace = true
+md5.workspace = true
+rubato.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+wavers.workspace = true
+mimalloc.workspace = true
+
+[[bench]]
+name = "ardftsrc_fast_f32"
+harness = false
+
+[[bench]]
+name = "ardftsrc_fast_f64"
+harness = false
+
+[[bench]]
+name = "ardftsrc_good_f32"
+harness = false
+
+[[bench]]
+name = "ardftsrc_good_f64"
+harness = false
+
+[[bench]]
+name = "ardftsrc_high_f32"
+harness = false
+
+[[bench]]
+name = "ardftsrc_high_f64"
+harness = false
+
+[[bench]]
+name = "ardftsrc_extreme_f32"
+harness = false
+
+[[bench]]
+name = "ardftsrc_extreme_f64"
+harness = false
+
+[[bench]]
+name = "rubato_sync"
+harness = false
+
+[[bench]]
+name = "rubato_sync_f64"
+harness = false
+
+[features]
+rayon = ["dep:rayon"]
+avx = ["realfft/avx"]
+neon = ["realfft/neon"]
+sse = ["realfft/sse"]
+wasm_simd = ["realfft/wasm_simd"]

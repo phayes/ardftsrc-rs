@@ -1,0 +1,22 @@
+[package]
+name = "ardftsrc-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Commmandline wav and flac sample-rate converter powered by ardftsrc."
+
+[dependencies]
+ardftsrc = { path = "../ardftsrc" }
+clap.workspace = true
+flac-codec.workspace = true
+i24.workspace = true
+mimalloc.workspace = true
+wavers.workspace = true
+
+[features]
+rayon = ["ardftsrc/rayon"]
+avx = ["ardftsrc/avx"]
+neon = ["ardftsrc/neon"]
+sse = ["ardftsrc/sse"]
+wasm_simd = ["ardftsrc/wasm_simd"]

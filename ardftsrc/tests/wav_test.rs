@@ -29,7 +29,7 @@ fn read_wav_as_f32(path: &Path) -> (Vec<f32>, usize, usize) {
 }
 
 fn collect_test_wav_paths() -> Vec<PathBuf> {
-    let wav_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("test_wavs");
+    let wav_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test_wavs");
     let mut paths = fs::read_dir(&wav_dir)
         .unwrap_or_else(|err| panic!("failed to read test_wavs directory '{}': {err}", wav_dir.display()))
         .filter_map(|entry| {

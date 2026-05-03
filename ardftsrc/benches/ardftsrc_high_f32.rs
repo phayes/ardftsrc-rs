@@ -13,9 +13,9 @@ use wavers::{Wav, read};
 
 const TARGET_SAMPLE_RATES: &[(usize, &str)] = &[(22_050, "22k05"), (48_000, "48k"), (96_000, "96k")];
 const FIXTURE_PATHS: &[&str] = &[
-    "test_wavs/example-pcm16-44k1-stereo.wav",
-    "test_wavs/sweep-pcm16-22k05.wav",
-    "test_wavs/sweep-f32-96k.wav",
+    "../test_wavs/example-pcm16-44k1-stereo.wav",
+    "../test_wavs/sweep-pcm16-22k05.wav",
+    "../test_wavs/sweep-f32-96k.wav",
 ];
 const INTER_TEST_SLEEP: Duration = Duration::from_millis(100);
 

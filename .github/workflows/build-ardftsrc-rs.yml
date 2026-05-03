@@ -52,9 +52,7 @@ jobs:
             export RUSTFLAGS="-C target-cpu=x86-64-v3"
           fi
 
-          cargo build --release \
-            --bin ardftsrc-rs \
-            --features "${{ steps.features.outputs.features }}"
+          cargo build --release --features "${{ steps.features.outputs.features }}"
 
       - name: Set artifact metadata
         id: artifact
