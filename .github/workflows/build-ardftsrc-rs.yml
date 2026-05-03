@@ -44,7 +44,17 @@ jobs:
           esac
 
       - name: Build release binary
-        run: cargo build --release --bin ardftsrc-rs --features "${{ steps.features.outputs.features }}"
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "macOS" && "${{ runner.arch }}" == "ARM64" ]]; then
+            export RUSTFLAGS="-C target-cpu=apple-m1"
+          elif [[ "${{ runner.arch }}" == "X64" ]]; then
+            export RUSTFLAGS="-C target-cpu=x86-64-v3"
+          fi
+
+          cargo build --release \
+            --bin ardftsrc-rs \
+            --features "${{ steps.features.outputs.features }}"
 
       - name: Set artifact metadata
         id: artifact
