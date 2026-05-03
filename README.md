@@ -289,10 +289,9 @@ AI use is allowed for the following:
 ### Development TODOs:
 
 1. It is very sensitive to the allocatior (mimalloc gives 50% performance improvements), so we are perhaps thrashing the allocator somewhere that we didn't expect.
-2. the samples API does some allocations on every read / write we could avoid, fix this at the same time as #5, since it's related to orchestrating interleaved samples to planar. 
+2. the samples API does some allocations on every read / write we could avoid, this will be fixed in #5
 3. Add support for `phase` config.
 4. Calc performance metrics and post links
-5. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
+5. Move to [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
 6. Add bindings to other languages, python, ts (wasm) etc.
-7. Seperate out lib from bin in a workspace
-8. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
+7. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
