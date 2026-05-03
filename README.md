@@ -162,4 +162,4 @@ AI use is allowed for the following:
 
 1. Code exploration and understanding
 2. Generating tests
-3. Creating normal code / function blocks as long as the code is then manually hand-edited by a human
+3. Creating normal code / function blocks as long as the code is then manually and carefully hand-edited by a human
