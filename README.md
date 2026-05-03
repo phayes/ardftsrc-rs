@@ -224,10 +224,10 @@ let config = ardftsrc::PRESET_GOOD
 | Flag        | Enables                                                     | Default |
 | ----------- | ----------------------------------------------------------- | ------- |
 | `rayon`     | Parallel processing (channel and track parallelism)         | No      |
-| `avx`       | `realfft` AVX backend                                       | No      |
-| `sse`       | `realfft` SSE backend                                       | No      |
-| `neon`      | `realfft` NEON backend                                      | No      |
-| `wasm_simd` | `realfft` WebAssembly SIMD backend                          | No      |
+| `avx`       | FFT AVX backend                                             | No      |
+| `sse`       | FFT SSE backend                                             | No      |
+| `neon`      | FFT NEON backend for ARM / Mac                              | No      |
+| `wasm_simd` | FFT WebAssembly SIMD backend                                | No      |
 
 
 ## TODOs:
