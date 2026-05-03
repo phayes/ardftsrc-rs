@@ -33,7 +33,17 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 }
 ```
 
-## Streaming Example
+## Chunk Streaming
+
+There are two streaming modes, chunk based and sample based. 
+
+Use chunk streaming when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient and is preffered when you are able to control the buffer sizes.
+
+1. `process_chunk(...)` for each chunk, input and output slice sizes should match `input_chunk_size()` and `output_chunk_size()`
+2. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
+3. `finalize(...)` must be called once per stream to emit delayed tail samples and reset stream state.
+
+To end the stream early, you can always just stop and call `reset()` on the stream.
 
 ```rust
 use ardftsrc::{Ardftsrc, PRESET_GOOD};
@@ -49,19 +59,19 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
 
     let mut resampler = Ardftsrc::<f64>::new(config).unwrap();
 
-    // Get the input and output buffer sizes
+    // Get the input and output chunk sizes
     // You must read and write in these buffer sizes
-    let input_buffer_size = resampler.input_buffer_size();
-    let output_buffer_size = resampler.output_buffer_size();
-    let mut out_buf = vec![0.0_f64; output_buffer_size];
+    let input_chunk_size = resampler.input_chunk_size();
+    let output_chunk_size = resampler.output_chunk_size();
+    let mut out_buf = vec![0.0_f64; output_chunk_size];
     let mut out_f64 = Vec::<f64>::new();
     let mut offset = 0;
 
-    while offset + input_buffer_size <= input_f64.len() {
-        let chunk = &input_f64[offset..offset + input_buffer_size];
+    while offset + input_chunk_size <= input_f64.len() {
+        let chunk = &input_f64[offset..offset + input_chunk_size];
         let written = resampler.process_chunk(chunk, &mut out_buf).unwrap();
         out_f64.extend_from_slice(&out_buf[..written]);
-        offset += input_buffer_size;
+        offset += input_chunk_size;
     }
 
     // The final chunk can be undersized (or even zero sized)
@@ -75,6 +85,65 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
     out_f64.extend_from_slice(&out_buf[..written]);
 
     out_f64.into_iter().map(|v| v as f32).collect()
+}
+```
+
+## Sample Streaming
+
+Use sample streaming when you do not control buffer sizes. This API supports arbitrary input lengths (including single frames / samples), and handles internal chunking for you.
+
+1. Call `write_samples(...)` with any incoming input size and call `read_samples(...)` to drain available output.
+2. For multichannel streams, writes must still be interleaved by channel and be channel-aligned before finalization.
+3. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
+
+Expect bursty read behavior when writing small numbers of samples at a time. To end the stream early, you can always just stop and call `reset()` on the stream.
+
+```rust
+use ardftsrc::{Ardftsrc, PRESET_GOOD};
+
+fn resample_sample_streaming(
+    input: &[f32],
+    in_rate: usize,
+    out_rate: usize,
+    channels: usize,
+) -> Vec<f32> {
+    let config = PRESET_GOOD
+        .with_input_rate(in_rate)
+        .with_output_rate(out_rate)
+        .with_channels(channels);
+
+    let mut resampler = Ardftsrc::<f32>::new(config).unwrap();
+    let mut output = Vec::<f32>::new();
+    let mut read_buf = vec![0.0_f32; resampler.output_chunk_size()];
+
+    // write_samples accepts interleaved input of any length.
+    let mut offset = 0;
+    let write_step = channels * 32;
+    while offset < input.len() {
+        let end = (offset + write_step).min(input.len());
+        resampler.write_samples(&input[offset..end]).unwrap();
+        offset = end;
+
+        loop {
+            let written = resampler.read_samples(&mut read_buf);
+            if written == 0 {
+                break;
+            }
+            output.extend_from_slice(&read_buf[..written]);
+        }
+    }
+
+    // Finalize stream tail and drain remaining output.
+    resampler.finalize_samples().unwrap();
+    loop {
+        let written = resampler.read_samples(&mut read_buf);
+        if written == 0 {
+            break;
+        }
+        output.extend_from_slice(&read_buf[..written]);
+    }
+
+    output
 }
 ```
 
