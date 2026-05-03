@@ -205,7 +205,10 @@ If you want speed over quality, consider using a sinc resampler such as [`rubato
 Presets are pre-vetted `Config` for various quality levels. 
 
 ```rust
-let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_000).with_channels(2);
+let config = ardftsrc::PRESET_GOOD
+  .with_input_rate(44_100)
+  .with_output_rate(48_000)
+  .with_channels(2);
 ```
 
 | Preset           |                             Parameters | Recommended use                                                                                                  | Performance  |
