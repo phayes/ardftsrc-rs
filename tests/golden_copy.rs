@@ -71,8 +71,8 @@ fn pcm_md5_by_channel(samples: &[f32], channels: usize) -> Vec<String> {
     ignore = "wav_golden_copy is scalar-only; run without SIMD features"
 )]
 #[cfg_attr(
-    not(debug_assertions),
-    ignore = "wav_golden_copy is intended for debug-mode determinism checks; do not run in --release"
+    debug_assertions,
+    ignore = "wav_golden_copy is intended for release-mode determinism checks; only run in --release"
 )]
 fn wav_golden_copy() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
