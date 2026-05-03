@@ -154,6 +154,12 @@ For adjacent tracks, you can set edge context before processing:
 - `pre(...)`: tail samples from the previous track
 - `post(...)`: head samples from the next track
 
+`post(...)` may be called any time while the current stream is still active, but it must be
+set before `process_chunk_final(...)` (chunk API) or `finalize_samples()` (samples API).
+
+This enables live gapless handoff: while track A is streaming, once track B is known you can
+call `post(...)` on A with B's head samples so A's stop-edge uses real next-track context.
+
 Both buffers must be interleaved and channel-aligned.
 
 ## Batching
