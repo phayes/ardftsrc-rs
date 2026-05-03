@@ -145,7 +145,7 @@ The `wav_golden_copy` test validates resampler determinism against checked-in go
 Run it with:
 
 ```bash
-cargo test --release wav_golden_copy -- --nocapture
+cargo test --release --features=rayon wav_golden_copy -- --nocapture
 ```
 
 To regenerate `test_wavs/golden_hashes.json`:
