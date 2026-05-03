@@ -9,7 +9,7 @@
 //!
 //! To regenerate ../test_wavs/golden_hashes.<arch>.json:
 //!
-//! rust-script script/genreate_golden_hashes.rs
+//! rust-script scripts/generate_golden_hashes.rs
 //!
 //! Updates to ../test_wavs/golden_hashes.<arch>.json are allowed, but only when accompanied
 //! by verifiable quality improvements demonstrated with the HydrogenAudio SRC

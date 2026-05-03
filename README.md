@@ -260,7 +260,7 @@ cargo test -p ardftsrc --release --features=rayon golden_hashes -- --nocapture
 To regenerate `test_wavs/golden_hashes.<arch>.json`:
 
 ```bash
-rust-script script/generate_golden_hashes.rs
+rust-script scripts/generate_golden_hashes.rs
 ```
 
 Updates to `test_wavs/golden_hashes.<arch>.json` are allowed, but only when accompanied by verifiable quality improvements demonstrated with the HydrogenAudio SRC test suite.
