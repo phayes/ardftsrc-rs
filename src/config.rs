@@ -600,6 +600,33 @@ mod tests {
             ..Config::default()
         };
         assert!(matches!(config.validate(), Err(Error::InvalidBandwidth(_))));
+
+        let zero_alpha = Config {
+            taper_type: TaperType::Cosine(0.0),
+            ..Config::default()
+        };
+        assert!(matches!(
+            zero_alpha.validate(),
+            Err(Error::InvalidAlpha(0.0))
+        ));
+
+        let negative_alpha = Config {
+            taper_type: TaperType::Cosine(-1.0),
+            ..Config::default()
+        };
+        assert!(matches!(
+            negative_alpha.validate(),
+            Err(Error::InvalidAlpha(-1.0))
+        ));
+
+        let non_finite_alpha = Config {
+            taper_type: TaperType::Cosine(f32::NAN),
+            ..Config::default()
+        };
+        assert!(matches!(
+            non_finite_alpha.validate(),
+            Err(Error::InvalidAlpha(alpha)) if alpha.is_nan()
+        ));
     }
 
     #[test]

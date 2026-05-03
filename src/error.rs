@@ -24,14 +24,6 @@ pub enum Error {
     #[error("interleaved input length {samples} is not divisible by channel count {channels}")]
     MalformedInputLength { channels: usize, samples: usize },
 
-    /// Number of planar channels does not match the configured channel count.
-    #[error("expected {expected} planar channels, got {actual}")]
-    MismatchedPlanarChannels { expected: usize, actual: usize },
-
-    /// Planar channels do not all contain the same frame count.
-    #[error("all planar channels must have {expected} frames, got {actual}")]
-    MismatchedPlanarFrames { expected: usize, actual: usize },
-
     /// Chunk size does not match the expected stream chunk length.
     #[error("expected {expected} samples in this chunk, got {actual}")]
     WrongChunkLength { expected: usize, actual: usize },
