@@ -122,8 +122,12 @@ where
     }
 
     /// Returns the total number of input samples processed.
-    pub(crate) fn input_sample_count(&self) -> usize {
+    pub(crate) fn input_sample_processed(&self) -> usize {
         self.input_sample_count
+    }
+
+    pub(crate) fn output_sample_processed(&self) -> usize {
+        self.output_sample_count
     }
 
     /// Returns the required non-final streaming chunk length in samples.

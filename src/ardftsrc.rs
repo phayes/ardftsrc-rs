@@ -55,8 +55,13 @@ where
     }
 
     /// Returns the total number of interleaved input samples processed.
-    pub fn input_sample_count(&self) -> usize {
-        self.cores.iter().map(ArdftsrcCore::input_sample_count).sum()
+    pub fn input_sample_processed(&self) -> usize {
+        self.cores.iter().map(ArdftsrcCore::input_sample_processed).sum()
+    }
+
+    /// Returns the total number of interleaved output samples processed.
+    pub fn output_sample_processed(&self) -> usize {
+        self.cores.iter().map(ArdftsrcCore::output_sample_processed).sum()
     }
 
     /// Returns the required `input` length (interleaved samples) for each `process_chunk()` call.
@@ -1300,12 +1305,12 @@ mod tests {
             resampler.process_chunk(&input, &mut too_small),
             Err(Error::InsufficientOutputBuffer { .. })
         ));
-        assert_eq!(resampler.input_sample_count(), 0);
+        assert_eq!(resampler.input_sample_processed(), 0);
 
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
         let expected = output_chunk_frames(&resampler) - resampler.output_delay_frames();
         assert_eq!(resampler.process_chunk(&input, &mut output).unwrap(), expected);
-        assert_eq!(resampler.input_sample_count(), input.len());
+        assert_eq!(resampler.input_sample_processed(), input.len());
     }
 
     #[test]
@@ -1315,11 +1320,11 @@ mod tests {
         let full = vec![0.0; resampler.input_chunk_size()];
         let partial = vec![0.0; 10];
 
-        assert_eq!(resampler.input_sample_count(), 0);
+        assert_eq!(resampler.input_sample_processed(), 0);
         let _ = resampler.process_chunk(&full, &mut output).unwrap();
-        assert_eq!(resampler.input_sample_count(), full.len());
+        assert_eq!(resampler.input_sample_processed(), full.len());
         let _ = resampler.process_chunk_final(&partial, &mut output).unwrap();
-        assert_eq!(resampler.input_sample_count(), full.len() + partial.len());
+        assert_eq!(resampler.input_sample_processed(), full.len() + partial.len());
     }
 
     #[test]
@@ -1539,7 +1544,7 @@ mod tests {
         // Start a new stream; this should reset core history and sample counters.
         stream.write_samples(&second).unwrap();
 
-        assert_eq!(stream.input_sample_count(), second.len());
+        assert_eq!(stream.input_sample_processed(), second.len());
     }
 
     #[test]
