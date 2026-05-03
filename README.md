@@ -230,6 +230,16 @@ let config = ardftsrc::PRESET_GOOD
 | `wasm_simd` | FFT WebAssembly SIMD backend                                | No      |
 
 
+## Command Line
+
+The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-rate conversion.
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+./target/release/ardftsrc-rs --help
+./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset high
+```
+
 ## Contributing
 
 Contributions are welcome!
@@ -264,6 +274,7 @@ rust-script scripts/generate_golden_hashes.rs
 ```
 
 Updates to `test_wavs/golden_hashes.<arch>.json` are allowed, but only when accompanied by verifiable quality improvements demonstrated with the HydrogenAudio SRC test suite.
+
 
 ### AI Usage Policy
 
