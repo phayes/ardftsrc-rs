@@ -512,20 +512,20 @@ where
     }
 
     /// Returns up to `max_samples` aligned head samples for interleaved context.
-    fn batch_context_head(input: &[T], max_samples: usize, channels: usize) -> Vec<T> {
+    fn batch_context_head<'a>(input: &'a [T], max_samples: usize, channels: usize) -> &'a [T] {
         let aligned_input_len = input.len() - (input.len() % channels);
         let mut take = aligned_input_len.min(max_samples);
         take -= take % channels;
-        input[..take].to_vec()
+        &input[..take]
     }
 
     /// Returns up to `max_samples` aligned tail samples for interleaved context.
-    fn batch_context_tail(input: &[T], max_samples: usize, channels: usize) -> Vec<T> {
+    fn batch_context_tail<'a>(input: &'a [T], max_samples: usize, channels: usize) -> &'a [T] {
         let aligned_input_len = input.len() - (input.len() % channels);
         let mut take = aligned_input_len.min(max_samples);
         take -= take % channels;
         let start = aligned_input_len - take;
-        input[start..aligned_input_len].to_vec()
+        &input[start..aligned_input_len]
     }
 
     /// Returns true when rates match and FFT processing can be bypassed losslessly.
@@ -567,7 +567,7 @@ where
     ///
     /// Shorter buffers are still valid: any missing start context falls back to LPC
     /// extrapolation.
-    pub fn pre(&mut self, pre: Vec<T>) -> Result<(), Error> {
+    pub fn pre(&mut self, pre: &[T]) -> Result<(), Error> {
         match self.normalize_context(pre)? {
             None => {
                 for core in &mut self.cores {
@@ -605,7 +605,7 @@ where
     ///
     /// Shorter buffers are still valid: any missing stop context falls back to LPC
     /// extrapolation.
-    pub fn post(&mut self, post: Vec<T>) -> Result<(), Error> {
+    pub fn post(&mut self, post: &[T]) -> Result<(), Error> {
         match self.normalize_context(post)? {
             None => {
                 for core in &mut self.cores {
@@ -622,7 +622,7 @@ where
         Ok(())
     }
 
-    fn normalize_context(&self, context: Vec<T>) -> Result<Option<Vec<T>>, Error> {
+    fn normalize_context<'a>(&self, context: &'a [T]) -> Result<Option<&'a [T]>, Error> {
         if context.is_empty() {
             return Ok(None);
         }
@@ -691,10 +691,10 @@ mod tests {
     ) -> Vec<f32> {
         let mut resampler = Ardftsrc::new(config).unwrap();
         if let Some(pre) = pre {
-            resampler.pre(pre.to_vec()).unwrap();
+            resampler.pre(pre).unwrap();
         }
         if let Some(post) = post {
-            resampler.post(post.to_vec()).unwrap();
+            resampler.post(post).unwrap();
         }
 
         let input_buffer_size = resampler.input_chunk_size();
@@ -916,8 +916,8 @@ mod tests {
             })
             .collect();
 
-        wrapper.pre(pre.clone()).unwrap();
-        wrapper.post(post.clone()).unwrap();
+        wrapper.pre(&pre).unwrap();
+        wrapper.post(&post).unwrap();
         let wrapped_output = wrapper.process_all(&input).unwrap();
 
         let mono_config = Config {
@@ -952,14 +952,14 @@ mod tests {
         let mut resampler = Ardftsrc::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
 
         assert!(matches!(
-            resampler.pre(vec![0.0; 3]),
+            resampler.pre(&[0.0; 3]),
             Err(Error::MalformedInputLength {
                 channels: 2,
                 samples: 3
             })
         ));
         assert!(matches!(
-            resampler.post(vec![0.0; 3]),
+            resampler.post(&[0.0; 3]),
             Err(Error::MalformedInputLength {
                 channels: 2,
                 samples: 3
@@ -976,12 +976,10 @@ mod tests {
             .collect();
         let mut out_zero = vec![0.0; output_chunk_frames(&with_zero_pre)];
         let mut out_one = vec![0.0; output_chunk_frames(&with_one_pre)];
-        with_zero_pre
-            .pre(vec![0.0; input_chunk_frames(&with_zero_pre)])
-            .unwrap();
-        with_one_pre
-            .pre(vec![1.0; input_chunk_frames(&with_one_pre)])
-            .unwrap();
+        let pre_zero = vec![0.0; input_chunk_frames(&with_zero_pre)];
+        let pre_one = vec![1.0; input_chunk_frames(&with_one_pre)];
+        with_zero_pre.pre(&pre_zero).unwrap();
+        with_one_pre.pre(&pre_one).unwrap();
 
         let written_zero = with_zero_pre.process_chunk(&input, &mut out_zero).unwrap();
         let written_one = with_one_pre.process_chunk(&input, &mut out_one).unwrap();
@@ -1005,12 +1003,10 @@ mod tests {
         let mut chunk_out = vec![0.0; output_chunk_frames(&with_zero_post)];
         let mut flush_zero = vec![0.0; output_chunk_frames(&with_zero_post)];
         let mut flush_one = vec![0.0; output_chunk_frames(&with_one_post)];
-        with_zero_post
-            .post(vec![0.0; input_chunk_frames(&with_zero_post)])
-            .unwrap();
-        with_one_post
-            .post(vec![1.0; input_chunk_frames(&with_one_post)])
-            .unwrap();
+        let post_zero = vec![0.0; input_chunk_frames(&with_zero_post)];
+        let post_one = vec![1.0; input_chunk_frames(&with_one_post)];
+        with_zero_post.post(&post_zero).unwrap();
+        with_one_post.post(&post_one).unwrap();
 
         with_zero_post.process_chunk(&input, &mut chunk_out).unwrap();
         with_one_post.process_chunk(&input, &mut chunk_out).unwrap();
