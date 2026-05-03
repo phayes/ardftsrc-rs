@@ -107,7 +107,7 @@ let config = ardftsrc::PRESET_GOOD.with_input_rate(44_100).with_output_rate(48_0
 
 | Flag        | Enables                                                     | Default |
 | ----------- | ----------------------------------------------------------- | ------- |
-| `batch`     | Parallel APIs via Rayon: `batch(...)`, `batch_gapless(...)` | No      |
+| `rayon`     | Parallel processing (channel and track parallelism)         | No      |
 | `avx`       | `realfft` AVX backend                                       | No      |
 | `sse`       | `realfft` SSE backend                                       | No      |
 | `neon`      | `realfft` NEON backend                                      | No      |
@@ -145,7 +145,7 @@ The `wav_golden_copy` test validates resampler determinism against checked-in go
 Run it with:
 
 ```bash
-cargo test --release wav_golden_copy -- --nocapture
+cargo test --release --features=rayon wav_golden_copy -- --nocapture
 ```
 
 To regenerate `test_wavs/golden_hashes.json`:
