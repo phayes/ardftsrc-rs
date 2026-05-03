@@ -1,11 +1,3 @@
-#![cfg(all(
-    target_arch = "aarch64",
-    not(debug_assertions),
-    not(feature = "avx"),
-    not(feature = "neon"),
-    not(feature = "sse"),
-    not(feature = "wasm_simd")
-))]
 //!
 //! The golden_hashes test validates resampler determinism against checked-in
 //! golden outputs in test_wavs/golden_hashes.<arch>json. It is intended to catch
@@ -23,7 +15,7 @@
 //! by verifiable quality improvements demonstrated with the HydrogenAudio SRC
 //! test suite.
 //! 
-//! TODO: Generate golden hashes for x86_64 and remove the target_arch guard.
+//! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //! 
 use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use serde::Deserialize;
@@ -88,6 +80,17 @@ enum GoldenHashesFileFormat {
 }
 
 #[test]
+#[cfg_attr(
+    not(all(
+        target_arch = "aarch64",
+        not(debug_assertions),
+        not(feature = "avx"),
+        not(feature = "neon"),
+        not(feature = "sse"),
+        not(feature = "wasm_simd")
+    )),
+    ignore = "requires release-mode aarch64 with no SIMD features enabled"
+)]
 fn golden_hashes_match() -> Result<(), Box<dyn Error>> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let wav_dir = manifest_dir.join(WAV_DIR);
