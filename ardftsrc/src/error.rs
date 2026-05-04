@@ -32,6 +32,10 @@ pub enum Error {
     #[error("interleaved input length {samples} is not divisible by channel count {channels}")]
     MalformedInputLength { channels: usize, samples: usize },
 
+    /// Finalization was requested with an incomplete interleaved frame still buffered.
+    #[error("cannot finalize with dangling partial frame: {samples} buffered samples for {channels} channels")]
+    DanglingPartialFrame { channels: usize, samples: usize },
+
     /// Chunk size does not match the expected stream chunk length.
     #[error("expected {expected} samples in this chunk, got {actual}")]
     WrongChunkLength { expected: usize, actual: usize },

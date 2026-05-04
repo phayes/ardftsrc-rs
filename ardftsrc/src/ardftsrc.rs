@@ -442,7 +442,7 @@ where
                     .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
 
             // Process the chunk.
-            Self::process_chunk_inner(
+            let samples_written = Self::process_chunk_inner(
                 cores,
                 input_staging,
                 channels,
@@ -453,7 +453,7 @@ where
             .expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
 
             self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.iter().copied());
+                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
         }
 
         // Process the final chunk (mabye undersized)
@@ -556,11 +556,20 @@ where
     ///
     /// For multi-channel streams, callers must provide a complete interleaved frame via write_samples()
     /// (a multiple of `channels`) before finalizing. If a dangling partial frame remains buffered,
-    /// this method returns `Error::MalformedInputLength`.
+    /// this method returns `Error::DanglingPartialFrame`.
     pub fn finalize_samples(&mut self) -> Result<(), Error> {
         if self.samples_finalized {
             return Err(Error::StreamAlreadyFinalized);
         }
+
+        // Ensure samples_pending_input is channel / frames aligned.
+        if !self.sample_pending_input.len().is_multiple_of(self.config.channels) {
+            return Err(Error::DanglingPartialFrame {
+                channels: self.config.channels,
+                samples: self.sample_pending_input.len(),
+            });
+        }
+
         self.process_pending_samples(true);
         self.samples_finalized = true;
         Ok(())
@@ -1705,7 +1714,7 @@ mod tests {
         resampler.write_samples(&[0.0]).unwrap();
         assert!(matches!(
             resampler.finalize_samples(),
-            Err(Error::MalformedInputLength {
+            Err(Error::DanglingPartialFrame {
                 channels: 2,
                 samples: 1
             })
