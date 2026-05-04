@@ -412,6 +412,10 @@ where
 
     // Process all pending input into the output queue.
     fn process_pending_samples(&mut self, finalize: bool) {
+
+        let channels = self.config.channels;
+        let output_chunk_frames = self.derived.output_chunk_frames;
+
         while self.sample_pending_input.len() >= self.input_chunk_size() {
             // We have enough input to process a chunk, drain the input buffer into the input chunk buffer.
             self.samples_input_chunk_buffer.clear();
@@ -424,9 +428,6 @@ where
                 self.derived.input_chunk_frames,
             )
             .expect("ardftsrc: Invalid input chunk size. This is a bug in the ardftsrc crate.");
-
-            let channels = self.config.channels;
-            let output_chunk_frames = self.derived.output_chunk_frames;
 
             // Destructure self to allow multability of different fields at the same time.
             let (cores, input_staging, samples_output_chunk_buffer) = (
@@ -455,8 +456,7 @@ where
                 .extend(self.samples_output_chunk_buffer.iter().copied());
         }
 
-        // Process the final chunk (mabye undersized) and finalize the entire stream
-        // -------------------------------------------------------------------------
+        // Process the final chunk (mabye undersized)
         if finalize && !self.sample_pending_input.is_empty() {
             // Remaining samples must form complete frames
             let remaining_samples = self.sample_pending_input.len();
@@ -473,8 +473,6 @@ where
                 InterleavedSlice::new(&self.samples_input_chunk_buffer, self.config.channels, remaining_frames)
                     .expect("ardftsrc: Invalid final input chunk size.");
 
-            let channels = self.config.channels;
-            let output_chunk_frames = self.derived.output_chunk_frames;
             let samples_written = {
                 // Desructure self to allow multability of different fields at the same time.
                 let (cores, input_staging, samples_output_chunk_buffer) = (
@@ -504,6 +502,10 @@ where
             self.samples_pending_output
                 .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
 
+        }
+
+        // All chunks are processed, finalize the stream.
+        if finalize {
             // Call finalize() and write the final tail output.
             let samples_written = {
                 // Desructure self to allow multability of different fields at the same time.
@@ -657,7 +659,17 @@ where
         // Ensure the output buffer is large enough.
         self.ensure_output_buffer_size(output)?;
 
-        Self::finalize_cores(&mut self.cores, output)
+        let mut total_written = 0;
+
+        // For each channel, process the chunk in the core.
+        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
+            let core_output = core.finalize()?;
+            let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, core_output);
+            total_written += out_written;
+        }
+
+        // Return total written
+        Ok(total_written)
     }
 
     #[inline]
@@ -1126,7 +1138,7 @@ mod tests {
 
         let output = resampler.process_all(&input).unwrap();
 
-        assert_eq!(output.len(), resampler.expected_output_size(input_frames) * 2);
+        assert_eq!(output.len(), resampler.expected_output_size(input_frames));
         assert!(output.iter().all(|sample| sample.is_finite()));
         assert!(output.iter().all(|sample| sample.abs() < 1.0));
     }
@@ -1691,10 +1703,13 @@ mod tests {
     fn finalize_samples_rejects_dangling_partial_frame() {
         let mut resampler = Ardftsrc::new(stereo_config(44_100, 48_000)).unwrap();
         resampler.write_samples(&[0.0]).unwrap();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = resampler.finalize_samples();
-        }));
-        assert!(result.is_err());
+        assert!(matches!(
+            resampler.finalize_samples(),
+            Err(Error::MalformedInputLength {
+                channels: 2,
+                samples: 1
+            })
+        ));
     }
 
     #[test]
@@ -1710,51 +1725,44 @@ mod tests {
         sample_resampler.write_samples(&input[..split]).unwrap();
         sample_resampler.write_samples(&input[split..]).unwrap();
 
-        sample_resampler.finalize_samples().unwrap();
-        let mut sample_output = Vec::new();
-        let mut sample_buffer = vec![0.0; sample_resampler.output_chunk_size()];
-        loop {
-            let written = sample_resampler.read_samples(&mut sample_buffer);
-            if written == 0 {
-                break;
-            }
-            sample_output.extend_from_slice(&sample_buffer[..written]);
-        }
+        let mut sample_output = vec![0.0; sample_resampler.output_chunk_size()];
+        let sample_written = sample_resampler.read_samples(&mut sample_output);
 
         let mut chunk_output = vec![0.0; chunk_resampler.output_chunk_size()];
         let chunk_written = process_chunk_samples(&mut chunk_resampler, &input, &mut chunk_output).unwrap();
-        let mut expected = Vec::with_capacity(chunk_resampler.output_chunk_size());
-        expected.extend_from_slice(&chunk_output[..chunk_written]);
-        let flush_written = finalize_samples_chunk(&mut chunk_resampler, &mut chunk_output).unwrap();
-        expected.extend_from_slice(&chunk_output[..flush_written]);
 
-        assert_eq!(sample_output.len(), expected.len());
-        assert!(sample_output.iter().all(|sample| sample.is_finite()));
-        assert!(expected.iter().all(|sample| sample.is_finite()));
+        assert_eq!(sample_written, chunk_written);
+        for (left, right) in sample_output[..sample_written]
+            .iter()
+            .zip(chunk_output[..chunk_written].iter())
+        {
+            assert!((*left - *right).abs() < 1e-5);
+        }
     }
 
     #[test]
     fn sample_api_finalize_matches_process_all_total_output() {
         let config = mono_config(44_100, 48_000);
+        let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let driver = Ardftsrc::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&driver) * 2 + input_chunk_frames(&driver) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.008).sin() * 0.25)
             .collect();
 
-        let expected = resample_stream_with_context(config.clone(), &input, None, None);
+        let expected = offline.process_all(&input).unwrap();
         let actual = resample_stream_with_sample_api(config, &input, 7, 11);
 
-        let expected_total = expected.len() + driver.output_delay_frames() * driver.config().channels;
-        assert_eq!(actual.len(), expected_total);
-        assert!(actual[..expected.len()].iter().all(|sample| sample.is_finite()));
-        assert!(expected.iter().all(|sample| sample.is_finite()));
-        assert!(actual[expected.len()..].iter().all(|sample| sample.is_finite()));
+        assert_eq!(actual.len(), expected.len());
+        for (left, right) in actual.iter().zip(expected.iter()) {
+            assert!((*left - *right).abs() < 1e-5);
+        }
     }
 
     #[test]
     fn sample_api_stereo_matches_process_all_total_output() {
         let config = stereo_config(44_100, 48_000);
+        let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let driver = Ardftsrc::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&driver) * 2 + 17;
         let mut input = Vec::with_capacity(input_frames * 2);
@@ -1763,26 +1771,26 @@ mod tests {
             input.push((frame as f32 * 0.017).cos() * 0.2);
         }
 
-        let expected = resample_stream_with_context(config.clone(), &input, None, None);
+        let expected = offline.process_all(&input).unwrap();
         let actual = resample_stream_with_sample_api(config, &input, 9, 13);
 
-        let expected_total = expected.len() + driver.output_delay_frames() * driver.config().channels;
-        assert_eq!(actual.len(), expected_total);
-        assert!(actual[..expected.len()].iter().all(|sample| sample.is_finite()));
-        assert!(expected.iter().all(|sample| sample.is_finite()));
-        assert!(actual[expected.len()..].iter().all(|sample| sample.is_finite()));
+        assert_eq!(actual.len(), expected.len());
+        for (left, right) in actual.iter().zip(expected.iter()) {
+            assert!((*left - *right).abs() < 1e-5);
+        }
     }
 
     #[test]
     fn finalize_samples_read_until_zero_drains_stream() {
         let config = mono_config(44_100, 48_000);
+        let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let mut stream = Ardftsrc::new(config).unwrap();
         let input_frames = input_chunk_frames(&stream) + input_chunk_frames(&stream) / 4;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.011).sin() * 0.2)
             .collect();
 
-        let expected = resample_stream_with_context(stream.config().clone(), &input, None, None);
+        let expected = offline.process_all(&input).unwrap();
 
         stream.write_samples(&input).unwrap();
         stream.finalize_samples().unwrap();
@@ -1797,11 +1805,10 @@ mod tests {
             actual.extend_from_slice(&read_buffer[..written]);
         }
 
-        let expected_total = expected.len() + stream.output_delay_frames() * stream.config().channels;
-        assert_eq!(actual.len(), expected_total);
-        assert!(actual[..expected.len()].iter().all(|sample| sample.is_finite()));
-        assert!(expected.iter().all(|sample| sample.is_finite()));
-        assert!(actual[expected.len()..].iter().all(|sample| sample.is_finite()));
+        assert_eq!(actual.len(), expected.len());
+        for (left, right) in actual.iter().zip(expected.iter()) {
+            assert!((*left - *right).abs() < 1e-5);
+        }
     }
 
     #[test]

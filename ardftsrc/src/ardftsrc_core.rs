@@ -349,7 +349,10 @@ where
             if is_final {
                 self.final_input_seen = true;
             }
-            return Ok(&input);
+            self.input_sample_count += input_samples;
+            let written_samples = self.cap_write_to_output_budget(input_samples);
+            self.output_sample_count += written_samples;
+            return Ok(&input[..written_samples]);
         }
 
         if is_final {
@@ -386,6 +389,7 @@ where
         let candidate_samples = chunk_samples_after_trim;
         let written_samples = self.cap_write_to_output_budget(candidate_samples);
         let src_start = skip_samples;
+        self.output_sample_count += written_samples;
 
         return Ok(&self.output_block[src_start..src_start + written_samples]);
     }
