@@ -10,21 +10,24 @@ license = "MIT OR Apache-2.0"
 authors = ["Patrick Hayes <patrick.d.hayes@gmail.com>"]
 
 [workspace.dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 criterion = { version = "0.8", features = ["html_reports"] }
-dasp_signal = "0.11.0"
-flac-codec = { version = "1.3.2", features = ["rayon"] }
-i24 = "1.0.1"
+dasp_signal = "0.11"
+flac-codec = { version = "1", features = ["rayon"] }
+i24 = "=1.0.1"
 md5 = "0.8"
 mimalloc = "0.1"
 num-traits = "0.2"
 rayon = "1"
-realfft = "3.5.0"
-rubato = "2.0.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "2.0.18"
-wavers = "1.5.1"
+realfft = "3.5"
+rubato = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+wavers = "1.5"
+audioadapter = "3"
+audioadapter-buffers = "3"
+audio-core = "0.2"
 
 [profile.release]
 opt-level = 3

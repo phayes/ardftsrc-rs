@@ -28,8 +28,8 @@ where
     prev_input_window: Vec<T>,
     /// Set when the final chunk is accepted so later chunk calls are ignored by stream contract.
     final_input_seen: bool,
-    /// One-shot guard that enforces flush semantics and prevents duplicate tail emission.
-    flushed: bool,
+    /// Mark stream as finalized. Will reset on next call to process_chunk().
+    finalized: bool,
     /// Remaining output samples to skip so algorithmic startup delay is trimmed exactly once.
     trim_remaining: usize,
     /// Remaining tail samples to emit on flush after accounting for short final-chunk padding.
@@ -111,7 +111,7 @@ where
             output_block,
             prev_input_window,
             final_input_seen: false,
-            flushed: false,
+            finalized: false,
             trim_remaining: output_offset,
             flush_remaining: output_offset,
             pre: None,
@@ -212,19 +212,18 @@ where
 
         let mut offset = 0;
         let input_chunk_size = self.input_buffer_size();
-        let mut chunk_output = vec![T::zero(); self.output_buffer_size()];
 
         while offset + input_chunk_size <= input.len() {
-            let written = self.process_chunk(&input[offset..offset + input_chunk_size], &mut chunk_output, false)?;
-            output.extend_from_slice(&chunk_output[..written]);
+            let chunk_output = self.process_chunk(&input[offset..offset + input_chunk_size], false)?;
+            output.extend_from_slice(chunk_output);
             offset += input_chunk_size;
         }
 
-        let written = self.process_chunk(&input[offset..], &mut chunk_output, true)?;
-        output.extend_from_slice(&chunk_output[..written]);
+        let final_chunk_output = self.process_chunk(&input[offset..], true)?;
+        output.extend_from_slice(&final_chunk_output);
 
-        let written = self.finalize(&mut chunk_output)?;
-        output.extend_from_slice(&chunk_output[..written]);
+        let finalize_output = self.finalize()?;
+        output.extend_from_slice(finalize_output);
 
         Ok(output)
     }
@@ -243,7 +242,7 @@ where
         self.output_block.fill(T::zero());
         self.prev_input_window.fill(T::zero());
         self.final_input_seen = false;
-        self.flushed = false;
+        self.finalized = false;
         self.trim_remaining = self.derived.output_offset;
         self.flush_remaining = self.derived.output_offset;
         self.input_sample_count = 0;
@@ -252,34 +251,33 @@ where
         self.post = None;
     }
 
-    /// Emits delayed tail samples, then resets stream state.
+    /// Emits delayed tail samples, then marks stream as finalized.
     ///
     /// This flushes any remaining overlap/delay samples that were held back by the chunked
     /// processing pipeline. It is the terminal step of a stream and should be called once per
     /// stream. If the final chunk was not marked by `process_chunk_inner(..., is_final=true)`,
     /// this treats the last accepted full chunk as terminal input.
     ///
-    /// Returns the number of samples written to the output buffer.
-    pub fn finalize(&mut self, output: &mut [T]) -> Result<usize, Error> {
-        if self.flushed {
+    /// Returns a reference to the finalize output samples.
+    pub fn finalize<'a>(&'a mut self) -> Result<&'a [T], Error> {
+        if self.finalized {
             return Err(Error::AlreadyFlushed);
         }
         self.final_input_seen = true;
 
         let written = if self.is_passthrough() || self.input_sample_count == 0 {
-            self.flushed = true;
+            self.finalized = true;
             0
         } else {
             let flush_candidate = self.flush_remaining;
             let written_samples = self.cap_write_to_output_budget(flush_candidate);
-            debug_assert!(output.len() >= written_samples);
-            self.flushed = true;
+            self.finalized = true;
 
             self.add_synthetic_finalize_tail_to_overlap()?;
 
             let scale = T::from(self.output_chunk_len_samples()).unwrap_or(T::one())
                 / T::from(self.input_chunk_len_samples()).unwrap_or(T::one());
-            for (dst, src) in output[..written_samples]
+            for (dst, src) in self.output_block[..written_samples]
                 .iter_mut()
                 .zip(self.overlap[..written_samples].iter())
             {
@@ -289,8 +287,7 @@ where
         };
 
         self.output_sample_count += written;
-        self.reset();
-        Ok(written)
+        Ok(&self.output_block[..written])
     }
 
     /// Returns expected total output samples once final stream extent is known.
@@ -331,35 +328,32 @@ where
     /// # Parameters
     ///
     /// - `input`: Input samples for this chunk.
-    /// - `output`: Destination buffer for produced output samples.
     /// - `is_final`: Marks this chunk as the final chunk in the stream.
     ///
-    /// Returns the number of samples written into `output`.
-    pub(crate) fn process_chunk(&mut self, input: &[T], output: &mut [T], is_final: bool) -> Result<usize, Error> {
+    /// Returns a reference to the output samples.
+    pub(crate) fn process_chunk<'a>(&'a mut self, input: &'a [T], is_final: bool) -> Result<&'a [T], Error> {
+        if self.finalized {
+            self.reset();
+        }
+
         let input_samples = input.len();
 
         if self.final_input_seen {
             return Err(Error::StreamFinished);
         }
 
+        // Shortcut for passthrough mode.
         if self.is_passthrough() {
-            debug_assert!(output.len() >= input.len());
             if is_final {
                 self.final_input_seen = true;
             }
-            self.input_sample_count += input.len();
-            let written_samples = self.cap_write_to_output_budget(input.len());
-            output[..written_samples].copy_from_slice(&input[..written_samples]);
-            self.output_sample_count += written_samples;
-            return Ok(written_samples);
+            return Ok(&input);
         }
-
-        debug_assert!(output.len() >= self.output_buffer_size());
 
         if is_final {
             self.final_input_seen = true;
             if input_samples == 0 {
-                return Ok(0);
+                return Ok(&input);
             }
         }
 
@@ -390,10 +384,8 @@ where
         let candidate_samples = chunk_samples_after_trim;
         let written_samples = self.cap_write_to_output_budget(candidate_samples);
         let src_start = skip_samples;
-        output[..written_samples].copy_from_slice(&self.output_block[src_start..src_start + written_samples]);
 
-        self.output_sample_count += written_samples;
-        Ok(written_samples)
+        return Ok(&self.output_block[src_start..src_start + written_samples]);
     }
 
     /// Returns true when rates match and FFT processing can be bypassed losslessly.
@@ -411,6 +403,11 @@ where
         self.scratch.rdft_in.fill(T::zero());
         let dst = &mut self.scratch.rdft_in[self.derived.input_offset..self.derived.input_offset + input_samples];
         dst.copy_from_slice(&input[..input_samples]);
+    }
+
+    // Get a mutable reference to the input buffer.
+    pub(crate) fn mut_input_ref<'a>(&'a mut self) -> &'a mut [T] {
+        self.scratch.rdft_in.as_mut_slice()
     }
 
     /// Copies up to `dst.len()` trailing samples from `pre` into `dst`'s tail.

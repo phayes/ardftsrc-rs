@@ -20,6 +20,14 @@ pub enum Error {
     #[error("alpha must be finite and greater than zero, got {0}")]
     InvalidAlpha(f32),
 
+    /// Wrong channel count.
+    #[error("expected {expected} channels, got {actual}")]
+    WrongChannelCount { expected: usize, actual: usize },
+
+    /// Wrong frame count.
+    #[error("expected {expected} frames, got {actual}")]
+    WrongFrameCount { expected: usize, actual: usize },
+
     /// Interleaved input length is not divisible by channel count.
     #[error("interleaved input length {samples} is not divisible by channel count {channels}")]
     MalformedInputLength { channels: usize, samples: usize },

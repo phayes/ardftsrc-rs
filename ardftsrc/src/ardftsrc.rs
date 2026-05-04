@@ -4,26 +4,34 @@ use rayon::prelude::*;
 use realfft::FftNum;
 
 use crate::{ArdftsrcCore, Config, DerivedConfig, Error};
+use audioadapter::{Adapter, AdapterMut};
+use audioadapter_buffers::direct::InterleavedSlice;
+use std::collections::VecDeque;
+use audio_core::Sample;
 
 pub struct Ardftsrc<T = f32>
 where
-    T: Float + FftNum,
+    T: Float + FftNum + Sample,
 {
     config: Config,
     derived: DerivedConfig<T>,
     cores: Vec<ArdftsrcCore<T>>,
-    input_staging: Vec<Vec<T>>,
-    output_staging: Vec<Vec<T>>,
 
-    // Samples API state
-    sample_pending_input: Vec<T>,
-    samples_pending_output: Vec<T>,
+    // Staging areas.
+    // TODO: This can be removed by using Core::mut_input_ref() and writing samples directly
+    input_staging: Vec<Vec<T>>,
+
+    // Samples API state, interleaved.
+    sample_pending_input: VecDeque<T>,
+    samples_pending_output: VecDeque<T>,
+    samples_input_chunk_buffer: Vec<T>,
+    samples_output_chunk_buffer: Vec<T>,
     samples_finalized: bool,
 }
 
 impl<T> Ardftsrc<T>
 where
-    T: Float + FftNum,
+    T: Float + FftNum + Sample,
 {
     /// Constructs a resampler from `config`.
     ///
@@ -34,23 +42,27 @@ where
         let cores = (0..config.channels)
             .map(|_| ArdftsrcCore::new(derived.clone()))
             .collect();
-        let input_staging = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
-        let output_staging = vec![vec![T::zero(); derived.output_chunk_frames]; config.channels];
+
+        let input_chunk_size = derived.input_chunk_frames * config.channels;
+        let output_chunk_size = derived.output_chunk_frames * config.channels;
+
+        let input_staging: Vec<Vec<T>> = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
 
         Ok(Self {
             config,
             derived,
             cores,
             input_staging,
-            output_staging,
-            sample_pending_input: Vec::new(),
-            samples_pending_output: Vec::new(),
+            sample_pending_input: VecDeque::with_capacity(input_chunk_size * 2), // Slightly oversized to avoid reallocations.
+            samples_pending_output: VecDeque::with_capacity(output_chunk_size * 2), // Slightly oversized to avoid reallocations.
+            samples_input_chunk_buffer: Vec::with_capacity(input_chunk_size),
+            samples_output_chunk_buffer: vec![T::zero(); output_chunk_size],
             samples_finalized: false,
         })
     }
 
     /// Returns the configuration this instance was built with.
-    #[must_use] 
+    #[must_use]
     pub fn config(&self) -> &Config {
         &self.config
     }
@@ -68,7 +80,8 @@ where
     /// Returns the required `input` length (interleaved samples) for each `process_chunk()` call.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
-    #[must_use] 
+    #[must_use]
+    #[inline]
     pub fn input_chunk_size(&self) -> usize {
         self.derived.input_chunk_frames * self.config.channels
     }
@@ -77,13 +90,13 @@ where
     ///
     /// For chunked streaming, size output slices passed to `process_chunk()` and
     /// `process_chunk_final()` to at least this value.
-    #[must_use] 
+    #[must_use]
     pub fn output_chunk_size(&self) -> usize {
         self.derived.output_chunk_frames * self.config.channels
     }
 
     /// Returns algorithmic latency to trim/flush, or zero in same-rate passthrough mode.
-    #[must_use] 
+    #[must_use]
     pub fn output_delay_frames(&self) -> usize {
         if self.is_passthrough() {
             0
@@ -96,7 +109,7 @@ where
     ///
     /// `input_size` can be expressed in either frames or samples; the
     /// returned value uses the same unit.
-    #[must_use] 
+    #[must_use]
     pub fn expected_output_size(&self, input_size: usize) -> usize {
         (input_size * self.config.output_sample_rate).div_ceil(self.config.input_sample_rate)
     }
@@ -290,29 +303,98 @@ where
             self.reset();
         }
 
-        self.sample_pending_input.extend_from_slice(input);
+        self.sample_pending_input.extend(input.iter().copied());
 
-        let chunk_samples = self.input_chunk_size();
-        while self.sample_pending_input.len() >= chunk_samples {
-            let chunk: Vec<T> = self.sample_pending_input.drain(..chunk_samples).collect();
-            self.process_pending_chunk(&chunk, false)?;
-        }
+        self.process_pending_samples(false);
 
         Ok(())
+    }
+
+    // Process all pending input into the output queue.
+    fn process_pending_samples(&mut self, finalize: bool) {
+        while self.sample_pending_input.len() >= self.input_chunk_size() {
+            // We have enough input to process a chunk, drain the input buffer into the input chunk buffer.
+            self.samples_input_chunk_buffer.clear();
+            self.samples_input_chunk_buffer
+                .extend(self.sample_pending_input.drain(..self.input_chunk_size()));
+
+            let input_adapter = InterleavedSlice::new(
+                &self.samples_input_chunk_buffer,
+                self.config.channels,
+                self.derived.input_chunk_frames,
+            )
+            .expect("ardftsrc: Invalid input chunk size. This is a bug in the ardftsrc crate.");
+            let mut output_adapter = InterleavedSlice::new(
+                &mut self.samples_output_chunk_buffer,
+                self.config.channels,
+                self.derived.output_chunk_frames,
+            )
+            .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
+
+            let _samples_written = self.process_chunk_inner(&input_adapter, &mut output_adapter, false).expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
+            debug_assert_eq!(_samples_written, self.output_chunk_size());
+
+            self.samples_pending_output.extend(output_adapter.into_iter());
+        }
+
+        // Process the final chunk (mabye undersized) and finalize the entire stream
+        if finalize && !self.sample_pending_input.is_empty() {
+            // Remaining samples must form complete frames
+            let remaining_samples = self.sample_pending_input.len();
+            debug_assert!(remaining_samples % self.config.channels == 0);
+
+            let remaining_frames = remaining_samples / self.config.channels;
+
+            // Move remaining input into chunk buffer
+            self.samples_input_chunk_buffer.clear();
+            self.samples_input_chunk_buffer
+                .extend(self.sample_pending_input.drain(..));
+
+            let input_adapter =
+                InterleavedSlice::new(&self.samples_input_chunk_buffer, self.config.channels, remaining_frames)
+                    .expect("ardftsrc: Invalid final input chunk size.");
+
+            // Output buffer should already be sized for max possible output frames.
+            let mut output_adapter = InterleavedSlice::new(
+                &mut self.samples_output_chunk_buffer,
+                self.config.channels,
+                self.derived.output_chunk_frames,
+            )
+            .expect("ardftsrc: Invalid output chunk size.");
+
+            let samples_written = self.process_chunk_inner(&input_adapter, &mut output_adapter, true)?;
+
+            self.samples_pending_output
+                .extend(output_adapter.into_iter().take(samples_written));
+
+            // Call finalize() and write the final tail output.
+            let mut output_adapter = InterleavedSlice::new(
+                &mut self.samples_output_chunk_buffer,
+                self.config.channels,
+                self.derived.output_chunk_frames,
+            )
+            .expect("ardftsrc: Invalid output chunk size.");
+
+            let samples_written = self.finalize(&mut output_adapter)?;
+            self.samples_pending_output
+                .extend(output_adapter.into_iter().take(samples_written));
+        }
     }
 
     /// Reads up to `output.len()` interleaved samples from internally buffered output.
     ///
     /// Returns the number of samples copied into `output`.
     pub fn read_samples(&mut self, output: &mut [T]) -> usize {
-        let to_copy = output.len().min(self.samples_pending_output.len());
-        if to_copy == 0 {
-            return 0;
+        let drain_count = min(output.len(), self.samples_pending_output.len());
+
+        for (dst, src) in output[..drain_count]
+            .iter_mut()
+            .zip(self.samples_pending_output.drain(..drain_count))
+        {
+            *dst = src;
         }
 
-        output[..to_copy].copy_from_slice(&self.samples_pending_output[..to_copy]);
-        self.samples_pending_output.drain(..to_copy);
-        to_copy
+        drain_count
     }
 
     /// Marks the sample-stream as finalized and flushes delayed output into pending samples.
@@ -331,22 +413,9 @@ where
     /// this method returns `Error::MalformedInputLength`.
     pub fn finalize_samples(&mut self) -> Result<(), Error> {
         if self.samples_finalized {
-            return Ok(());
+            return Err(Error::StreamAlreadyFinalized);
         }
-
-        if !self.sample_pending_input.len().is_multiple_of(self.config.channels) {
-            return Err(Error::MalformedInputLength {
-                channels: self.config.channels,
-                samples: self.sample_pending_input.len(),
-            });
-        }
-
-        if !self.sample_pending_input.is_empty() {
-            let final_input: Vec<T> = self.sample_pending_input.drain(..).collect();
-            self.process_pending_chunk(&final_input, true)?;
-        }
-
-        self.append_finalize_output()?;
+        self.process_pending_samples(true);
         self.samples_finalized = true;
         Ok(())
     }
@@ -360,7 +429,11 @@ where
     /// (for example while startup delay is being trimmed).
     ///
     /// Returns the number of samples written to the output buffer.
-    pub fn process_chunk(&mut self, input: &[T], output: &mut [T]) -> Result<usize, Error> {
+    pub fn process_chunk<'a>(
+        &mut self,
+        input: &dyn Adapter<'a, T>,
+        output: &mut dyn AdapterMut<'a, T>,
+    ) -> Result<usize, Error> {
         // Output buffer must be at least the size of the output chunk (but can be larger).
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, false)?;
@@ -377,7 +450,11 @@ where
     /// Size `output` to at least `output_buffer_size()`.
     ///
     /// Returns the number of samples written to the output buffer.
-    pub fn process_chunk_final(&mut self, input: &[T], output: &mut [T]) -> Result<usize, Error> {
+    pub fn process_chunk_final<'a>(
+        &mut self,
+        input: &dyn Adapter<'a, T>,
+        output: &mut dyn AdapterMut<'a, T>,
+    ) -> Result<usize, Error> {
         // Output buffer must be at least the size of the output chunk (but can be larger).
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, true)?;
@@ -386,37 +463,33 @@ where
         self.process_chunk_inner(input, output, true)
     }
 
-    fn process_chunk_inner(&mut self, input: &[T], output: &mut [T], is_final: bool) -> Result<usize, Error> {
-        let frames = input.len() / self.config.channels;
-
-        // Deinterleave the input samples into the input staging buffers (one input buffer per channel).
-        self.stage_input_channels(input);
-
+    #[inline]
+    fn process_chunk_inner<'a>(
+        &mut self,
+        input: &dyn Adapter<'a, T>,
+        output: &mut dyn AdapterMut<'a, T>,
+        is_final: bool,
+    ) -> Result<usize, Error> {
         let mut total_written = 0;
 
         // For each channel, process the chunk in the core
         for channel_idx in 0..self.config.channels {
             let core = &mut self.cores[channel_idx];
-            let core_input = &self.input_staging[channel_idx][..frames];
-            let core_output = &mut self.output_staging[channel_idx];
-            total_written += core.process_chunk(core_input, core_output, is_final)?;
-        }
+            let core_input = &mut self.input_staging[channel_idx][..input.frames()];
+            input.copy_from_channel_to_slice(channel_idx, 0, core_input);
+            let core_output = core.process_chunk(core_input, is_final)?;
 
-        // If there is only one channel, copy the output directly to the output buffer.
-        if self.config.channels == 1 {
-            output[..total_written].copy_from_slice(&self.output_staging[0][..total_written]);
-            return Ok(total_written);
-        }
-
-        // Re-interleave the output samples into the output buffer.
-        let written_per_channel = total_written / self.config.channels;
-        for frame_idx in 0..written_per_channel {
-            for channel_idx in 0..self.config.channels {
-                output[frame_idx * self.config.channels + channel_idx] = self.output_staging[channel_idx][frame_idx];
+            let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, core_output);
+            if out_written != core_output.len() {
+                return Err(Error::WrongFrameCount {
+                    expected: core_output.len(),
+                    actual: out_written,
+                });
             }
+
+            total_written += out_written;
         }
 
-        // Return total written
         Ok(total_written)
     }
 
@@ -428,35 +501,45 @@ where
     /// as terminal input.
     ///
     /// Returns the number of samples written to the output buffer.
-    pub fn finalize(&mut self, output: &mut [T]) -> Result<usize, Error> {
+    pub fn finalize<'a>(&mut self, output: &mut dyn AdapterMut<'a, T>) -> Result<usize, Error> {
         // Ensure the output buffer is large enough.
         self.ensure_output_buffer_size(output)?;
 
-        self.finalize_samples()?;
+        let mut total_written = 0;
+        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
+            let finalize_output = core.finalize()?;
+            let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, finalize_output);
+            if out_written != finalize_output.len() {
+                return Err(Error::WrongFrameCount {
+                    expected: finalize_output.len(),
+                    actual: out_written,
+                });
+            }
+            total_written += out_written;
+        }
 
-        Ok(self.read_samples(output))
+        Ok(total_written)
     }
 
     /// Validates channel alignment and chunk length for an `input` slice.
     ///
     /// Non-final calls must provide exactly `input_buffer_size()` samples. Final calls may provide
     /// fewer samples but never more than `input_buffer_size()`.
-    fn ensure_input_buffer_size(&self, input: &[T], is_final: bool) -> Result<(), Error> {
-        if !input.len().is_multiple_of(self.config.channels) {
-            return Err(Error::MalformedInputLength {
-                channels: self.config.channels,
-                samples: input.len(),
+    #[inline]
+    fn ensure_input_buffer_size<'a>(&self, input: &dyn Adapter<'a, T>, is_final: bool) -> Result<(), Error> {
+        if self.config.channels != input.channels() {
+            return Err(Error::WrongChannelCount {
+                expected: self.config.channels,
+                actual: input.channels(),
             });
         }
 
-        let frames = input.len() / self.config.channels;
-        let expected_frames = self.derived.input_chunk_frames;
-
-        // Non-final chunks must match the fixed chunk size exactly. Final chunks may be shorter.
-        if (!is_final && frames != expected_frames) || (is_final && frames > expected_frames) {
-            return Err(Error::WrongChunkLength {
-                expected: self.input_chunk_size(),
-                actual: input.len(),
+        if (!is_final && input.frames() != self.derived.input_chunk_frames)
+            || (is_final && input.frames() > self.derived.input_chunk_frames)
+        {
+            return Err(Error::WrongFrameCount {
+                expected: self.derived.input_chunk_frames,
+                actual: input.frames(),
             });
         }
 
@@ -466,53 +549,15 @@ where
     /// Verifies `output` has capacity for at least one produced chunk.
     ///
     /// Callers should allocate at least `output_buffer_size()` samples before processing.
-    fn ensure_output_buffer_size(&self, output: &[T]) -> Result<(), Error> {
+    #[inline]
+    fn ensure_output_buffer_size<'a>(&self, output: &dyn AdapterMut<'a, T>) -> Result<(), Error> {
         let expected = self.output_chunk_size();
-        if output.len() < expected {
+        if output.channels() * output.frames() < expected {
             return Err(Error::InsufficientOutputBuffer {
                 expected,
-                actual: output.len(),
+                actual: output.channels() * output.frames(),
             });
         }
-        Ok(())
-    }
-
-    fn process_pending_chunk(&mut self, input: &[T], is_final: bool) -> Result<(), Error> {
-        let mut chunk_output = vec![T::zero(); self.output_chunk_size()];
-        let written = self.process_chunk_inner(input, &mut chunk_output, is_final)?;
-        self.samples_pending_output.extend_from_slice(&chunk_output[..written]);
-        Ok(())
-    }
-
-    fn append_finalize_output(&mut self) -> Result<(), Error> {
-        let mut total_written = 0;
-
-        for channel_idx in 0..self.config.channels {
-            let core = &mut self.cores[channel_idx];
-            let core_output = &mut self.output_staging[channel_idx];
-            total_written += core.finalize(core_output)?;
-        }
-
-        if total_written == 0 {
-            return Ok(());
-        }
-
-        if self.config.channels == 1 {
-            self.samples_pending_output
-                .extend_from_slice(&self.output_staging[0][..total_written]);
-            return Ok(());
-        }
-
-        let written_per_channel = total_written / self.config.channels;
-        let mut interleaved = vec![T::zero(); total_written];
-        for frame_idx in 0..written_per_channel {
-            for channel_idx in 0..self.config.channels {
-                interleaved[frame_idx * self.config.channels + channel_idx] =
-                    self.output_staging[channel_idx][frame_idx];
-            }
-        }
-        self.samples_pending_output.extend(interleaved);
-
         Ok(())
     }
 
@@ -562,7 +607,7 @@ where
     ///
     /// Use this when resampling gapless material, for example an album where tracks are played
     /// back-to-back. In that case, pass the last chunk of the previous track.
-    /// 
+    ///
     /// The buffer must use the same channel interleaving as stream input.
     ///
     /// Recommended size:
@@ -590,7 +635,7 @@ where
     }
 
     /// Sets next-track context.
-    /// 
+    ///
     /// Use this when resampling gapless material, for example an album where tracks are played
     /// back-to-back. In that case, pass the first chunk of the next track.
     ///
@@ -600,7 +645,7 @@ where
     /// This is useful for live gapless handoff: while track A is streaming, once track B is known you
     /// can call `post(...)` on track A with B's head samples so A's stop-edge uses real next-track
     /// context.
-    /// 
+    ///
     /// The buffer must use the same channel interleaving as stream input.
     ///
     /// Recommended size:

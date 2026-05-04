@@ -10,6 +10,9 @@ authors.workspace = true
 num-traits.workspace = true
 realfft.workspace = true
 thiserror.workspace = true
+audioadapter.workspace = true
+audioadapter-buffers.workspace = true
+audio-core.workspace = true
 rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
