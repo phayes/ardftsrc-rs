@@ -198,9 +198,9 @@ fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels:
 
 ## Quality Tuning and Presets
 
-ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using ARDFTSRC as `f64`, then convert back to `f32`. 
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `Ardftsrc<f64>`, then convert back to `f32`. 
 
-If you want speed over quality, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
+If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
 Presets are pre-vetted `Config` for various quality levels. 
 
@@ -224,11 +224,12 @@ let config = ardftsrc::PRESET_GOOD
 | Flag        | Enables                                                     | Default |
 | ----------- | ----------------------------------------------------------- | ------- |
 | `rayon`     | Parallel processing (channel and track parallelism)         | No      |
-| `avx`       | FFT AVX backend                                             | No      |
-| `sse`       | FFT SSE backend                                             | No      |
-| `neon`      | FFT NEON backend for ARM / Mac                              | No      |
-| `wasm_simd` | FFT WebAssembly SIMD backend                                | No      |
+| `avx`       | FFT AVX SIMD                                                | Yes     |
+| `sse`       | FFT SSE SIMD                                                | Yes     |
+| `neon`      | FFT NEON SIMD    for ARM / Mac                              | Yes     |
+| `wasm_simd` | FFT WebAssembly SIMD                                        | Yes     |
 
+Runtime feature detection is in place for all SIMD except webassembly. 
 
 ## Command Line
 
@@ -289,10 +290,9 @@ AI use is allowed for the following:
 ### Development TODOs:
 
 1. It is very sensitive to the allocatior (mimalloc gives 50% performance improvements), so we are perhaps thrashing the allocator somewhere that we didn't expect.
-2. the samples API does some allocations on every read / write we could avoid, fix this at the same time as #5, since it's related to orchestrating interleaved samples to planar. 
+2. the samples API does some allocations on every read / write we could avoid, this will be fixed in #5
 3. Add support for `phase` config.
 4. Calc performance metrics and post links
-5. Investigate moving to a an [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
+5. Move to [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
 6. Add bindings to other languages, python, ts (wasm) etc.
-7. Seperate out lib from bin in a workspace
-8. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
+7. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
