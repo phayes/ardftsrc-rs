@@ -224,11 +224,12 @@ let config = ardftsrc::PRESET_GOOD
 | Flag        | Enables                                                     | Default |
 | ----------- | ----------------------------------------------------------- | ------- |
 | `rayon`     | Parallel processing (channel and track parallelism)         | No      |
-| `avx`       | FFT AVX backend                                             | No      |
-| `sse`       | FFT SSE backend                                             | No      |
-| `neon`      | FFT NEON backend for ARM / Mac                              | No      |
-| `wasm_simd` | FFT WebAssembly SIMD backend                                | No      |
+| `avx`       | FFT AVX SIMD                                                | Yes     |
+| `sse`       | FFT SSE SIMD                                                | Yes     |
+| `neon`      | FFT NEON SIMD    for ARM / Mac                              | Yes     |
+| `wasm_simd` | FFT WebAssembly SIMD                                        | Yes     |
 
+Runtime feature detection is in place for all SIMD except webassembly. 
 
 ## Command Line
 
