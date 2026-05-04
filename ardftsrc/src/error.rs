@@ -41,8 +41,8 @@ pub enum Error {
     InsufficientOutputBuffer { expected: usize, actual: usize },
 
     /// Additional input was submitted after final input was already provided.
-    #[error("stream has already received its final input")]
-    StreamFinished,
+    #[error("stream has already been finalized")]
+    StreamAlreadyFinalized,
 
     /// Flush was requested more than once.
     #[error("stream has already been flushed")]

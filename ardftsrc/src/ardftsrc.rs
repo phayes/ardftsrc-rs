@@ -4,10 +4,10 @@ use rayon::prelude::*;
 use realfft::FftNum;
 
 use crate::{ArdftsrcCore, Config, DerivedConfig, Error};
+use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 use audioadapter_buffers::direct::InterleavedSlice;
 use std::collections::VecDeque;
-use audio_core::Sample;
 
 pub struct Ardftsrc<T = f32>
 where
@@ -324,17 +324,19 @@ where
                 self.derived.input_chunk_frames,
             )
             .expect("ardftsrc: Invalid input chunk size. This is a bug in the ardftsrc crate.");
-            let mut output_adapter = InterleavedSlice::new(
+            let mut output_adapter = InterleavedSlice::new_mut(
                 &mut self.samples_output_chunk_buffer,
                 self.config.channels,
                 self.derived.output_chunk_frames,
             )
             .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
 
-            let _samples_written = self.process_chunk_inner(&input_adapter, &mut output_adapter, false).expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
+            let _samples_written = self
+                .process_chunk_inner(&input_adapter, &mut output_adapter, false)
+                .expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
             debug_assert_eq!(_samples_written, self.output_chunk_size());
 
-            self.samples_pending_output.extend(output_adapter.into_iter());
+            self.samples_pending_output.extend(self.samples_output_chunk_buffer.iter().copied());
         }
 
         // Process the final chunk (mabye undersized) and finalize the entire stream
@@ -355,29 +357,31 @@ where
                     .expect("ardftsrc: Invalid final input chunk size.");
 
             // Output buffer should already be sized for max possible output frames.
-            let mut output_adapter = InterleavedSlice::new(
+            let mut output_adapter = InterleavedSlice::new_mut(
                 &mut self.samples_output_chunk_buffer,
                 self.config.channels,
                 self.derived.output_chunk_frames,
             )
             .expect("ardftsrc: Invalid output chunk size.");
 
-            let samples_written = self.process_chunk_inner(&input_adapter, &mut output_adapter, true)?;
+            let samples_written = self.process_chunk_inner(&input_adapter, &mut output_adapter, true).expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
 
             self.samples_pending_output
-                .extend(output_adapter.into_iter().take(samples_written));
+                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
 
             // Call finalize() and write the final tail output.
-            let mut output_adapter = InterleavedSlice::new(
+            let mut output_adapter = InterleavedSlice::new_mut(
                 &mut self.samples_output_chunk_buffer,
                 self.config.channels,
                 self.derived.output_chunk_frames,
             )
             .expect("ardftsrc: Invalid output chunk size.");
 
-            let samples_written = self.finalize(&mut output_adapter)?;
+            let samples_written = self
+                .finalize(&mut output_adapter)
+                .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
             self.samples_pending_output
-                .extend(output_adapter.into_iter().take(samples_written));
+                .extend(self.samples_output_chunk_buffer.into_iter().take(samples_written));
         }
     }
 
@@ -385,7 +389,7 @@ where
     ///
     /// Returns the number of samples copied into `output`.
     pub fn read_samples(&mut self, output: &mut [T]) -> usize {
-        let drain_count = min(output.len(), self.samples_pending_output.len());
+        let drain_count = output.len().min(self.samples_pending_output.len());
 
         for (dst, src) in output[..drain_count]
             .iter_mut()

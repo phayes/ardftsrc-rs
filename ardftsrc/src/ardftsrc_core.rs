@@ -339,7 +339,7 @@ where
         let input_samples = input.len();
 
         if self.final_input_seen {
-            return Err(Error::StreamFinished);
+            return Err(Error::StreamAlreadyFinalized);
         }
 
         // Shortcut for passthrough mode.
