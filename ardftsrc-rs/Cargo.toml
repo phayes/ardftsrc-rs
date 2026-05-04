@@ -15,6 +15,7 @@ mimalloc.workspace = true
 wavers.workspace = true
 
 [features]
+default = ["avx", "neon", "sse", "wasm_simd", "rayon"]
 rayon = ["ardftsrc/rayon"]
 avx = ["ardftsrc/avx"]
 neon = ["ardftsrc/neon"]

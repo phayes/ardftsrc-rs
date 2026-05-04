@@ -63,6 +63,7 @@ name = "rubato_sync_f64"
 harness = false
 
 [features]
+default = ["avx", "neon", "sse", "wasm_simd"]
 rayon = ["dep:rayon"]
 avx = ["realfft/avx"]
 neon = ["realfft/neon"]
