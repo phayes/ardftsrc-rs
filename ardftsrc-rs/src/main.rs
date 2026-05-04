@@ -1,4 +1,8 @@
-use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
+use ardftsrc::{
+    Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType, adapter_to_interleaved,
+};
+use audioadapter::Adapter;
+use audioadapter_buffers::direct::InterleavedSlice;
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacSampleReader;
 use flac_codec::encode::{FlacSampleWriter, Options as FlacOptions};
@@ -131,12 +135,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     let converted = if args.gapless {
         processor.batch_gapless(&input_refs)?
     } else {
-        processor.batch(&input_refs)?
+        let input_adapters = input_refs
+            .iter()
+            .map(|input| {
+                let frames = input.len() / first.channels;
+                InterleavedSlice::new(input, first.channels, frames)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let input_adapter_refs = input_adapters
+            .iter()
+            .map(|input| input as &dyn Adapter<'_, f64>)
+            .collect::<Vec<_>>();
+        processor
+            .batch(&input_adapter_refs)?
+            .into_iter()
+            .map(|buffer| adapter_to_interleaved(&buffer))
+            .collect()
     };
 
-    for ((track, output_path), converted_samples) in
-        tracks.iter().zip(args.output.iter()).zip(converted.into_iter())
-    {
+    for ((track, output_path), converted_samples) in tracks.iter().zip(args.output.iter()).zip(converted.into_iter()) {
         write_output_audio(
             output_path,
             first.channels,
@@ -214,11 +231,7 @@ fn validate_batch_compatibility(tracks: &[InputTrack]) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-fn build_config(
-    args: &Args,
-    input_sample_rate: usize,
-    channels: usize,
-) -> Result<Config, Box<dyn Error>> {
+fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Result<Config, Box<dyn Error>> {
     let mut config = match args.preset {
         PresetArg::Fast => PRESET_FAST,
         PresetArg::Good => PRESET_GOOD,
@@ -334,9 +347,7 @@ fn write_output_audio(
 
     match audio_container(path) {
         Some(AudioContainer::Wav) => write_output_wav(path, channels, output_rate_hz, aligned_samples, target_format),
-        Some(AudioContainer::Flac) => {
-            write_output_flac(path, channels, output_rate_hz, aligned_samples, target_format)
-        }
+        Some(AudioContainer::Flac) => write_output_flac(path, channels, output_rate_hz, aligned_samples, target_format),
         None => Err(format!(
             "unsupported output extension for {} (supported: .wav, .flac)",
             path.display()
@@ -357,27 +368,15 @@ fn write_output_wav(
     match target_format {
         OutFormatArg::Same => unreachable!("same is resolved to a concrete format"),
         OutFormatArg::I16 => {
-            let out = samples_f64
-                .iter()
-                .copied()
-                .map(float64_to_i16)
-                .collect::<Vec<_>>();
+            let out = samples_f64.iter().copied().map(float64_to_i16).collect::<Vec<_>>();
             write::<i16, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::I24 => {
-            let out = samples_f64
-                .iter()
-                .copied()
-                .map(float64_to_i24)
-                .collect::<Vec<_>>();
+            let out = samples_f64.iter().copied().map(float64_to_i24).collect::<Vec<_>>();
             write::<i24, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::I32 => {
-            let out = samples_f64
-                .iter()
-                .copied()
-                .map(float64_to_i32)
-                .collect::<Vec<_>>();
+            let out = samples_f64.iter().copied().map(float64_to_i32).collect::<Vec<_>>();
             write::<i32, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::F32 => {
@@ -419,9 +418,8 @@ fn write_output_flac(
         OutFormatArg::I32 => 32_u32,
         OutFormatArg::F32 | OutFormatArg::F64 => {
             return Err(
-                "FLAC output does not support float sample formats; use --out-format i16/i24/i32 or same"
-                    .into(),
-            )
+                "FLAC output does not support float sample formats; use --out-format i16/i24/i32 or same".into(),
+            );
         }
         OutFormatArg::Same => unreachable!("same is resolved to a concrete format"),
     };
@@ -435,16 +433,8 @@ fn write_output_flac(
             .map(float64_to_i16)
             .map(i32::from)
             .collect::<Vec<_>>(),
-        OutFormatArg::I24 => samples_f64
-            .iter()
-            .copied()
-            .map(float64_to_i24_i32)
-            .collect::<Vec<_>>(),
-        OutFormatArg::I32 => samples_f64
-            .iter()
-            .copied()
-            .map(float64_to_i32)
-            .collect::<Vec<_>>(),
+        OutFormatArg::I24 => samples_f64.iter().copied().map(float64_to_i24_i32).collect::<Vec<_>>(),
+        OutFormatArg::I32 => samples_f64.iter().copied().map(float64_to_i32).collect::<Vec<_>>(),
         OutFormatArg::F32 | OutFormatArg::F64 | OutFormatArg::Same => unreachable!(),
     };
 
@@ -526,15 +516,13 @@ fn float64_to_i32(value: f64) -> i32 {
 }
 
 fn audio_container(path: &Path) -> Option<AudioContainer> {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .and_then(|ext| {
-            if ext.eq_ignore_ascii_case("wav") {
-                Some(AudioContainer::Wav)
-            } else if ext.eq_ignore_ascii_case("flac") {
-                Some(AudioContainer::Flac)
-            } else {
-                None
-            }
-        })
+    path.extension().and_then(|ext| ext.to_str()).and_then(|ext| {
+        if ext.eq_ignore_ascii_case("wav") {
+            Some(AudioContainer::Wav)
+        } else if ext.eq_ignore_ascii_case("flac") {
+            Some(AudioContainer::Flac)
+        } else {
+            None
+        }
+    })
 }

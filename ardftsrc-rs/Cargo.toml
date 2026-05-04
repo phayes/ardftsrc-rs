@@ -8,6 +8,8 @@ description = "Commmandline wav and flac sample-rate converter powered by ardfts
 
 [dependencies]
 ardftsrc = { path = "../ardftsrc" }
+audioadapter.workspace = true
+audioadapter-buffers.workspace = true
 clap.workspace = true
 flac-codec.workspace = true
 i24.workspace = true

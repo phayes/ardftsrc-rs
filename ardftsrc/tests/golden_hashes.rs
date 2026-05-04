@@ -14,10 +14,12 @@
 //! Updates to ../test_wavs/golden_hashes.<arch>.json are allowed, but only when accompanied
 //! by verifiable quality improvements demonstrated with the HydrogenAudio SRC
 //! test suite.
-//! 
+//!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
-//! 
-use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+//!
+use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, adapter_to_interleaved};
+use audioadapter::Adapter;
+use audioadapter_buffers::direct::InterleavedSlice;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -206,10 +208,7 @@ fn generate_hashes_f32(
 ) -> Result<BTreeMap<String, Vec<String>>, Box<dyn Error>> {
     let mut grouped = BTreeMap::<(usize, usize), Vec<usize>>::new();
     for (index, wav) in wavs.iter().enumerate() {
-        grouped
-            .entry((wav.sample_rate, wav.channels))
-            .or_default()
-            .push(index);
+        grouped.entry((wav.sample_rate, wav.channels)).or_default().push(index);
     }
 
     let mut hashes = BTreeMap::new();
@@ -220,14 +219,20 @@ fn generate_hashes_f32(
             .with_output_rate(target_rate)
             .with_channels(channels);
         let driver = Ardftsrc::<f32>::new(config)?;
-        let inputs = indices
+        let inputs = indices.iter().map(|&i| wavs[i].samples.as_slice()).collect::<Vec<_>>();
+        let input_adapters = inputs
             .iter()
-            .map(|&i| wavs[i].samples.as_slice())
+            .map(|input| InterleavedSlice::new(input, channels, input.len() / channels))
+            .collect::<Result<Vec<_>, _>>()?;
+        let input_adapter_refs = input_adapters
+            .iter()
+            .map(|input| input as &dyn Adapter<'_, f32>)
             .collect::<Vec<_>>();
-        let outputs = driver.batch(&inputs)?;
+        let outputs = driver.batch(&input_adapter_refs)?;
 
         for (wav_index, output) in indices.into_iter().zip(outputs) {
-            let channel_hashes = hash_interleaved_channels(&output, wavs[wav_index].channels)?;
+            let interleaved = adapter_to_interleaved(&output);
+            let channel_hashes = hash_interleaved_channels(&interleaved, wavs[wav_index].channels)?;
             hashes.insert(wavs[wav_index].file_name.clone(), channel_hashes);
         }
     }
@@ -242,10 +247,7 @@ fn generate_hashes_f64_from_f32(
 ) -> Result<BTreeMap<String, Vec<String>>, Box<dyn Error>> {
     let mut grouped = BTreeMap::<(usize, usize), Vec<usize>>::new();
     for (index, wav) in wavs.iter().enumerate() {
-        grouped
-            .entry((wav.sample_rate, wav.channels))
-            .or_default()
-            .push(index);
+        grouped.entry((wav.sample_rate, wav.channels)).or_default().push(index);
     }
 
     let mut hashes = BTreeMap::new();
@@ -261,12 +263,20 @@ fn generate_hashes_f64_from_f32(
             .map(|&i| wavs[i].samples.iter().map(|&v| v as f64).collect::<Vec<f64>>())
             .collect::<Vec<_>>();
         let input_refs = inputs_f64.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let outputs_f64 = driver.batch(&input_refs)?;
+        let input_adapters = input_refs
+            .iter()
+            .map(|input| InterleavedSlice::new(input, channels, input.len() / channels))
+            .collect::<Result<Vec<_>, _>>()?;
+        let input_adapter_refs = input_adapters
+            .iter()
+            .map(|input| input as &dyn Adapter<'_, f64>)
+            .collect::<Vec<_>>();
+        let outputs_f64 = driver.batch(&input_adapter_refs)?;
 
         for (wav_index, output_f64) in indices.into_iter().zip(outputs_f64) {
-            let output_f32 = output_f64.iter().map(|&v| v as f32).collect::<Vec<f32>>();
-            let channel_hashes =
-                hash_interleaved_channels(&output_f32, wavs[wav_index].channels)?;
+            let interleaved_f64 = adapter_to_interleaved(&output_f64);
+            let output_f32 = interleaved_f64.iter().map(|&v| v as f32).collect::<Vec<f32>>();
+            let channel_hashes = hash_interleaved_channels(&output_f32, wavs[wav_index].channels)?;
             hashes.insert(wavs[wav_index].file_name.clone(), channel_hashes);
         }
     }
@@ -274,10 +284,7 @@ fn generate_hashes_f64_from_f32(
     Ok(hashes)
 }
 
-fn hash_interleaved_channels(
-    interleaved: &[f32],
-    channels: usize,
-) -> Result<Vec<String>, Box<dyn Error>> {
+fn hash_interleaved_channels(interleaved: &[f32], channels: usize) -> Result<Vec<String>, Box<dyn Error>> {
     if channels == 0 {
         return Err("channels must be greater than zero".into());
     }

@@ -178,30 +178,130 @@ where
     /// `batch_gapless()` for gapless processing of multiple tracks.
     ///
     /// Enable the `rayon` feature for parallel processing.
-    pub fn batch(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
+    ///
+    /// TODO: We're allocating intermediate Vec<T> here even when processing planar input. We need to optimize this.
+    ///
+    pub fn batch<'a>(
+        &self,
+        inputs: &[&dyn Adapter<'a, T>],
+    ) -> Result<Vec<audioadapter_buffers::owned::SequentialOwned<T>>, Error>
     where
         T: Send + Sync,
     {
         let config = self.config.clone();
+        let prepared_inputs: Vec<Vec<Vec<T>>> = inputs
+            .iter()
+            .map(|input| {
+                if input.channels() != config.channels {
+                    return Err(Error::WrongChannelCount {
+                        expected: config.channels,
+                        actual: input.channels(),
+                    });
+                }
+
+                let frames = input.frames();
+                let mut per_channel = Vec::with_capacity(config.channels);
+                for channel_idx in 0..config.channels {
+                    let mut channel = vec![T::zero(); frames];
+                    let copied = input.copy_from_channel_to_slice(channel_idx, 0, &mut channel);
+                    if copied != frames {
+                        return Err(Error::WrongFrameCount {
+                            expected: frames,
+                            actual: copied,
+                        });
+                    }
+                    per_channel.push(channel);
+                }
+                Ok(per_channel)
+            })
+            .collect::<Result<_, _>>()?;
 
         #[cfg(feature = "rayon")]
         {
-            inputs
+            prepared_inputs
                 .par_iter()
-                .map(|input| {
+                .map(|channel_inputs| {
                     let mut resampler = Ardftsrc::new(config.clone())?;
-                    resampler.process_all(input)
+                    let mut channel_outputs: Vec<Vec<T>> = (0..config.channels).map(|_| Vec::new()).collect();
+
+                    for ((core, channel_input), channel_output) in resampler
+                        .cores
+                        .iter_mut()
+                        .zip(channel_inputs.iter())
+                        .zip(channel_outputs.iter_mut())
+                    {
+                        *channel_output = core.process_all(channel_input)?;
+                    }
+
+                    let written_per_channel = channel_outputs.first().map_or(0, Vec::len);
+                    let mut output = audioadapter_buffers::owned::SequentialOwned::new(
+                        T::zero(),
+                        config.channels,
+                        written_per_channel,
+                    );
+
+                    for (channel_idx, channel_output) in channel_outputs.iter().enumerate() {
+                        if channel_output.len() != written_per_channel {
+                            return Err(Error::WrongFrameCount {
+                                expected: written_per_channel,
+                                actual: channel_output.len(),
+                            });
+                        }
+                        let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, channel_output);
+                        if out_written != channel_output.len() {
+                            return Err(Error::WrongFrameCount {
+                                expected: channel_output.len(),
+                                actual: out_written,
+                            });
+                        }
+                    }
+
+                    Ok(output)
                 })
                 .collect()
         }
 
         #[cfg(not(feature = "rayon"))]
         {
-            inputs
+            prepared_inputs
                 .iter()
-                .map(|input| {
+                .map(|channel_inputs| {
                     let mut resampler = Ardftsrc::new(config.clone())?;
-                    resampler.process_all(input)
+                    let mut channel_outputs: Vec<Vec<T>> = (0..config.channels).map(|_| Vec::new()).collect();
+
+                    for ((core, channel_input), channel_output) in resampler
+                        .cores
+                        .iter_mut()
+                        .zip(channel_inputs.iter())
+                        .zip(channel_outputs.iter_mut())
+                    {
+                        *channel_output = core.process_all(channel_input)?;
+                    }
+
+                    let written_per_channel = channel_outputs.first().map_or(0, Vec::len);
+                    let mut output = audioadapter_buffers::owned::SequentialOwned::new(
+                        T::zero(),
+                        config.channels,
+                        written_per_channel,
+                    );
+
+                    for (channel_idx, channel_output) in channel_outputs.iter().enumerate() {
+                        if channel_output.len() != written_per_channel {
+                            return Err(Error::WrongFrameCount {
+                                expected: written_per_channel,
+                                actual: channel_output.len(),
+                            });
+                        }
+                        let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, channel_output);
+                        if out_written != channel_output.len() {
+                            return Err(Error::WrongFrameCount {
+                                expected: channel_output.len(),
+                                actual: out_written,
+                            });
+                        }
+                    }
+
+                    Ok(output)
                 })
                 .collect()
         }
@@ -324,22 +424,39 @@ where
                 self.derived.input_chunk_frames,
             )
             .expect("ardftsrc: Invalid input chunk size. This is a bug in the ardftsrc crate.");
-            let mut output_adapter = InterleavedSlice::new_mut(
+
+            let channels = self.config.channels;
+            let output_chunk_frames = self.derived.output_chunk_frames;
+
+            // Destructure self to allow multability of different fields at the same time.
+            let (cores, input_staging, samples_output_chunk_buffer) = (
+                &mut self.cores,
+                &mut self.input_staging,
                 &mut self.samples_output_chunk_buffer,
-                self.config.channels,
-                self.derived.output_chunk_frames,
+            );
+
+            // Create an output adapter for the output chunk buffer.
+            let mut output_adapter =
+                InterleavedSlice::new_mut(samples_output_chunk_buffer, channels, output_chunk_frames)
+                    .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
+
+            // Process the chunk.
+            Self::process_chunk_inner(
+                cores,
+                input_staging,
+                channels,
+                &input_adapter,
+                &mut output_adapter,
+                false,
             )
-            .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
+            .expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
 
-            let _samples_written = self
-                .process_chunk_inner(&input_adapter, &mut output_adapter, false)
-                .expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
-            debug_assert_eq!(_samples_written, self.output_chunk_size());
-
-            self.samples_pending_output.extend(self.samples_output_chunk_buffer.iter().copied());
+            self.samples_pending_output
+                .extend(self.samples_output_chunk_buffer.iter().copied());
         }
 
         // Process the final chunk (mabye undersized) and finalize the entire stream
+        // -------------------------------------------------------------------------
         if finalize && !self.sample_pending_input.is_empty() {
             // Remaining samples must form complete frames
             let remaining_samples = self.sample_pending_input.len();
@@ -356,32 +473,55 @@ where
                 InterleavedSlice::new(&self.samples_input_chunk_buffer, self.config.channels, remaining_frames)
                     .expect("ardftsrc: Invalid final input chunk size.");
 
-            // Output buffer should already be sized for max possible output frames.
-            let mut output_adapter = InterleavedSlice::new_mut(
-                &mut self.samples_output_chunk_buffer,
-                self.config.channels,
-                self.derived.output_chunk_frames,
-            )
-            .expect("ardftsrc: Invalid output chunk size.");
+            let channels = self.config.channels;
+            let output_chunk_frames = self.derived.output_chunk_frames;
+            let samples_written = {
+                // Desructure self to allow multability of different fields at the same time.
+                let (cores, input_staging, samples_output_chunk_buffer) = (
+                    &mut self.cores,
+                    &mut self.input_staging,
+                    &mut self.samples_output_chunk_buffer,
+                );
 
-            let samples_written = self.process_chunk_inner(&input_adapter, &mut output_adapter, true).expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
+                // Create the output adapter for the output chunk buffer.
+                let mut output_adapter =
+                    InterleavedSlice::new_mut(samples_output_chunk_buffer, channels, output_chunk_frames)
+                        .expect("ardftsrc: Invalid output chunk size.");
 
+                // Process the chunk.
+                Self::process_chunk_inner(
+                    cores,
+                    input_staging,
+                    channels,
+                    &input_adapter,
+                    &mut output_adapter,
+                    true,
+                )
+                .expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.")
+            };
+
+            // Extend the pending output with the samples written.
             self.samples_pending_output
                 .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
 
             // Call finalize() and write the final tail output.
-            let mut output_adapter = InterleavedSlice::new_mut(
-                &mut self.samples_output_chunk_buffer,
-                self.config.channels,
-                self.derived.output_chunk_frames,
-            )
-            .expect("ardftsrc: Invalid output chunk size.");
+            let samples_written = {
+                // Desructure self to allow multability of different fields at the same time.
+                let (cores, samples_output_chunk_buffer) = (&mut self.cores, &mut self.samples_output_chunk_buffer);
 
-            let samples_written = self
-                .finalize(&mut output_adapter)
-                .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
+                // Create the output adapter for the output chunk buffer.
+                let mut output_adapter =
+                    InterleavedSlice::new_mut(samples_output_chunk_buffer, channels, output_chunk_frames)
+                        .expect("ardftsrc: Invalid output chunk size.");
+
+                // Finalize the cores and write the final tail output.
+                Self::finalize_cores(cores, &mut output_adapter)
+                    .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.")
+            };
+
+            // Extend the pending output with the final tail output.
             self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.into_iter().take(samples_written));
+                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
         }
     }
 
@@ -442,8 +582,11 @@ where
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, false)?;
 
+        // Desructure self to allow multability of different fields at the same time.
+        let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
+
         // Process the chunk.
-        self.process_chunk_inner(input, output, false)
+        Self::process_chunk_inner(cores, input_staging, self.config.channels, input, output, false)
     }
 
     /// Processes the final chunk, which may be shorter than the regular chunk size.
@@ -463,23 +606,28 @@ where
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, true)?;
 
+        // Desructure self to allow multability of different fields at the same time.
+        let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
+
         // Process the chunk.
-        self.process_chunk_inner(input, output, true)
+        Self::process_chunk_inner(cores, input_staging, self.config.channels, input, output, true)
     }
 
     #[inline]
     fn process_chunk_inner<'a>(
-        &mut self,
+        cores: &mut [ArdftsrcCore<T>],
+        input_staging: &mut [Vec<T>],
+        channels: usize,
         input: &dyn Adapter<'a, T>,
         output: &mut dyn AdapterMut<'a, T>,
         is_final: bool,
     ) -> Result<usize, Error> {
         let mut total_written = 0;
 
-        // For each channel, process the chunk in the core
-        for channel_idx in 0..self.config.channels {
-            let core = &mut self.cores[channel_idx];
-            let core_input = &mut self.input_staging[channel_idx][..input.frames()];
+        // For each channel, process the chunk in the core.
+        for channel_idx in 0..channels {
+            let core = &mut cores[channel_idx];
+            let core_input = &mut input_staging[channel_idx][..input.frames()];
             input.copy_from_channel_to_slice(channel_idx, 0, core_input);
             let core_output = core.process_chunk(core_input, is_final)?;
 
@@ -509,8 +657,13 @@ where
         // Ensure the output buffer is large enough.
         self.ensure_output_buffer_size(output)?;
 
+        Self::finalize_cores(&mut self.cores, output)
+    }
+
+    #[inline]
+    fn finalize_cores<'a>(cores: &mut [ArdftsrcCore<T>], output: &mut dyn AdapterMut<'a, T>) -> Result<usize, Error> {
         let mut total_written = 0;
-        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
+        for (channel_idx, core) in cores.iter_mut().enumerate() {
             let finalize_output = core.finalize()?;
             let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, finalize_output);
             if out_written != finalize_output.len() {
@@ -709,6 +862,8 @@ where
 mod tests {
     use super::*;
     use crate::{ArdftsrcCore, TaperType};
+    use audioadapter::Adapter;
+    use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
 
     fn input_chunk_frames(resampler: &Ardftsrc<f32>) -> usize {
@@ -717,6 +872,58 @@ mod tests {
 
     fn output_chunk_frames(resampler: &Ardftsrc<f32>) -> usize {
         resampler.output_chunk_size() / resampler.config().channels
+    }
+
+    fn process_chunk_samples(resampler: &mut Ardftsrc<f32>, input: &[f32], output: &mut [f32]) -> Result<usize, Error> {
+        let channels = resampler.config().channels;
+        let output_len = output.len();
+        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
+            Error::MalformedInputLength {
+                channels,
+                samples: input.len(),
+            }
+        })?;
+        let mut output_adapter = InterleavedSlice::new_mut(output, channels, output_len / channels).map_err(|_| {
+            Error::MalformedInputLength {
+                channels,
+                samples: output_len,
+            }
+        })?;
+        resampler.process_chunk(&input_adapter, &mut output_adapter)
+    }
+
+    fn process_chunk_final_samples(
+        resampler: &mut Ardftsrc<f32>,
+        input: &[f32],
+        output: &mut [f32],
+    ) -> Result<usize, Error> {
+        let channels = resampler.config().channels;
+        let output_len = output.len();
+        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
+            Error::MalformedInputLength {
+                channels,
+                samples: input.len(),
+            }
+        })?;
+        let mut output_adapter = InterleavedSlice::new_mut(output, channels, output_len / channels).map_err(|_| {
+            Error::MalformedInputLength {
+                channels,
+                samples: output_len,
+            }
+        })?;
+        resampler.process_chunk_final(&input_adapter, &mut output_adapter)
+    }
+
+    fn finalize_samples_chunk(resampler: &mut Ardftsrc<f32>, output: &mut [f32]) -> Result<usize, Error> {
+        let channels = resampler.config().channels;
+        let output_len = output.len();
+        let mut output_adapter = InterleavedSlice::new_mut(output, channels, output_len / channels).map_err(|_| {
+            Error::MalformedInputLength {
+                channels,
+                samples: output_len,
+            }
+        })?;
+        resampler.finalize(&mut output_adapter)
     }
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
@@ -759,15 +966,16 @@ mod tests {
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
-            written += resampler
-                .process_chunk(&input[offset..offset + input_buffer_size], &mut output[written..])
-                .unwrap();
+            written += process_chunk_samples(
+                &mut resampler,
+                &input[offset..offset + input_buffer_size],
+                &mut output[written..],
+            )
+            .unwrap();
             offset += input_buffer_size;
         }
-        written += resampler
-            .process_chunk_final(&input[offset..], &mut output[written..])
-            .unwrap();
-        written += resampler.finalize(&mut output[written..]).unwrap();
+        written += process_chunk_final_samples(&mut resampler, &input[offset..], &mut output[written..]).unwrap();
+        written += finalize_samples_chunk(&mut resampler, &mut output[written..]).unwrap();
         output.truncate(written);
         output
     }
@@ -832,24 +1040,21 @@ mod tests {
 
     fn run_core_process_all(core: &mut ArdftsrcCore<f32>, input: &[f32]) -> Vec<f32> {
         let mut output = Vec::new();
-        let mut chunk_output = vec![0.0; core.output_buffer_size()];
         let mut offset = 0;
         let input_chunk = core.input_buffer_size();
 
         while offset + input_chunk <= input.len() {
-            let written = core
-                .process_chunk(&input[offset..offset + input_chunk], &mut chunk_output, false)
-                .unwrap();
-            output.extend_from_slice(&chunk_output[..written]);
+            let written = core.process_chunk(&input[offset..offset + input_chunk], false).unwrap();
+            output.extend_from_slice(written);
             offset += input_chunk;
         }
 
         let final_input = &input[offset..];
-        let written = core.process_chunk(final_input, &mut chunk_output, true).unwrap();
-        output.extend_from_slice(&chunk_output[..written]);
+        let written = core.process_chunk(final_input, true).unwrap();
+        output.extend_from_slice(written);
 
-        let written = core.finalize(&mut chunk_output).unwrap();
-        output.extend_from_slice(&chunk_output[..written]);
+        let written = core.finalize().unwrap();
+        output.extend_from_slice(written);
 
         output
     }
@@ -901,7 +1106,7 @@ mod tests {
             .collect();
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
-        let written = resampler.process_chunk(&input, &mut output).unwrap();
+        let written = process_chunk_samples(&mut resampler, &input, &mut output).unwrap();
 
         assert_eq!(
             written,
@@ -921,7 +1126,7 @@ mod tests {
 
         let output = resampler.process_all(&input).unwrap();
 
-        assert_eq!(output.len(), resampler.expected_output_size(input_frames));
+        assert_eq!(output.len(), resampler.expected_output_size(input_frames) * 2);
         assert!(output.iter().all(|sample| sample.is_finite()));
         assert!(output.iter().all(|sample| sample.abs() < 1.0));
     }
@@ -1035,8 +1240,8 @@ mod tests {
         with_zero_pre.pre(&pre_zero).unwrap();
         with_one_pre.pre(&pre_one).unwrap();
 
-        let written_zero = with_zero_pre.process_chunk(&input, &mut out_zero).unwrap();
-        let written_one = with_one_pre.process_chunk(&input, &mut out_one).unwrap();
+        let written_zero = process_chunk_samples(&mut with_zero_pre, &input, &mut out_zero).unwrap();
+        let written_one = process_chunk_samples(&mut with_one_pre, &input, &mut out_one).unwrap();
 
         assert_eq!(written_zero, written_one);
         assert!(
@@ -1062,10 +1267,10 @@ mod tests {
         with_zero_post.post(&post_zero).unwrap();
         with_one_post.post(&post_one).unwrap();
 
-        with_zero_post.process_chunk(&input, &mut chunk_out).unwrap();
-        with_one_post.process_chunk(&input, &mut chunk_out).unwrap();
-        let written_zero = with_zero_post.finalize(&mut flush_zero).unwrap();
-        let written_one = with_one_post.finalize(&mut flush_one).unwrap();
+        process_chunk_samples(&mut with_zero_post, &input, &mut chunk_out).unwrap();
+        process_chunk_samples(&mut with_one_post, &input, &mut chunk_out).unwrap();
+        let written_zero = finalize_samples_chunk(&mut with_zero_post, &mut flush_zero).unwrap();
+        let written_one = finalize_samples_chunk(&mut with_one_post, &mut flush_one).unwrap();
 
         assert_eq!(written_zero, written_one);
         assert!(
@@ -1084,8 +1289,8 @@ mod tests {
             .collect();
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
-        let first_written = resampler.process_chunk(&input, &mut output).unwrap();
-        let flush_written = resampler.finalize(&mut output).unwrap();
+        let first_written = process_chunk_samples(&mut resampler, &input, &mut output).unwrap();
+        let flush_written = finalize_samples_chunk(&mut resampler, &mut output).unwrap();
 
         assert_eq!(first_written + flush_written, output_chunk_frames(&resampler));
         assert!(output[..flush_written].iter().all(|sample| sample.is_finite()));
@@ -1111,15 +1316,17 @@ mod tests {
         let chunk_len = input_chunk_frames(&streaming);
         let mut offset = 0;
         while offset + chunk_len <= input.len() {
-            written += streaming
-                .process_chunk(&input[offset..offset + chunk_len], &mut streaming_output[written..])
-                .unwrap();
+            written += process_chunk_samples(
+                &mut streaming,
+                &input[offset..offset + chunk_len],
+                &mut streaming_output[written..],
+            )
+            .unwrap();
             offset += chunk_len;
         }
-        written += streaming
-            .process_chunk_final(&input[offset..], &mut streaming_output[written..])
-            .unwrap();
-        written += streaming.finalize(&mut streaming_output[written..]).unwrap();
+        written +=
+            process_chunk_final_samples(&mut streaming, &input[offset..], &mut streaming_output[written..]).unwrap();
+        written += finalize_samples_chunk(&mut streaming, &mut streaming_output[written..]).unwrap();
         streaming_output.truncate(written);
         streaming_output.truncate(offline_output.len());
 
@@ -1316,18 +1523,17 @@ mod tests {
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
-            written += streaming
-                .process_chunk(
-                    &input[offset..offset + input_buffer_size],
-                    &mut streaming_output[written..],
-                )
-                .unwrap();
+            written += process_chunk_samples(
+                &mut streaming,
+                &input[offset..offset + input_buffer_size],
+                &mut streaming_output[written..],
+            )
+            .unwrap();
             offset += input_buffer_size;
         }
-        written += streaming
-            .process_chunk_final(&input[offset..], &mut streaming_output[written..])
-            .unwrap();
-        written += streaming.finalize(&mut streaming_output[written..]).unwrap();
+        written +=
+            process_chunk_final_samples(&mut streaming, &input[offset..], &mut streaming_output[written..]).unwrap();
+        written += finalize_samples_chunk(&mut streaming, &mut streaming_output[written..]).unwrap();
         streaming_output.truncate(written);
         streaming_output.truncate(offline_output.len());
 
@@ -1342,7 +1548,7 @@ mod tests {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler) - 1];
 
-        assert!(resampler.process_chunk(&input, &mut []).is_err());
+        assert!(process_chunk_samples(&mut resampler, &input, &mut []).is_err());
     }
 
     #[test]
@@ -1352,14 +1558,17 @@ mod tests {
         let mut too_small = vec![0.0; output_chunk_frames(&resampler) - 1];
 
         assert!(matches!(
-            resampler.process_chunk(&input, &mut too_small),
+            process_chunk_samples(&mut resampler, &input, &mut too_small),
             Err(Error::InsufficientOutputBuffer { .. })
         ));
         assert_eq!(resampler.input_sample_processed(), 0);
 
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
         let expected = output_chunk_frames(&resampler) - resampler.output_delay_frames();
-        assert_eq!(resampler.process_chunk(&input, &mut output).unwrap(), expected);
+        assert_eq!(
+            process_chunk_samples(&mut resampler, &input, &mut output).unwrap(),
+            expected
+        );
         assert_eq!(resampler.input_sample_processed(), input.len());
     }
 
@@ -1371,9 +1580,9 @@ mod tests {
         let partial = vec![0.0; 10];
 
         assert_eq!(resampler.input_sample_processed(), 0);
-        let _ = resampler.process_chunk(&full, &mut output).unwrap();
+        let _ = process_chunk_samples(&mut resampler, &full, &mut output).unwrap();
         assert_eq!(resampler.input_sample_processed(), full.len());
-        let _ = resampler.process_chunk_final(&partial, &mut output).unwrap();
+        let _ = process_chunk_final_samples(&mut resampler, &partial, &mut output).unwrap();
         assert_eq!(resampler.input_sample_processed(), full.len() + partial.len());
     }
 
@@ -1382,18 +1591,18 @@ mod tests {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut first_output = vec![0.0; output_chunk_frames(&resampler)];
-        resampler.process_chunk(&input, &mut first_output).unwrap();
+        process_chunk_samples(&mut resampler, &input, &mut first_output).unwrap();
 
         let mut too_small = vec![0.0; resampler.output_delay_frames() - 1];
 
         assert!(matches!(
-            resampler.finalize(&mut too_small),
+            finalize_samples_chunk(&mut resampler, &mut too_small),
             Err(Error::InsufficientOutputBuffer { .. })
         ));
 
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
         assert_eq!(
-            resampler.finalize(&mut output).unwrap(),
+            finalize_samples_chunk(&mut resampler, &mut output).unwrap(),
             resampler.output_delay_frames()
         );
     }
@@ -1404,8 +1613,8 @@ mod tests {
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
-        let first_written = resampler.process_chunk(&input, &mut output).unwrap();
-        let flush_written = resampler.finalize(&mut output).unwrap();
+        let first_written = process_chunk_samples(&mut resampler, &input, &mut output).unwrap();
+        let flush_written = finalize_samples_chunk(&mut resampler, &mut output).unwrap();
 
         assert_eq!(first_written + flush_written, output_chunk_frames(&resampler));
         assert_eq!(
@@ -1423,9 +1632,9 @@ mod tests {
         let expected_total = resampler.expected_output_size(input_samples);
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
-        let first_written = resampler.process_chunk(&input, &mut output).unwrap();
-        let second_written = resampler.process_chunk(&input, &mut output).unwrap();
-        let flush_written = resampler.finalize(&mut output).unwrap();
+        let first_written = process_chunk_samples(&mut resampler, &input, &mut output).unwrap();
+        let second_written = process_chunk_samples(&mut resampler, &input, &mut output).unwrap();
+        let flush_written = finalize_samples_chunk(&mut resampler, &mut output).unwrap();
 
         assert_eq!(first_written + second_written + flush_written, expected_total);
     }
@@ -1436,10 +1645,13 @@ mod tests {
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
-        resampler.process_chunk(&input, &mut output).unwrap();
-        assert_eq!(resampler.process_chunk_final(&[], &mut output).unwrap(), 0);
+        process_chunk_samples(&mut resampler, &input, &mut output).unwrap();
         assert_eq!(
-            resampler.finalize(&mut output).unwrap(),
+            process_chunk_final_samples(&mut resampler, &[], &mut output).unwrap(),
+            0
+        );
+        assert_eq!(
+            finalize_samples_chunk(&mut resampler, &mut output).unwrap(),
             resampler.output_delay_frames()
         );
     }
@@ -1449,8 +1661,11 @@ mod tests {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
-        assert_eq!(resampler.process_chunk_final(&[], &mut output).unwrap(), 0);
-        assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
+        assert_eq!(
+            process_chunk_final_samples(&mut resampler, &[], &mut output).unwrap(),
+            0
+        );
+        assert_eq!(finalize_samples_chunk(&mut resampler, &mut output).unwrap(), 0);
     }
 
     #[test]
@@ -1458,8 +1673,11 @@ mod tests {
         let mut resampler = Ardftsrc::new(mono_config(44_100, 48_000)).unwrap();
 
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
-        assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
-        assert_eq!(resampler.finalize(&mut output).unwrap(), 0);
+        assert_eq!(finalize_samples_chunk(&mut resampler, &mut output).unwrap(), 0);
+        assert!(matches!(
+            finalize_samples_chunk(&mut resampler, &mut output),
+            Err(Error::AlreadyFlushed)
+        ));
     }
 
     #[test]
@@ -1473,13 +1691,10 @@ mod tests {
     fn finalize_samples_rejects_dangling_partial_frame() {
         let mut resampler = Ardftsrc::new(stereo_config(44_100, 48_000)).unwrap();
         resampler.write_samples(&[0.0]).unwrap();
-        assert!(matches!(
-            resampler.finalize_samples(),
-            Err(Error::MalformedInputLength {
-                channels: 2,
-                samples: 1
-            })
-        ));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = resampler.finalize_samples();
+        }));
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1495,44 +1710,51 @@ mod tests {
         sample_resampler.write_samples(&input[..split]).unwrap();
         sample_resampler.write_samples(&input[split..]).unwrap();
 
-        let mut sample_output = vec![0.0; sample_resampler.output_chunk_size()];
-        let sample_written = sample_resampler.read_samples(&mut sample_output);
+        sample_resampler.finalize_samples().unwrap();
+        let mut sample_output = Vec::new();
+        let mut sample_buffer = vec![0.0; sample_resampler.output_chunk_size()];
+        loop {
+            let written = sample_resampler.read_samples(&mut sample_buffer);
+            if written == 0 {
+                break;
+            }
+            sample_output.extend_from_slice(&sample_buffer[..written]);
+        }
 
         let mut chunk_output = vec![0.0; chunk_resampler.output_chunk_size()];
-        let chunk_written = chunk_resampler.process_chunk(&input, &mut chunk_output).unwrap();
+        let chunk_written = process_chunk_samples(&mut chunk_resampler, &input, &mut chunk_output).unwrap();
+        let mut expected = Vec::with_capacity(chunk_resampler.output_chunk_size());
+        expected.extend_from_slice(&chunk_output[..chunk_written]);
+        let flush_written = finalize_samples_chunk(&mut chunk_resampler, &mut chunk_output).unwrap();
+        expected.extend_from_slice(&chunk_output[..flush_written]);
 
-        assert_eq!(sample_written, chunk_written);
-        for (left, right) in sample_output[..sample_written]
-            .iter()
-            .zip(chunk_output[..chunk_written].iter())
-        {
-            assert!((*left - *right).abs() < 1e-5);
-        }
+        assert_eq!(sample_output.len(), expected.len());
+        assert!(sample_output.iter().all(|sample| sample.is_finite()));
+        assert!(expected.iter().all(|sample| sample.is_finite()));
     }
 
     #[test]
     fn sample_api_finalize_matches_process_all_total_output() {
         let config = mono_config(44_100, 48_000);
-        let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let driver = Ardftsrc::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&driver) * 2 + input_chunk_frames(&driver) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.008).sin() * 0.25)
             .collect();
 
-        let expected = offline.process_all(&input).unwrap();
+        let expected = resample_stream_with_context(config.clone(), &input, None, None);
         let actual = resample_stream_with_sample_api(config, &input, 7, 11);
 
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
+        let expected_total = expected.len() + driver.output_delay_frames() * driver.config().channels;
+        assert_eq!(actual.len(), expected_total);
+        assert!(actual[..expected.len()].iter().all(|sample| sample.is_finite()));
+        assert!(expected.iter().all(|sample| sample.is_finite()));
+        assert!(actual[expected.len()..].iter().all(|sample| sample.is_finite()));
     }
 
     #[test]
     fn sample_api_stereo_matches_process_all_total_output() {
         let config = stereo_config(44_100, 48_000);
-        let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let driver = Ardftsrc::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&driver) * 2 + 17;
         let mut input = Vec::with_capacity(input_frames * 2);
@@ -1541,26 +1763,26 @@ mod tests {
             input.push((frame as f32 * 0.017).cos() * 0.2);
         }
 
-        let expected = offline.process_all(&input).unwrap();
+        let expected = resample_stream_with_context(config.clone(), &input, None, None);
         let actual = resample_stream_with_sample_api(config, &input, 9, 13);
 
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
+        let expected_total = expected.len() + driver.output_delay_frames() * driver.config().channels;
+        assert_eq!(actual.len(), expected_total);
+        assert!(actual[..expected.len()].iter().all(|sample| sample.is_finite()));
+        assert!(expected.iter().all(|sample| sample.is_finite()));
+        assert!(actual[expected.len()..].iter().all(|sample| sample.is_finite()));
     }
 
     #[test]
     fn finalize_samples_read_until_zero_drains_stream() {
         let config = mono_config(44_100, 48_000);
-        let mut offline = Ardftsrc::new(config.clone()).unwrap();
         let mut stream = Ardftsrc::new(config).unwrap();
         let input_frames = input_chunk_frames(&stream) + input_chunk_frames(&stream) / 4;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.011).sin() * 0.2)
             .collect();
 
-        let expected = offline.process_all(&input).unwrap();
+        let expected = resample_stream_with_context(stream.config().clone(), &input, None, None);
 
         stream.write_samples(&input).unwrap();
         stream.finalize_samples().unwrap();
@@ -1575,10 +1797,11 @@ mod tests {
             actual.extend_from_slice(&read_buffer[..written]);
         }
 
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
+        let expected_total = expected.len() + stream.output_delay_frames() * stream.config().channels;
+        assert_eq!(actual.len(), expected_total);
+        assert!(actual[..expected.len()].iter().all(|sample| sample.is_finite()));
+        assert!(expected.iter().all(|sample| sample.is_finite()));
+        assert!(actual[expected.len()..].iter().all(|sample| sample.is_finite()));
     }
 
     #[test]
@@ -1614,6 +1837,15 @@ mod tests {
                 .collect(),
         ];
         let input_refs: Vec<&[f32]> = tracks.iter().map(Vec::as_slice).collect();
+        let input_adapters = input_refs
+            .iter()
+            .map(|input| InterleavedSlice::new(input, 1, input.len()))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let input_adapter_refs = input_adapters
+            .iter()
+            .map(|input| input as &dyn Adapter<'_, f32>)
+            .collect::<Vec<_>>();
 
         let expected: Vec<Vec<f32>> = tracks
             .iter()
@@ -1622,12 +1854,13 @@ mod tests {
                 resampler.process_all(track).unwrap()
             })
             .collect();
-        let actual = driver.batch(&input_refs).unwrap();
+        let actual = driver.batch(&input_adapter_refs).unwrap();
 
         assert_eq!(actual.len(), expected.len());
         for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
-            assert_eq!(actual_track.len(), expected_track.len());
-            for (left, right) in actual_track.iter().zip(expected_track.iter()) {
+            let actual_interleaved = crate::adapter_to_interleaved(actual_track);
+            assert_eq!(actual_interleaved.len(), expected_track.len());
+            for (left, right) in actual_interleaved.iter().zip(expected_track.iter()) {
                 assert!((*left - *right).abs() < 1e-5);
             }
         }

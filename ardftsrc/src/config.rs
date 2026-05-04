@@ -159,7 +159,7 @@ impl Config {
     /// Builds a config with explicit sample rates/channel count and default quality settings.
     ///
     /// Returns a new `Config` value; semantic validation is deferred to `validate`.
-    #[must_use] 
+    #[must_use]
     pub fn new(input_sample_rate: usize, output_sample_rate: usize, channels: usize) -> Self {
         Self {
             input_sample_rate,
@@ -172,7 +172,7 @@ impl Config {
     /// Sets the input sample rate.
     ///
     /// Useful for completing a preset configuration before validation/stream creation.
-    #[must_use] 
+    #[must_use]
     pub fn with_input_rate(mut self, input_sample_rate: usize) -> Self {
         self.input_sample_rate = input_sample_rate;
         self
@@ -181,7 +181,7 @@ impl Config {
     /// Sets the output sample rate.
     ///
     /// Useful for completing a preset configuration before validation/stream creation.
-    #[must_use] 
+    #[must_use]
     pub fn with_output_rate(mut self, output_sample_rate: usize) -> Self {
         self.output_sample_rate = output_sample_rate;
         self
@@ -190,7 +190,7 @@ impl Config {
     /// Sets the number of interleaved channels.
     ///
     /// Useful for completing a preset configuration before validation/stream creation.
-    #[must_use] 
+    #[must_use]
     pub fn with_channels(mut self, channels: usize) -> Self {
         self.channels = channels;
         self
@@ -226,9 +226,10 @@ impl Config {
         }
 
         if let TaperType::Cosine(alpha) = self.taper_type
-            && (alpha <= 0.0 || !alpha.is_finite()) {
-                return Err(Error::InvalidAlpha(alpha));
-            }
+            && (alpha <= 0.0 || !alpha.is_finite())
+        {
+            return Err(Error::InvalidAlpha(alpha));
+        }
 
         Ok(())
     }
@@ -608,19 +609,13 @@ mod tests {
             taper_type: TaperType::Cosine(0.0),
             ..Config::default()
         };
-        assert!(matches!(
-            zero_alpha.validate(),
-            Err(Error::InvalidAlpha(0.0))
-        ));
+        assert!(matches!(zero_alpha.validate(), Err(Error::InvalidAlpha(0.0))));
 
         let negative_alpha = Config {
             taper_type: TaperType::Cosine(-1.0),
             ..Config::default()
         };
-        assert!(matches!(
-            negative_alpha.validate(),
-            Err(Error::InvalidAlpha(-1.0))
-        ));
+        assert!(matches!(negative_alpha.validate(), Err(Error::InvalidAlpha(-1.0))));
 
         let non_finite_alpha = Config {
             taper_type: TaperType::Cosine(f32::NAN),

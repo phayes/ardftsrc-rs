@@ -102,6 +102,8 @@ name = "ardftsrc-rs"
 version = "0.0.1-alpha1"
 dependencies = [
  "ardftsrc",
+ "audioadapter",
+ "audioadapter-buffers",
  "clap",
  "flac-codec",
  "i24",

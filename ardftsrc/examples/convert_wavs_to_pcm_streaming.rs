@@ -1,4 +1,5 @@
 use ardftsrc::{Ardftsrc, Config};
+use audioadapter_buffers::direct::InterleavedSlice;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
@@ -71,6 +72,8 @@ fn stream_samples(
 ) -> Result<usize, Box<dyn Error>> {
     let input_buffer_size = resampler.input_chunk_size();
     let output_buffer_size = resampler.output_chunk_size();
+    let channels = resampler.config().channels;
+    let output_chunk_frames = output_buffer_size / channels;
     let mut input_chunk = vec![0.0; input_buffer_size];
     let mut output_chunk = vec![0.0; output_buffer_size];
     let mut output_bytes = Vec::with_capacity(output_buffer_size * std::mem::size_of::<f32>());
@@ -90,7 +93,9 @@ fn stream_samples(
         samples_read += chunk.len();
 
         if input_len == input_buffer_size {
-            let written = resampler.process_chunk(&input_chunk, &mut output_chunk)?;
+            let input_adapter = InterleavedSlice::new(&input_chunk, channels, input_buffer_size / channels)?;
+            let mut output_adapter = InterleavedSlice::new_mut(&mut output_chunk, channels, output_chunk_frames)?;
+            let written = resampler.process_chunk(&input_adapter, &mut output_adapter)?;
             write_f32le_pcm(writer, &mut output_bytes, &output_chunk[..written])?;
             samples_written += written;
             input_len = 0;
@@ -98,19 +103,21 @@ fn stream_samples(
     }
 
     if input_len > 0 {
-        let channels = resampler.config().channels;
         if !input_len.is_multiple_of(channels) {
             return Err(format!(
                 "input ended with incomplete frame: {input_len} trailing samples for {channels} channels"
             )
             .into());
         }
-        let written = resampler.process_chunk_final(&input_chunk[..input_len], &mut output_chunk)?;
+        let input_adapter = InterleavedSlice::new(&input_chunk[..input_len], channels, input_len / channels)?;
+        let mut output_adapter = InterleavedSlice::new_mut(&mut output_chunk, channels, output_chunk_frames)?;
+        let written = resampler.process_chunk_final(&input_adapter, &mut output_adapter)?;
         write_f32le_pcm(writer, &mut output_bytes, &output_chunk[..written])?;
         samples_written += written;
     }
 
-    let written = resampler.finalize(&mut output_chunk)?;
+    let mut output_adapter = InterleavedSlice::new_mut(&mut output_chunk, channels, output_chunk_frames)?;
+    let written = resampler.finalize(&mut output_adapter)?;
     write_f32le_pcm(writer, &mut output_bytes, &output_chunk[..written])?;
     samples_written += written;
 

@@ -7,6 +7,8 @@ use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
 use crate::Error;
 use crate::config::DerivedConfig;
 use crate::lpc::{ExtrapolateFallback, extrapolate_backward, extrapolate_forward};
+use audioadapter::Adapter;
+use audioadapter_buffers::owned::SequentialOwned;
 
 pub(crate) struct ArdftsrcCore<T = f32>
 where
@@ -206,7 +208,7 @@ where
     /// Resamples a complete single-channel input buffer and returns all output samples.
     ///
     /// This is a convenience wrapper around the chunked core API.
-    pub fn process_all(&mut self, input: &[T]) -> Result<Vec<T>, Error> {
+    pub fn process_all<'a>(&mut self, input: &[T]) -> Result<Vec<T>, Error> {
         let expected_samples = self.output_sample_count(input.len());
         let mut output = Vec::with_capacity(expected_samples);
 
