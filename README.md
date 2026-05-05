@@ -24,6 +24,7 @@ Use `ChunkResampler::process_all` to resample a complete interleaved audio strea
 
 ```rust
 use ardftsrc::{ChunkResampler, PRESET_HIGH};
+use audioadapter_buffers::direct::InterleavedSlice;
 
 fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
     // When using a preset other than "FAST", f64 processing is preferred.
@@ -36,10 +37,11 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 
     let mut resampler = ChunkResampler::<f64>::new(config).unwrap();
 
-    let output = resampler.process_all(&input_f64).unwrap();
+    let input_adapter = InterleavedSlice::new(&input_f64, channels, input_f64.len() / channels).unwrap();
+    let output = resampler.process_all(&input_adapter).unwrap();
 
-    // Convert back to the original f32
-    output.into_iter().map(|v| v as f32).collect()
+    // Convert back to the original interleaved f32
+    output.interleave().into_iter().map(|v| v as f32).collect()
 }
 ```
 
