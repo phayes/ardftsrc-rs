@@ -17,15 +17,13 @@
 //!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //!
-use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, adapter_to_interleaved_vec};
-use audioadapter::Adapter;
-use audioadapter_buffers::direct::InterleavedSlice;
+use ardftsrc::{BatchResampler, Config, SequentialVecOfVecs, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use wavers::{Wav, read};
+use wavers::{read, Wav};
 
 const GOLDEN_HASHES_PATH: &str = "../test_wavs/golden_hashes.aarch64.json";
 const WAV_DIR: &str = "../test_wavs";
@@ -218,21 +216,15 @@ fn generate_hashes_f32(
             .with_input_rate(input_rate)
             .with_output_rate(target_rate)
             .with_channels(channels);
-        let driver = Ardftsrc::<f32>::new(config)?;
-        let inputs = indices.iter().map(|&i| wavs[i].samples.as_slice()).collect::<Vec<_>>();
-        let input_adapters = inputs
+        let driver = BatchResampler::<f32>::new(config)?;
+        let inputs = indices
             .iter()
-            .map(|input| InterleavedSlice::new(input, channels, input.len() / channels))
+            .map(|&i| interleaved_to_planar_f32(&wavs[i].samples, channels))
             .collect::<Result<Vec<_>, _>>()?;
-        let input_adapter_refs = input_adapters
-            .iter()
-            .map(|input| input as &dyn Adapter<'_, f32>)
-            .collect::<Vec<_>>();
-        let outputs = driver.batch(&input_adapter_refs)?;
+        let outputs = driver.batch_planar(inputs)?;
 
         for (wav_index, output) in indices.into_iter().zip(outputs) {
-            let interleaved = adapter_to_interleaved_vec(&output);
-            let channel_hashes = hash_interleaved_channels(&interleaved, wavs[wav_index].channels)?;
+            let channel_hashes = hash_planar_f32_channels(&output);
             hashes.insert(wavs[wav_index].file_name.clone(), channel_hashes);
         }
     }
@@ -257,26 +249,15 @@ fn generate_hashes_f64_from_f32(
             .with_input_rate(input_rate)
             .with_output_rate(target_rate)
             .with_channels(channels);
-        let driver = Ardftsrc::<f64>::new(config)?;
-        let inputs_f64 = indices
+        let driver = BatchResampler::<f64>::new(config)?;
+        let inputs = indices
             .iter()
-            .map(|&i| wavs[i].samples.iter().map(|&v| v as f64).collect::<Vec<f64>>())
-            .collect::<Vec<_>>();
-        let input_refs = inputs_f64.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let input_adapters = input_refs
-            .iter()
-            .map(|input| InterleavedSlice::new(input, channels, input.len() / channels))
+            .map(|&i| interleaved_f32_to_planar_f64(&wavs[i].samples, channels))
             .collect::<Result<Vec<_>, _>>()?;
-        let input_adapter_refs = input_adapters
-            .iter()
-            .map(|input| input as &dyn Adapter<'_, f64>)
-            .collect::<Vec<_>>();
-        let outputs_f64 = driver.batch(&input_adapter_refs)?;
+        let outputs_f64 = driver.batch_planar(inputs)?;
 
         for (wav_index, output_f64) in indices.into_iter().zip(outputs_f64) {
-            let interleaved_f64 = adapter_to_interleaved_vec(&output_f64);
-            let output_f32 = interleaved_f64.iter().map(|&v| v as f32).collect::<Vec<f32>>();
-            let channel_hashes = hash_interleaved_channels(&output_f32, wavs[wav_index].channels)?;
+            let channel_hashes = hash_planar_f64_as_f32_channels(&output_f64);
             hashes.insert(wavs[wav_index].file_name.clone(), channel_hashes);
         }
     }
@@ -284,30 +265,78 @@ fn generate_hashes_f64_from_f32(
     Ok(hashes)
 }
 
-fn hash_interleaved_channels(interleaved: &[f32], channels: usize) -> Result<Vec<String>, Box<dyn Error>> {
+fn interleaved_to_planar_f32(samples: &[f32], channels: usize) -> Result<SequentialVecOfVecs<f32>, Box<dyn Error>> {
     if channels == 0 {
         return Err("channels must be greater than zero".into());
     }
-    if interleaved.len() % channels != 0 {
+    if samples.len() % channels != 0 {
         return Err(format!(
             "interleaved sample length {} is not divisible by channels {}",
-            interleaved.len(),
+            samples.len(),
             channels
         )
         .into());
     }
 
-    let frames = interleaved.len() / channels;
-    let mut channel_hashes = Vec::with_capacity(channels);
-
-    for channel in 0..channels {
-        let mut bytes = Vec::with_capacity(frames * std::mem::size_of::<f32>());
-        for frame in 0..frames {
-            let sample = interleaved[frame * channels + channel];
-            bytes.extend_from_slice(&sample.to_le_bytes());
+    let frames = samples.len() / channels;
+    let mut planar = vec![vec![0.0; frames]; channels];
+    for (frame_idx, frame) in samples.chunks_exact(channels).enumerate() {
+        for (channel_idx, sample) in frame.iter().enumerate() {
+            planar[channel_idx][frame_idx] = *sample;
         }
-        channel_hashes.push(format!("{:x}", md5::compute(bytes)));
+    }
+    Ok(SequentialVecOfVecs::new(planar)?)
+}
+
+fn interleaved_f32_to_planar_f64(samples: &[f32], channels: usize) -> Result<SequentialVecOfVecs<f64>, Box<dyn Error>> {
+    if channels == 0 {
+        return Err("channels must be greater than zero".into());
+    }
+    if samples.len() % channels != 0 {
+        return Err(format!(
+            "interleaved sample length {} is not divisible by channels {}",
+            samples.len(),
+            channels
+        )
+        .into());
     }
 
-    Ok(channel_hashes)
+    let frames = samples.len() / channels;
+    let mut planar = vec![vec![0.0; frames]; channels];
+    for (frame_idx, frame) in samples.chunks_exact(channels).enumerate() {
+        for (channel_idx, sample) in frame.iter().enumerate() {
+            planar[channel_idx][frame_idx] = f64::from(*sample);
+        }
+    }
+    Ok(SequentialVecOfVecs::new(planar)?)
+}
+
+fn hash_planar_f32_channels(planar: &SequentialVecOfVecs<f32>) -> Vec<String> {
+    let frames = planar.frames();
+    planar
+        .into_iter()
+        .map(|channel| hash_f32_channel(channel, frames))
+        .collect()
+}
+
+fn hash_planar_f64_as_f32_channels(planar: &SequentialVecOfVecs<f64>) -> Vec<String> {
+    let frames = planar.frames();
+    planar
+        .into_iter()
+        .map(|channel| {
+            let mut bytes = Vec::with_capacity(frames * std::mem::size_of::<f32>());
+            for sample in channel {
+                bytes.extend_from_slice(&(*sample as f32).to_le_bytes());
+            }
+            format!("{:x}", md5::compute(bytes))
+        })
+        .collect()
+}
+
+fn hash_f32_channel(channel: &[f32], frames: usize) -> String {
+    let mut bytes = Vec::with_capacity(frames * std::mem::size_of::<f32>());
+    for sample in channel {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    format!("{:x}", md5::compute(bytes))
 }

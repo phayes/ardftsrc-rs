@@ -1,8 +1,7 @@
 use ardftsrc::{
-    Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType, adapter_to_interleaved_vec,
+    adapter_to_interleaved_vec, BatchResampler, Config, SequentialVecOfVecs, TaperType, PRESET_EXTREME, PRESET_FAST,
+    PRESET_GOOD, PRESET_HIGH,
 };
-use audioadapter::Adapter;
-use audioadapter_buffers::owned::SequentialOwned;
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacChannelReader;
 use flac_codec::encode::{FlacChannelWriter, Options as FlacOptions};
@@ -11,7 +10,7 @@ use i24::i24;
 use mimalloc::MiMalloc;
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use wavers::{Wav, WavType, read, write};
+use wavers::{read, write, Wav, WavType};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -103,7 +102,7 @@ struct Args {
 
 struct InputTrack {
     path: PathBuf,
-    samples_f64: SequentialOwned<f64>,
+    samples_f64: SequentialVecOfVecs<f64>,
     channels: usize,
     input_rate_hz: usize,
     source_out_format: OutFormatArg,
@@ -123,22 +122,30 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let first = tracks.first().ok_or("at least one --input is required")?;
     let config = build_config(&args, first.input_rate_hz, first.channels)?;
-    let processor = Ardftsrc::<f64>::new(config)?;
+    let processor = BatchResampler::<f64>::new(config)?;
 
     // TODO: Re-add --gapless once the gapless batch API can preserve planar buffers end-to-end.
-    let input_refs = tracks
-        .iter()
-        .map(|track| &track.samples_f64 as &dyn Adapter<'_, f64>)
-        .collect::<Vec<_>>();
-    let converted = processor.batch(&input_refs)?;
+    let mut source_out_formats = Vec::with_capacity(tracks.len());
+    let mut inputs = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        source_out_formats.push(track.source_out_format);
+        inputs.push(track.samples_f64);
+    }
 
-    for ((track, output_path), converted_samples) in tracks.iter().zip(args.output.iter()).zip(converted.into_iter()) {
+    let converted = processor.batch_planar(inputs)?;
+
+    for ((output_path, source_out_format), converted_samples) in args
+        .output
+        .iter()
+        .zip(source_out_formats.into_iter())
+        .zip(converted.into_iter())
+    {
         write_output_audio(
             output_path,
             args.output_rate as u32,
             converted_samples,
             args.out_format,
-            track.source_out_format,
+            source_out_format,
         )?;
     }
 
@@ -265,7 +272,7 @@ fn read_wav_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
     let (samples, _) = read::<f64, _>(path)?;
     Ok(InputTrack {
         path: path.to_path_buf(),
-        samples_f64: interleaved_to_sequential(samples.as_ref(), channels)?,
+        samples_f64: interleaved_to_planar(samples.as_ref(), channels)?,
         channels,
         input_rate_hz,
         source_out_format: wav_source_to_out_format(source_format),
@@ -303,8 +310,7 @@ fn read_flac_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
         reader.consume(frames);
     }
 
-    let frames = per_channel.first().map_or(0, Vec::len);
-    let samples_f64 = SequentialOwned::new_from(per_channel.into_iter().flatten().collect(), channels, frames)?;
+    let samples_f64 = SequentialVecOfVecs::new(per_channel)?;
 
     Ok(InputTrack {
         path: path.to_path_buf(),
@@ -315,7 +321,7 @@ fn read_flac_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
     })
 }
 
-fn interleaved_to_sequential(samples: &[f64], channels: usize) -> Result<SequentialOwned<f64>, Box<dyn Error>> {
+fn interleaved_to_planar(samples: &[f64], channels: usize) -> Result<SequentialVecOfVecs<f64>, Box<dyn Error>> {
     if channels == 0 {
         return Err("audio input cannot have zero channels".into());
     }
@@ -329,20 +335,20 @@ fn interleaved_to_sequential(samples: &[f64], channels: usize) -> Result<Sequent
     }
 
     let frames = samples.len() / channels;
-    let mut sequential = vec![0.0; samples.len()];
+    let mut planar = vec![vec![0.0; frames]; channels];
     for (frame_idx, frame) in samples.chunks_exact(channels).enumerate() {
         for (channel_idx, sample) in frame.iter().enumerate() {
-            sequential[channel_idx * frames + frame_idx] = *sample;
+            planar[channel_idx][frame_idx] = *sample;
         }
     }
 
-    Ok(SequentialOwned::new_from(sequential, channels, frames)?)
+    Ok(SequentialVecOfVecs::new(planar)?)
 }
 
 fn write_output_audio(
     path: &Path,
     output_rate_hz: u32,
-    samples: SequentialOwned<f64>,
+    samples: SequentialVecOfVecs<f64>,
     out_format: OutFormatArg,
     source_out_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
@@ -407,7 +413,7 @@ fn write_output_wav(
 fn write_output_flac(
     path: &Path,
     output_rate_hz: u32,
-    samples: SequentialOwned<f64>,
+    samples: SequentialVecOfVecs<f64>,
     target_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
     let channels = samples.channels();
@@ -447,7 +453,7 @@ fn write_output_flac(
     Ok(())
 }
 
-fn encode_planar_flac_channels(samples: SequentialOwned<f64>, target_format: OutFormatArg) -> Vec<Vec<i32>> {
+fn encode_planar_flac_channels(samples: SequentialVecOfVecs<f64>, target_format: OutFormatArg) -> Vec<Vec<i32>> {
     let channels = samples.channels();
     let frames = samples.frames();
     if frames == 0 {
@@ -455,12 +461,10 @@ fn encode_planar_flac_channels(samples: SequentialOwned<f64>, target_format: Out
     }
 
     samples
-        .take_data()
-        .chunks_exact(frames)
+        .into_iter()
         .map(|channel| {
             channel
-                .iter()
-                .copied()
+                .into_iter()
                 .map(|sample| encode_flac_sample(sample, target_format))
                 .collect()
         })

@@ -167,15 +167,17 @@ Both buffers must be interleaved and channel-aligned.
 
 Use batching when you have multiple full tracks to convert with the same configuration.
 
-- `batch(...)`: processes each input as an independent stream (no context shared between tracks).
-- `batch_gapless(...)`: preserves adjacent-track context for gapless album-style playback.
+- `BatchResampler::batch(...)`: processes each input as an independent stream (no context shared between tracks).
+- `BatchResampler::batch_gapless(...)`: preserves adjacent-track context for gapless album-style playback.
 
-Both APIs accept `&[&[T]]` (a list of interleaved, channel-aligned tracks) and return `Vec<Vec<T>>` in the same order as input.
+`batch(...)` accepts audio adapters and returns owned sequential audio buffers. `batch_gapless(...)` accepts `&[&[T]]` (a list of interleaved, channel-aligned tracks) and returns `Vec<Vec<T>>` in the same order as input.
 
 Enable the `rayon` feature to parallelize work across tracks.
 
 ```rust
-use ardftsrc::{Ardftsrc, PRESET_GOOD};
+use ardftsrc::{BatchResampler, PRESET_GOOD};
+use audioadapter::Adapter;
+use audioadapter_buffers::direct::InterleavedSlice;
 
 fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels: usize) -> Vec<Vec<f64>> {
     let config = PRESET_GOOD
@@ -183,10 +185,18 @@ fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels:
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let driver = Ardftsrc::<f64>::new(config).unwrap();
+    let driver = BatchResampler::<f64>::new(config).unwrap();
+    let adapters = inputs
+        .iter()
+        .map(|input| InterleavedSlice::new(input, channels, input.len() / channels).unwrap())
+        .collect::<Vec<_>>();
+    let adapter_refs = adapters
+        .iter()
+        .map(|input| input as &dyn Adapter<'_, f64>)
+        .collect::<Vec<_>>();
 
     // Independent tracks (podcasts, unrelated files, etc.).
-    let _independent = driver.batch(inputs).unwrap();
+    let _independent = driver.batch(&adapter_refs).unwrap();
 
     // Gapless sequence (album tracks played back-to-back).
     let gapless = driver.batch_gapless(inputs).unwrap();

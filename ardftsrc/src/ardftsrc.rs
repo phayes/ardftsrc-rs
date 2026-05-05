@@ -15,7 +15,7 @@ where
 {
     config: Config,
     derived: DerivedConfig<T>,
-    cores: Vec<ArdftsrcCore<T>>,
+    pub(crate) cores: Vec<ArdftsrcCore<T>>,
 
     // Staging areas.
     // TODO: This can be removed by using Core::mut_input_ref() and writing samples directly
@@ -170,214 +170,6 @@ where
         }
 
         Ok(output)
-    }
-
-    /// Process multiple independent tracks.
-    ///
-    /// Each input slice is treated as its own stream with no inter-track context. See
-    /// `batch_gapless()` for gapless processing of multiple tracks.
-    ///
-    /// Enable the `rayon` feature for parallel processing.
-    ///
-    /// TODO: We're allocating intermediate Vec<T> here even when processing planar input. We need to optimize this.
-    ///
-    pub fn batch<'a>(
-        &self,
-        inputs: &[&dyn Adapter<'a, T>],
-    ) -> Result<Vec<audioadapter_buffers::owned::SequentialOwned<T>>, Error>
-    where
-        T: Send + Sync,
-    {
-        let config = self.config.clone();
-        let prepared_inputs: Vec<Vec<Vec<T>>> = inputs
-            .iter()
-            .map(|input| {
-                if input.channels() != config.channels {
-                    return Err(Error::WrongChannelCount {
-                        expected: config.channels,
-                        actual: input.channels(),
-                    });
-                }
-
-                let frames = input.frames();
-                let mut per_channel = Vec::with_capacity(config.channels);
-                for channel_idx in 0..config.channels {
-                    let mut channel = vec![T::zero(); frames];
-                    let copied = input.copy_from_channel_to_slice(channel_idx, 0, &mut channel);
-                    if copied != frames {
-                        return Err(Error::WrongFrameCount {
-                            expected: frames,
-                            actual: copied,
-                        });
-                    }
-                    per_channel.push(channel);
-                }
-                Ok(per_channel)
-            })
-            .collect::<Result<_, _>>()?;
-
-        #[cfg(feature = "rayon")]
-        {
-            prepared_inputs
-                .par_iter()
-                .map(|channel_inputs| {
-                    let mut resampler = Ardftsrc::new(config.clone())?;
-                    let mut channel_outputs: Vec<Vec<T>> = (0..config.channels).map(|_| Vec::new()).collect();
-
-                    for ((core, channel_input), channel_output) in resampler
-                        .cores
-                        .iter_mut()
-                        .zip(channel_inputs.iter())
-                        .zip(channel_outputs.iter_mut())
-                    {
-                        *channel_output = core.process_all(channel_input)?;
-                    }
-
-                    let written_per_channel = channel_outputs.first().map_or(0, Vec::len);
-                    let mut output = audioadapter_buffers::owned::SequentialOwned::new(
-                        T::zero(),
-                        config.channels,
-                        written_per_channel,
-                    );
-
-                    for (channel_idx, channel_output) in channel_outputs.iter().enumerate() {
-                        if channel_output.len() != written_per_channel {
-                            return Err(Error::WrongFrameCount {
-                                expected: written_per_channel,
-                                actual: channel_output.len(),
-                            });
-                        }
-                        let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, channel_output);
-                        if out_written != channel_output.len() {
-                            return Err(Error::WrongFrameCount {
-                                expected: channel_output.len(),
-                                actual: out_written,
-                            });
-                        }
-                    }
-
-                    Ok(output)
-                })
-                .collect()
-        }
-
-        #[cfg(not(feature = "rayon"))]
-        {
-            prepared_inputs
-                .iter()
-                .map(|channel_inputs| {
-                    let mut resampler = Ardftsrc::new(config.clone())?;
-                    let mut channel_outputs: Vec<Vec<T>> = (0..config.channels).map(|_| Vec::new()).collect();
-
-                    for ((core, channel_input), channel_output) in resampler
-                        .cores
-                        .iter_mut()
-                        .zip(channel_inputs.iter())
-                        .zip(channel_outputs.iter_mut())
-                    {
-                        *channel_output = core.process_all(channel_input)?;
-                    }
-
-                    let written_per_channel = channel_outputs.first().map_or(0, Vec::len);
-                    let mut output = audioadapter_buffers::owned::SequentialOwned::new(
-                        T::zero(),
-                        config.channels,
-                        written_per_channel,
-                    );
-
-                    for (channel_idx, channel_output) in channel_outputs.iter().enumerate() {
-                        if channel_output.len() != written_per_channel {
-                            return Err(Error::WrongFrameCount {
-                                expected: written_per_channel,
-                                actual: channel_output.len(),
-                            });
-                        }
-                        let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, channel_output);
-                        if out_written != channel_output.len() {
-                            return Err(Error::WrongFrameCount {
-                                expected: channel_output.len(),
-                                actual: out_written,
-                            });
-                        }
-                    }
-
-                    Ok(output)
-                })
-                .collect()
-        }
-    }
-
-    /// Process multiple tracks in parallel while preserving adjacent-track context.
-    ///
-    /// Use this when you want to resample an entire album or track collection that is
-    /// meant to be played back-to-back with no gaps.
-    ///
-    /// For each track:
-    /// - `pre` is filled from the tail of the previous track when one exists.
-    /// - `post` is filled from the head of the next track when one exists.
-    ///
-    /// Enable the `rayon` feature for parallel processing.
-    pub fn batch_gapless(&self, inputs: &[&[T]]) -> Result<Vec<Vec<T>>, Error>
-    where
-        T: Send + Sync,
-    {
-        let config = self.config.clone();
-        let context_samples = self.input_chunk_size();
-        let channels = self.config.channels;
-
-        #[cfg(feature = "rayon")]
-        {
-            inputs
-                .par_iter()
-                .enumerate()
-                .map(|(idx, input)| {
-                    let mut resampler = Ardftsrc::new(config.clone())?;
-
-                    if idx > 0 {
-                        let pre = Self::batch_context_tail(inputs[idx - 1], context_samples, channels);
-                        if !pre.is_empty() {
-                            resampler.pre(pre)?;
-                        }
-                    }
-
-                    if idx + 1 < inputs.len() {
-                        let post = Self::batch_context_head(inputs[idx + 1], context_samples, channels);
-                        if !post.is_empty() {
-                            resampler.post(post)?;
-                        }
-                    }
-
-                    resampler.process_all(input)
-                })
-                .collect()
-        }
-
-        #[cfg(not(feature = "rayon"))]
-        {
-            inputs
-                .iter()
-                .enumerate()
-                .map(|(idx, input)| {
-                    let mut resampler = Ardftsrc::new(config.clone())?;
-
-                    if idx > 0 {
-                        let pre = Self::batch_context_tail(inputs[idx - 1], context_samples, channels);
-                        if !pre.is_empty() {
-                            resampler.pre(pre)?;
-                        }
-                    }
-
-                    if idx + 1 < inputs.len() {
-                        let post = Self::batch_context_head(inputs[idx + 1], context_samples, channels);
-                        if !post.is_empty() {
-                            resampler.post(post)?;
-                        }
-                    }
-
-                    resampler.process_all(input)
-                })
-                .collect()
-        }
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -737,23 +529,6 @@ where
         Ok(())
     }
 
-    /// Returns up to `max_samples` aligned head samples for interleaved context.
-    fn batch_context_head(input: &[T], max_samples: usize, channels: usize) -> &[T] {
-        let aligned_input_len = input.len() - (input.len() % channels);
-        let mut take = aligned_input_len.min(max_samples);
-        take -= take % channels;
-        &input[..take]
-    }
-
-    /// Returns up to `max_samples` aligned tail samples for interleaved context.
-    fn batch_context_tail(input: &[T], max_samples: usize, channels: usize) -> &[T] {
-        let aligned_input_len = input.len() - (input.len() % channels);
-        let mut take = aligned_input_len.min(max_samples);
-        take -= take % channels;
-        let start = aligned_input_len - take;
-        &input[start..aligned_input_len]
-    }
-
     /// Returns true when rates match and FFT processing can be bypassed losslessly.
     fn is_passthrough(&self) -> bool {
         self.config.input_sample_rate == self.config.output_sample_rate
@@ -860,7 +635,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ArdftsrcCore, TaperType};
+    use crate::{ArdftsrcCore, BatchResampler, TaperType};
     use audioadapter::Adapter;
     use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
@@ -1818,6 +1593,7 @@ mod tests {
     fn batch_test() {
         let config = mono_config(44_100, 48_000);
         let driver = Ardftsrc::new(config.clone()).unwrap();
+        let batch_driver = BatchResampler::new(config.clone()).unwrap();
         let chunk = input_chunk_frames(&driver);
         let tracks: Vec<Vec<f32>> = vec![
             (0..(chunk + 17))
@@ -1848,7 +1624,7 @@ mod tests {
                 resampler.process_all(track).unwrap()
             })
             .collect();
-        let actual = driver.batch(&input_adapter_refs).unwrap();
+        let actual = batch_driver.batch(&input_adapter_refs).unwrap();
 
         assert_eq!(actual.len(), expected.len());
         for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
