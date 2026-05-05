@@ -8,9 +8,19 @@ Generally `ardftsrc` is preferred over other resamplers when quality is paramoun
 
 It is more compute and memory intensive than other resamplers, so consider [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
 
+## Input and output data format
+
+This crate makes use of the [audioadapter](https://crates.io/crates/audioadapter) family of crates to help abstract the layout of input and output data. 
+
+`ChunkResampler` and `BatchResampler` use an [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) to accept input data. 
+
+`ChunkResampler` uses [`AdapterMut`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.AdapterMut.html) for output, while `BatchResampler` returns `SequentialVecOfVecs` (which implements [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) ).
+
+A user of this crate should familiarize themselves with the conceptes in the [audioadapter](https://crates.io/crates/audioadapter) and [audioadapter-buffers](https://crates.io/crates/audioadapter-buffers) crates.
+
 ## Quick Start
 
-Use `process_all` to resample a complete interleaved audio stream.
+Use `ChunkResampler::process_all` to resample a complete interleaved audio stream for a single track.
 
 ```rust
 use ardftsrc::{ChunkResampler, PRESET_HIGH};
