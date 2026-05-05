@@ -22,7 +22,7 @@ where
     input_staging: Vec<Vec<T>>,
 
     // Samples API state, interleaved.
-    sample_pending_input: VecDeque<T>,
+    samples_pending_input: VecDeque<T>,
     samples_pending_output: VecDeque<T>,
     samples_input_chunk_buffer: Vec<T>,
     samples_output_chunk_buffer: Vec<T>,
@@ -53,7 +53,7 @@ where
             derived,
             cores,
             input_staging,
-            sample_pending_input: VecDeque::with_capacity(input_chunk_size * 2), // Slightly oversized to avoid reallocations.
+            samples_pending_input: VecDeque::with_capacity(input_chunk_size * 2), // Slightly oversized to avoid reallocations.
             samples_pending_output: VecDeque::with_capacity(output_chunk_size * 2), // Slightly oversized to avoid reallocations.
             samples_input_chunk_buffer: Vec::with_capacity(input_chunk_size),
             samples_output_chunk_buffer: vec![T::zero(); output_chunk_size],
@@ -180,7 +180,7 @@ where
         for core in &mut self.cores {
             core.reset();
         }
-        self.sample_pending_input.clear();
+        self.samples_pending_input.clear();
         self.samples_pending_output.clear();
         self.samples_finalized = false;
     }
@@ -195,7 +195,7 @@ where
             self.reset();
         }
 
-        self.sample_pending_input.extend(input.iter().copied());
+        self.samples_pending_input.extend(input.iter().copied());
 
         self.process_pending_samples(false);
 
@@ -207,11 +207,11 @@ where
         let channels = self.config.channels;
         let output_chunk_frames = self.derived.output_chunk_frames;
 
-        while self.sample_pending_input.len() >= self.input_chunk_size() {
+        while self.samples_pending_input.len() >= self.input_chunk_size() {
             // We have enough input to process a chunk, drain the input buffer into the input chunk buffer.
             self.samples_input_chunk_buffer.clear();
             self.samples_input_chunk_buffer
-                .extend(self.sample_pending_input.drain(..self.input_chunk_size()));
+                .extend(self.samples_pending_input.drain(..self.input_chunk_size()));
 
             let input_adapter = InterleavedSlice::new(
                 &self.samples_input_chunk_buffer,
@@ -248,9 +248,9 @@ where
         }
 
         // Process the final chunk (mabye undersized)
-        if finalize && !self.sample_pending_input.is_empty() {
+        if finalize && !self.samples_pending_input.is_empty() {
             // Remaining samples must form complete frames
-            let remaining_samples = self.sample_pending_input.len();
+            let remaining_samples = self.samples_pending_input.len();
             debug_assert!(remaining_samples % self.config.channels == 0);
 
             let remaining_frames = remaining_samples / self.config.channels;
@@ -258,7 +258,7 @@ where
             // Move remaining input into chunk buffer
             self.samples_input_chunk_buffer.clear();
             self.samples_input_chunk_buffer
-                .extend(self.sample_pending_input.drain(..));
+                .extend(self.samples_pending_input.drain(..));
 
             let input_adapter =
                 InterleavedSlice::new(&self.samples_input_chunk_buffer, self.config.channels, remaining_frames)
@@ -353,10 +353,10 @@ where
         }
 
         // Ensure samples_pending_input is channel / frame aligned.
-        if !self.sample_pending_input.len().is_multiple_of(self.config.channels) {
+        if !self.samples_pending_input.len().is_multiple_of(self.config.channels) {
             return Err(Error::DanglingPartialFrame {
                 channels: self.config.channels,
-                samples: self.sample_pending_input.len(),
+                samples: self.samples_pending_input.len(),
             });
         }
 
