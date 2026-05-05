@@ -7,7 +7,7 @@ mod lpc;
 
 use audioadapter::Adapter;
 
-pub use ardftsrc::Ardftsrc;
+pub use ardftsrc::ChunkResampler;
 pub use batch::{BatchResampler, SequentialVecOfVecs};
 pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
 pub use error::Error;

@@ -1,4 +1,4 @@
-use ardftsrc::{Ardftsrc, Config};
+use ardftsrc::{ChunkResampler, Config};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             channels: wav.channels,
             ..Config::default()
         };
-        let mut resampler = Ardftsrc::new(config)?;
+        let mut resampler = ChunkResampler::new(config)?;
         let converted = resampler.process_all(&wav.samples)?;
 
         let output_path = output_dir.join(format!(

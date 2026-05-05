@@ -1,4 +1,4 @@
-use ardftsrc::{Ardftsrc, Config};
+use ardftsrc::{ChunkResampler, Config};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,7 +55,7 @@ fn resample_all(input: &[f32], input_rate: usize, output_rate: usize, channels: 
         bandwidth: 0.95,
         ..Config::default()
     };
-    let mut resampler = Ardftsrc::<f32>::new(config).unwrap_or_else(|err| {
+    let mut resampler = ChunkResampler::<f32>::new(config).unwrap_or_else(|err| {
         panic!(
             "failed to initialize f32 resampler for {} -> {} Hz: {err}",
             input_rate, output_rate
@@ -192,7 +192,7 @@ fn test_wavs_f32_2048_bw095_outputs_are_finite() {
             bandwidth: 0.95,
             ..Config::default()
         };
-        let mut resampler = Ardftsrc::<f32>::new(config).unwrap_or_else(|err| {
+        let mut resampler = ChunkResampler::<f32>::new(config).unwrap_or_else(|err| {
             panic!(
                 "failed to initialize f32 resampler for '{}': {err}",
                 input_path.display()

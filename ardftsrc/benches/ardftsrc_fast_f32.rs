@@ -7,7 +7,7 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use ardftsrc::{Ardftsrc, PRESET_FAST};
+use ardftsrc::{ChunkResampler, PRESET_FAST};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use wavers::{Wav, read};
 
@@ -76,7 +76,7 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
                 .with_input_rate(fixture.sample_rate_hz)
                 .with_output_rate(*target_sample_rate_hz)
                 .with_channels(fixture.channels);
-            let mut resampler: Ardftsrc<f32> = Ardftsrc::new(config).unwrap();
+            let mut resampler: ChunkResampler<f32> = ChunkResampler::new(config).unwrap();
             let input_frames = fixture.samples.len() / fixture.channels;
             let output_frames = resampler.expected_output_size(input_frames);
             let output_samples = output_frames * fixture.channels;
