@@ -17,13 +17,13 @@
 //!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //!
-use ardftsrc::{BatchResampler, Config, SequentialVecOfVecs, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+use ardftsrc::{BatchResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, SequentialVecOfVecs};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use wavers::{read, Wav};
+use wavers::{Wav, read};
 
 const GOLDEN_HASHES_PATH: &str = "../test_wavs/golden_hashes.aarch64.json";
 const WAV_DIR: &str = "../test_wavs";

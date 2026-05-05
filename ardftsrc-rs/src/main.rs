@@ -1,6 +1,6 @@
 use ardftsrc::{
-    adapter_to_interleaved_vec, BatchResampler, Config, SequentialVecOfVecs, TaperType, PRESET_EXTREME, PRESET_FAST,
-    PRESET_GOOD, PRESET_HIGH,
+    BatchResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, SequentialVecOfVecs, TaperType,
+    adapter_to_interleaved_vec,
 };
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacChannelReader;
@@ -10,7 +10,7 @@ use i24::i24;
 use mimalloc::MiMalloc;
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use wavers::{read, write, Wav, WavType};
+use wavers::{Wav, WavType, read, write};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
