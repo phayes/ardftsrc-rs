@@ -412,7 +412,6 @@ where
 
     // Process all pending input into the output queue.
     fn process_pending_samples(&mut self, finalize: bool) {
-
         let channels = self.config.channels;
         let output_chunk_frames = self.derived.output_chunk_frames;
 
@@ -501,7 +500,6 @@ where
             // Extend the pending output with the samples written.
             self.samples_pending_output
                 .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
-
         }
 
         // All chunks are processed, finalize the stream.
@@ -562,7 +560,7 @@ where
             return Err(Error::StreamAlreadyFinalized);
         }
 
-        // Ensure samples_pending_input is channel / frames aligned.
+        // Ensure samples_pending_input is channel / frame aligned.
         if !self.sample_pending_input.len().is_multiple_of(self.config.channels) {
             return Err(Error::DanglingPartialFrame {
                 channels: self.config.channels,
