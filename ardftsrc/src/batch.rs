@@ -492,6 +492,47 @@ mod tests {
         }
     }
 
+    /// Utility function that copies an adapter into a new interleaved `Vec`.
+    ///
+    /// Samples are copied frame-by-frame with [`Adapter::copy_from_frame_to_slice`]. The returned
+    /// vector is sized for `adapter.frames() * adapter.channels()` and truncated if the adapter reports
+    /// fewer copied samples.
+    #[must_use]
+    pub fn adapter_to_interleaved_vec<'a, T>(adapter: &dyn Adapter<'a, T>) -> Vec<T>
+    where
+        T: Clone + Default + 'a,
+    {
+        let mut output = vec![T::default(); adapter.frames() * adapter.channels()];
+        let written = adapter_to_interleaved_slice(adapter, &mut output)
+            .expect("adapter_to_interleaved_vec allocates enough output samples");
+        output.truncate(written);
+        output
+    }
+
+    /// Utility function that copies an adapter into an interleaved slice.
+    ///
+    /// Returns the number of samples copied, or an error if `output` is too small.
+    pub fn adapter_to_interleaved_slice<'a, T: 'a>(
+        adapter: &dyn Adapter<'a, T>,
+        output: &mut [T],
+    ) -> Result<usize, Error> {
+        let channels = adapter.channels();
+        let required = channels * adapter.frames();
+        if output.len() < required {
+            return Err(Error::InsufficientOutputBuffer {
+                expected: required,
+                actual: output.len(),
+            });
+        }
+
+        let mut written = 0;
+        for frame_idx in 0..adapter.frames() {
+            written += adapter.copy_from_frame_to_slice(frame_idx, 0, &mut output[written..]);
+        }
+
+        Ok(written)
+    }
+
     #[test]
     fn batch_planar_gapless_matches_manual_pre_post() {
         let config = mono_config(44_100, 48_000);
@@ -600,7 +641,8 @@ mod tests {
 
         assert_eq!(actual.len(), expected.len());
         for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
-            let actual_interleaved = crate::adapter_to_interleaved_vec(actual_track);
+            // Convert to interleaved vec
+            let actual_interleaved = adapter_to_interleaved_vec(actual_track);
             assert_eq!(actual_interleaved.len(), expected_track.len());
             for (left, right) in actual_interleaved.iter().zip(expected_track.iter()) {
                 assert!((*left - *right).abs() < 1e-5);
