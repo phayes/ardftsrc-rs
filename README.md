@@ -33,11 +33,9 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 }
 ```
 
-## Chunk Streaming
+## Chunk Resampling
 
-There are two streaming modes, chunk based and sample based. 
-
-Use chunk streaming when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient and is preferred when you are able to control the buffer sizes.
+Use chunk resampling when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API is preferred when you are able to control the buffer sizes.
 
 1. `process_chunk(...)` for each chunk, input and output slice sizes should match `input_chunk_size()` and `output_chunk_size()`
 2. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
@@ -48,7 +46,7 @@ To end the stream early, you can always just stop and call `reset()` on the stre
 ```rust
 use ardftsrc::{ChunkResampler, PRESET_GOOD};
 
-fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
+fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
     // When using a preset other than "FAST", f64 processing is preferred.
     let input_f64: Vec<f64> = input.into_iter().map(|v| v as f64).collect();
 
@@ -88,67 +86,7 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
 }
 ```
 
-## Sample Streaming
-
-Use sample streaming when you do not control buffer sizes. This API supports arbitrary input lengths (including single frames / samples), and handles internal chunking for you.
-
-1. Call `write_samples(...)` with any incoming input size and call `read_samples(...)` to drain available output.
-2. For multichannel streams, samples must be written interleaved.
-3. Before calling `finalize_samples(...)` all previously written samples must be frame aligned.
-3. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
-
-Expect bursty read behavior when writing small numbers of samples at a time. To end the stream early, you can always just stop and call `reset()` on the stream.
-
-```rust
-use ardftsrc::{PRESET_GOOD, StreamingResampler};
-
-fn resample_sample_streaming(
-    input: &[f32],
-    in_rate: usize,
-    out_rate: usize,
-    channels: usize,
-) -> Vec<f32> {
-    let config = PRESET_GOOD
-        .with_input_rate(in_rate)
-        .with_output_rate(out_rate)
-        .with_channels(channels);
-
-    let mut resampler = StreamingResampler::<f32>::new(config).unwrap();
-    let mut output = Vec::<f32>::new();
-    let mut read_buf = vec![0.0_f32; resampler.output_chunk_size()];
-
-    // write_samples accepts interleaved input of any length.
-    let mut offset = 0;
-    let write_step = channels * 32;
-    while offset < input.len() {
-        let end = (offset + write_step).min(input.len());
-        resampler.write_samples(&input[offset..end]).unwrap();
-        offset = end;
-
-        loop {
-            let written = resampler.read_samples(&mut read_buf);
-            if written == 0 {
-                break;
-            }
-            output.extend_from_slice(&read_buf[..written]);
-        }
-    }
-
-    // Finalize stream tail and drain remaining output.
-    resampler.finalize_samples().unwrap();
-    loop {
-        let written = resampler.read_samples(&mut read_buf);
-        if written == 0 {
-            break;
-        }
-        output.extend_from_slice(&read_buf[..written]);
-    }
-
-    output
-}
-```
-
-## Gapless Context
+### Gapless Context
 
 For adjacent tracks, you can set edge context before processing:
 
@@ -156,12 +94,86 @@ For adjacent tracks, you can set edge context before processing:
 - `post(...)`: head samples from the next track
 
 `post(...)` may be called any time while the current stream is still active, but it must be
-set before `process_chunk_final(...)` (chunk API) or `finalize_samples()` (sample API).
+set before `process_chunk_final(...)`.
 
 This enables live gapless handoff: while track A is streaming, once track B is known you can
 call `post(...)` on A with B's head samples so A's stop-edge uses real next-track context.
 
-Both buffers must be interleaved and channel-aligned.
+## Streaming Resampler
+
+Use the streaming resampler for live resampling. It accepts interleaved sample slices of any size and buffers internally until enough input is available for the underlying chunk resampler.
+
+1. Call `write_samples(...)` with any incoming input size and call `read_samples(...)` to drain available output.
+2. For multichannel streams, samples must be written interleaved.
+3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
+4. Before calling `new_span(...)` or `finalize_samples(...)`, the current span must be frame aligned.
+5. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
+
+Expect bursty read behavior when writing small numbers of samples at a time. `read_samples(...)` accepts any output buffer size; it is not tied to the internal chunk size.
+
+Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The streaming resampler models those format regions as spans. When a new span starts, the previous span is finalized implicitly, later writes go to the new span immediately, and reads continue draining the previous span first. 
+
+The output sample rate and quality settings stay the same across spans. If a channel count or sample rate change matters to your output consumer, use `samples_left_in_span()` to avoid reading across the span boundary in one buffer.
+
+To end the stream early, you can always just stop and call `reset()` on the stream.
+
+```rust
+use ardftsrc::{PRESET_GOOD, StreamingResampler};
+
+fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32> {
+    // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
+    // Both spans are resampled to the same 48 kHz output rate.
+    assert!(span_1_input.len().is_multiple_of(2));
+
+    let config = PRESET_GOOD
+        .with_input_rate(44_100)
+        .with_output_rate(48_000)
+        .with_channels(2);
+
+    let mut resampler = StreamingResampler::<f32>::new(config).unwrap();
+    let mut output = Vec::<f32>::new();
+    let mut read_sample = [0.0_f32; 1];
+
+    // This intentionally writes one sample at a time. Larger slices are more efficient,
+    // but single-sample writes are valid.
+    for sample in span_1_input {
+        resampler.write_samples(&[sample]).unwrap();
+
+        let written = resampler.read_samples(&mut read_sample);
+        output.extend_from_slice(&read_sample[..written]);
+
+        if resampler.samples_left_in_span() == Some(0) {
+            // New span detected, maybe switch channel count in output.
+        }
+    }
+
+    // Starting a new span implicitly finalizes span 1. Span 1 must be frame aligned.
+    resampler.new_span(48_000, 1).unwrap();
+
+    for sample in span_2_input {
+        resampler.write_samples(&[sample]).unwrap();
+
+        let written = resampler.read_samples(&mut read_sample);
+        output.extend_from_slice(&read_sample[..written]);
+
+        if resampler.samples_left_in_span() == Some(0) {
+            // New span detected, maybe switch channel count in output.
+        }
+    }
+
+    // Finalization can produce delayed tail output, so keep reading until the stream is drained.
+    resampler.finalize_samples().unwrap();
+    loop {
+        let written = resampler.read_samples(&mut read_sample);
+        if written == 0 {
+            break;
+        }
+        output.extend_from_slice(&read_sample[..written]);
+    }
+
+    output
+}
+```
 
 ## Batching
 
@@ -169,8 +181,6 @@ Use batching when you have multiple full tracks to convert with the same configu
 
 - `BatchResampler::batch(...)`: processes each input as an independent stream (no context shared between tracks).
 - `BatchResampler::batch_gapless(...)`: preserves adjacent-track context for gapless album-style playback.
-
-`batch(...)` accepts audio adapters and returns owned sequential audio buffers. `batch_gapless(...)` accepts `&[&[T]]` (a list of interleaved, channel-aligned tracks) and returns `Vec<Vec<T>>` in the same order as input.
 
 Enable the `rayon` feature to parallelize work across tracks.
 
@@ -262,14 +272,9 @@ Contributions are welcome!
 At a high level there are two layers:
 
 - `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithm. It is private.
-- `ChunkResampler<T>` is the fixed-size chunk orchestrator. It owns one `ArdftsrcCore` per channel and routes incoming interleaved audio to channel-specific cores.
-- `StreamingResampler<T>` wraps `ChunkResampler<T>` with arbitrary-size sample buffering for callers that do not control input chunk sizes.
-
-Interaction model:
-
-1. Caller uses `ChunkResampler` for fixed chunk APIs (`process_chunk`, `process_chunk_final`, `finalize`, `process_all`) or `StreamingResampler` for sample APIs (`write_samples`, `read_samples`, `finalize_samples`).
-2. `ChunkResampler` maps interleaved input into per-channel slices and routes each slice to the corresponding `ArdftsrcCore`. There is one core per channel.
-3. Each `ArdftsrcCore` advances independently (but in sync), then `ChunkResampler` combines channel outputs back into interleaved form.
+- `ChunkResampler<T>` is the fixed-size chunk resampler. It owns one `ArdftsrcCore` per channel and routes incoming interleaved audio to channel-specific cores.
+- `StreamingResampler<T>` wraps `ChunkResampler<T>` with arbitrary-size sample buffering for live resampling.
+- `BatchResampler<T>` wraps `ChunkResampler<T>` for batching processing multiple files at once.
 
 ### Golden Hashes
 
@@ -300,10 +305,10 @@ AI use is allowed for the following:
 
 ### Development TODOs:
 
-1. It is very sensitive to the allocatior (mimalloc gives 50% performance improvements), so we are perhaps thrashing the allocator somewhere that we didn't expect.
-2. the samples API does some allocations on every read / write we could avoid, this will be fixed in #5
-3. Add support for `phase` config.
+1. Use `mut_input_ref` and write input directly, removing `ChunkResampler::input_staging`, this will avoid a copy. 
+2. Add support for `phase` config.
+3. Add `tanh` taper.
 4. Calc performance metrics and post links
-5. Move to [audioadapter](https://docs.rs/audioadapter/latest/audioadapter/) based interface, instead of always assuming interleaved.
-6. Add bindings to other languages, python, ts (wasm) etc.
-7. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
+5. Add bindings to other languages, python, ts (wasm) etc.
+6. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
+7. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread.
