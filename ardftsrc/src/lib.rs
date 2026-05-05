@@ -1,7 +1,7 @@
-mod core;
 mod batch;
 mod chunk;
 mod config;
+mod core;
 mod error;
 mod lpc;
 mod streaming;

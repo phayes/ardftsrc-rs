@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{Config, Error, core::ArdftsrcCore, config::DerivedConfig};
+use crate::{Config, Error, config::DerivedConfig, core::ArdftsrcCore};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
