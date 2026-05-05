@@ -3,11 +3,9 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{ArdftsrcCore, Config, DerivedConfig, Error};
+use crate::{ardftsrc_core::ArdftsrcCore, config::DerivedConfig, Config, Error};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
-use audioadapter_buffers::direct::InterleavedSlice;
-use std::collections::VecDeque;
 
 pub struct ChunkResampler<T = f64>
 where
@@ -20,13 +18,6 @@ where
     // Staging areas.
     // TODO: This can be removed by using Core::mut_input_ref() and writing samples directly
     input_staging: Vec<Vec<T>>,
-
-    // Samples API state, interleaved.
-    samples_pending_input: VecDeque<T>,
-    samples_pending_output: VecDeque<T>,
-    samples_input_chunk_buffer: Vec<T>,
-    samples_output_chunk_buffer: Vec<T>,
-    samples_finalized: bool,
 }
 
 impl<T> ChunkResampler<T>
@@ -43,9 +34,6 @@ where
             .map(|_| ArdftsrcCore::new(derived.clone()))
             .collect();
 
-        let input_chunk_size = derived.input_chunk_frames * config.channels;
-        let output_chunk_size = derived.output_chunk_frames * config.channels;
-
         let input_staging: Vec<Vec<T>> = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
 
         Ok(Self {
@@ -53,11 +41,6 @@ where
             derived,
             cores,
             input_staging,
-            samples_pending_input: VecDeque::with_capacity(input_chunk_size * 2), // Slightly oversized to avoid reallocations.
-            samples_pending_output: VecDeque::with_capacity(output_chunk_size * 2), // Slightly oversized to avoid reallocations.
-            samples_input_chunk_buffer: Vec::with_capacity(input_chunk_size),
-            samples_output_chunk_buffer: vec![T::zero(); output_chunk_size],
-            samples_finalized: false,
         })
     }
 
@@ -180,189 +163,6 @@ where
         for core in &mut self.cores {
             core.reset();
         }
-        self.samples_pending_input.clear();
-        self.samples_pending_output.clear();
-        self.samples_finalized = false;
-    }
-
-    /// Accepts interleaved streaming samples of any length.
-    ///
-    /// Input is internally buffered and converted into fixed-size core chunks. This method does
-    /// not return produced output directly; call `read_samples()` to drain available samples.
-    pub fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
-        // A write after sample finalization starts a new independent stream.
-        if self.samples_finalized {
-            self.reset();
-        }
-
-        self.samples_pending_input.extend(input.iter().copied());
-
-        self.process_pending_samples(false);
-
-        Ok(())
-    }
-
-    // Process all pending input into the output queue.
-    fn process_pending_samples(&mut self, finalize: bool) {
-        let channels = self.config.channels;
-        let output_chunk_frames = self.derived.output_chunk_frames;
-
-        while self.samples_pending_input.len() >= self.input_chunk_size() {
-            // We have enough input to process a chunk, drain the input buffer into the input chunk buffer.
-            self.samples_input_chunk_buffer.clear();
-            self.samples_input_chunk_buffer
-                .extend(self.samples_pending_input.drain(..self.input_chunk_size()));
-
-            let input_adapter = InterleavedSlice::new(
-                &self.samples_input_chunk_buffer,
-                self.config.channels,
-                self.derived.input_chunk_frames,
-            )
-            .expect("ardftsrc: Invalid input chunk size. This is a bug in the ardftsrc crate.");
-
-            // Destructure self to allow multability of different fields at the same time.
-            let (cores, input_staging, samples_output_chunk_buffer) = (
-                &mut self.cores,
-                &mut self.input_staging,
-                &mut self.samples_output_chunk_buffer,
-            );
-
-            // Create an output adapter for the output chunk buffer.
-            let mut output_adapter =
-                InterleavedSlice::new_mut(samples_output_chunk_buffer, channels, output_chunk_frames)
-                    .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.");
-
-            // Process the chunk.
-            let samples_written = Self::process_chunk_inner(
-                cores,
-                input_staging,
-                channels,
-                &input_adapter,
-                &mut output_adapter,
-                false,
-            )
-            .expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.");
-
-            self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
-        }
-
-        // Process the final chunk (mabye undersized)
-        if finalize && !self.samples_pending_input.is_empty() {
-            // Remaining samples must form complete frames
-            let remaining_samples = self.samples_pending_input.len();
-            debug_assert!(remaining_samples % self.config.channels == 0);
-
-            let remaining_frames = remaining_samples / self.config.channels;
-
-            // Move remaining input into chunk buffer
-            self.samples_input_chunk_buffer.clear();
-            self.samples_input_chunk_buffer
-                .extend(self.samples_pending_input.drain(..));
-
-            let input_adapter =
-                InterleavedSlice::new(&self.samples_input_chunk_buffer, self.config.channels, remaining_frames)
-                    .expect("ardftsrc: Invalid final input chunk size.");
-
-            let samples_written = {
-                // Desructure self to allow multability of different fields at the same time.
-                let (cores, input_staging, samples_output_chunk_buffer) = (
-                    &mut self.cores,
-                    &mut self.input_staging,
-                    &mut self.samples_output_chunk_buffer,
-                );
-
-                // Create the output adapter for the output chunk buffer.
-                let mut output_adapter =
-                    InterleavedSlice::new_mut(samples_output_chunk_buffer, channels, output_chunk_frames)
-                        .expect("ardftsrc: Invalid output chunk size.");
-
-                // Process the chunk.
-                Self::process_chunk_inner(
-                    cores,
-                    input_staging,
-                    channels,
-                    &input_adapter,
-                    &mut output_adapter,
-                    true,
-                )
-                .expect("ardftsrc: Invalid chunk size. This is a bug in the ardftsrc crate.")
-            };
-
-            // Extend the pending output with the samples written.
-            self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
-        }
-
-        // All chunks are processed, finalize the stream.
-        if finalize {
-            // Call finalize() and write the final tail output.
-            let samples_written = {
-                // Desructure self to allow multability of different fields at the same time.
-                let (cores, samples_output_chunk_buffer) = (&mut self.cores, &mut self.samples_output_chunk_buffer);
-
-                // Create the output adapter for the output chunk buffer.
-                let mut output_adapter =
-                    InterleavedSlice::new_mut(samples_output_chunk_buffer, channels, output_chunk_frames)
-                        .expect("ardftsrc: Invalid output chunk size.");
-
-                // Finalize the cores and write the final tail output.
-                Self::finalize_cores(cores, &mut output_adapter)
-                    .expect("ardftsrc: Invalid output chunk size. This is a bug in the ardftsrc crate.")
-            };
-
-            // Extend the pending output with the final tail output.
-            self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
-        }
-    }
-
-    /// Reads up to `output.len()` interleaved samples from internally buffered output.
-    ///
-    /// Returns the number of samples copied into `output`.
-    pub fn read_samples(&mut self, output: &mut [T]) -> usize {
-        let drain_count = output.len().min(self.samples_pending_output.len());
-
-        for (dst, src) in output[..drain_count]
-            .iter_mut()
-            .zip(self.samples_pending_output.drain(..drain_count))
-        {
-            *dst = src;
-        }
-
-        drain_count
-    }
-
-    /// Marks the sample-stream as finalized and flushes delayed output into pending samples.
-    ///
-    /// After this call, no new input should be written for the current stream. Keep calling
-    /// `read_samples()` until it returns zero to drain all finalized output.
-    ///
-    /// If your streaming pipeline does not need delayed tail output at end-of-stream, call
-    /// `reset()` directly instead of `finalize_samples()`. This is specifically for abrupt
-    /// switching cases (for example, skipping to another track) where you intentionally discard
-    /// the previous track tail. For normal track endings where tail output is desired, use
-    /// `finalize_samples()`.
-    ///
-    /// For multi-channel streams, callers must provide a complete interleaved frame via write_samples()
-    /// (a multiple of `channels`) before finalizing. If a dangling partial frame remains buffered,
-    /// this method returns `Error::DanglingPartialFrame`.
-    pub fn finalize_samples(&mut self) -> Result<(), Error> {
-        if self.samples_finalized {
-            return Err(Error::StreamAlreadyFinalized);
-        }
-
-        // Ensure samples_pending_input is channel / frame aligned.
-        if !self.samples_pending_input.len().is_multiple_of(self.config.channels) {
-            return Err(Error::DanglingPartialFrame {
-                channels: self.config.channels,
-                samples: self.samples_pending_input.len(),
-            });
-        }
-
-        self.process_pending_samples(true);
-        self.samples_finalized = true;
-        Ok(())
     }
 
     /// Processes a streaming chunk. Channels are interleaved in the input buffer.
@@ -471,24 +271,6 @@ where
         Ok(total_written)
     }
 
-    #[inline]
-    fn finalize_cores<'a>(cores: &mut [ArdftsrcCore<T>], output: &mut dyn AdapterMut<'a, T>) -> Result<usize, Error> {
-        let mut total_written = 0;
-        for (channel_idx, core) in cores.iter_mut().enumerate() {
-            let finalize_output = core.finalize()?;
-            let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, finalize_output);
-            if out_written != finalize_output.len() {
-                return Err(Error::WrongFrameCount {
-                    expected: finalize_output.len(),
-                    actual: out_written,
-                });
-            }
-            total_written += out_written;
-        }
-
-        Ok(total_written)
-    }
-
     /// Validates channel alignment and chunk length for an `input` slice.
     ///
     /// Non-final calls must provide exactly `input_buffer_size()` samples. Final calls may provide
@@ -571,7 +353,8 @@ where
     /// back-to-back. In that case, pass the first chunk of the next track.
     ///
     /// You may call this at any time while the current stream is still active. It must be called
-    /// before "process_chunk_final(...)" (for chunk API) or "finalize_samples()" (for samples API).
+    /// before "process_chunk_final(...)" (or `StreamingResampler::finalize_samples()` for the
+    /// sample API).
     ///
     /// This is useful for live gapless handoff: while track A is streaming, once track B is known you
     /// can call `post(...)` on track A with B's head samples so A's stop-edge uses real next-track
@@ -635,7 +418,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ArdftsrcCore, BatchResampler, TaperType};
+    use crate::{ardftsrc_core::ArdftsrcCore, BatchResampler, TaperType};
     use audioadapter::Adapter;
     use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
@@ -648,7 +431,11 @@ mod tests {
         resampler.output_chunk_size() / resampler.config().channels
     }
 
-    fn process_chunk_samples(resampler: &mut ChunkResampler<f32>, input: &[f32], output: &mut [f32]) -> Result<usize, Error> {
+    fn process_chunk_samples(
+        resampler: &mut ChunkResampler<f32>,
+        input: &[f32],
+        output: &mut [f32],
+    ) -> Result<usize, Error> {
         let channels = resampler.config().channels;
         let output_len = output.len();
         let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
@@ -751,50 +538,6 @@ mod tests {
         written += process_chunk_final_samples(&mut resampler, &input[offset..], &mut output[written..]).unwrap();
         written += finalize_samples_chunk(&mut resampler, &mut output[written..]).unwrap();
         output.truncate(written);
-        output
-    }
-
-    fn resample_stream_with_sample_api(
-        config: Config,
-        input: &[f32],
-        write_block_size: usize,
-        read_block_size: usize,
-    ) -> Vec<f32> {
-        let mut resampler = ChunkResampler::new(config).unwrap();
-        let mut output = Vec::new();
-        let mut read_buffer = vec![0.0; read_block_size.max(1)];
-        let channels = resampler.config().channels;
-        let mut write_step = write_block_size.max(1);
-        write_step -= write_step % channels;
-        if write_step == 0 {
-            write_step = channels;
-        }
-
-        let mut offset = 0;
-        while offset < input.len() {
-            let end = (offset + write_step).min(input.len());
-            resampler.write_samples(&input[offset..end]).unwrap();
-            offset = end;
-
-            loop {
-                let written = resampler.read_samples(&mut read_buffer);
-                if written == 0 {
-                    break;
-                }
-                output.extend_from_slice(&read_buffer[..written]);
-            }
-        }
-
-        resampler.finalize_samples().unwrap();
-
-        loop {
-            let written = resampler.read_samples(&mut read_buffer);
-            if written == 0 {
-                break;
-            }
-            output.extend_from_slice(&read_buffer[..written]);
-        }
-
         output
     }
 
@@ -1452,141 +1195,6 @@ mod tests {
             finalize_samples_chunk(&mut resampler, &mut output),
             Err(Error::AlreadyFlushed)
         ));
-    }
-
-    #[test]
-    fn write_samples_accepts_non_channel_aligned_input() {
-        let mut resampler = ChunkResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; 3];
-        assert!(resampler.write_samples(&input).is_ok());
-    }
-
-    #[test]
-    fn finalize_samples_rejects_dangling_partial_frame() {
-        let mut resampler = ChunkResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        resampler.write_samples(&[0.0]).unwrap();
-        assert!(matches!(
-            resampler.finalize_samples(),
-            Err(Error::DanglingPartialFrame {
-                channels: 2,
-                samples: 1
-            })
-        ));
-    }
-
-    #[test]
-    fn write_samples_and_read_samples_match_chunk_output() {
-        let config = mono_config(44_100, 48_000);
-        let mut chunk_resampler = ChunkResampler::new(config.clone()).unwrap();
-        let mut sample_resampler = ChunkResampler::new(config).unwrap();
-        let input: Vec<f32> = (0..chunk_resampler.input_chunk_size())
-            .map(|frame| (frame as f32 * 0.013).sin() * 0.3)
-            .collect();
-
-        let split = input.len() / 2;
-        sample_resampler.write_samples(&input[..split]).unwrap();
-        sample_resampler.write_samples(&input[split..]).unwrap();
-
-        let mut sample_output = vec![0.0; sample_resampler.output_chunk_size()];
-        let sample_written = sample_resampler.read_samples(&mut sample_output);
-
-        let mut chunk_output = vec![0.0; chunk_resampler.output_chunk_size()];
-        let chunk_written = process_chunk_samples(&mut chunk_resampler, &input, &mut chunk_output).unwrap();
-
-        assert_eq!(sample_written, chunk_written);
-        for (left, right) in sample_output[..sample_written]
-            .iter()
-            .zip(chunk_output[..chunk_written].iter())
-        {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn sample_api_finalize_matches_process_all_total_output() {
-        let config = mono_config(44_100, 48_000);
-        let mut offline = ChunkResampler::new(config.clone()).unwrap();
-        let driver = ChunkResampler::<f32>::new(config.clone()).unwrap();
-        let input_frames = input_chunk_frames(&driver) * 2 + input_chunk_frames(&driver) / 3;
-        let input: Vec<f32> = (0..input_frames)
-            .map(|frame| (frame as f32 * 0.008).sin() * 0.25)
-            .collect();
-
-        let expected = offline.process_all(&input).unwrap();
-        let actual = resample_stream_with_sample_api(config, &input, 7, 11);
-
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn sample_api_stereo_matches_process_all_total_output() {
-        let config = stereo_config(44_100, 48_000);
-        let mut offline = ChunkResampler::new(config.clone()).unwrap();
-        let driver = ChunkResampler::<f32>::new(config.clone()).unwrap();
-        let input_frames = input_chunk_frames(&driver) * 2 + 17;
-        let mut input = Vec::with_capacity(input_frames * 2);
-        for frame in 0..input_frames {
-            input.push((frame as f32 * 0.01).sin() * 0.25);
-            input.push((frame as f32 * 0.017).cos() * 0.2);
-        }
-
-        let expected = offline.process_all(&input).unwrap();
-        let actual = resample_stream_with_sample_api(config, &input, 9, 13);
-
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn finalize_samples_read_until_zero_drains_stream() {
-        let config = mono_config(44_100, 48_000);
-        let mut offline = ChunkResampler::new(config.clone()).unwrap();
-        let mut stream = ChunkResampler::new(config).unwrap();
-        let input_frames = input_chunk_frames(&stream) + input_chunk_frames(&stream) / 4;
-        let input: Vec<f32> = (0..input_frames)
-            .map(|frame| (frame as f32 * 0.011).sin() * 0.2)
-            .collect();
-
-        let expected = offline.process_all(&input).unwrap();
-
-        stream.write_samples(&input).unwrap();
-        stream.finalize_samples().unwrap();
-
-        let mut actual = Vec::new();
-        let mut read_buffer = vec![0.0; 5];
-        loop {
-            let written = stream.read_samples(&mut read_buffer);
-            if written == 0 {
-                break;
-            }
-            actual.extend_from_slice(&read_buffer[..written]);
-        }
-
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn write_samples_after_finalize_samples_starts_new_stream() {
-        let mut stream = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
-        let chunk = stream.input_chunk_size();
-        let first = vec![0.1f32; chunk];
-        let second = vec![0.2f32; chunk];
-
-        stream.write_samples(&first).unwrap();
-        stream.finalize_samples().unwrap();
-
-        // Start a new stream; this should reset core history and sample counters.
-        stream.write_samples(&second).unwrap();
-
-        assert_eq!(stream.input_sample_processed(), second.len());
     }
 
     #[test]

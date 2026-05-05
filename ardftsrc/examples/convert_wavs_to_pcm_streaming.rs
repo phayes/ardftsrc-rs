@@ -38,7 +38,7 @@ fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error
         channels,
         ..Config::default()
     };
-    let mut resampler = ChunkResampler::new(config)?;
+    let mut resampler = ChunkResampler::<f32>::new(config)?;
 
     let output_path = output_dir.join(format!(
         "{}_streaming_to_{}hz_f32le.pcm",
@@ -67,7 +67,7 @@ fn convert_one(input_path: &Path, output_dir: &Path) -> Result<(), Box<dyn Error
 
 fn stream_samples(
     reader: &mut Wav<f32>,
-    resampler: &mut ChunkResampler,
+    resampler: &mut ChunkResampler<f32>,
     writer: &mut BufWriter<File>,
 ) -> Result<usize, Box<dyn Error>> {
     let input_buffer_size = resampler.input_chunk_size();

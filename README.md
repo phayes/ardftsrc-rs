@@ -13,7 +13,7 @@ It is more compute and memory intensive than other resamplers, so consider [ruba
 Use `process_all` to resample a complete interleaved audio stream.
 
 ```rust
-use ardftsrc::{Ardftsrc, PRESET_HIGH};
+use ardftsrc::{ChunkResampler, PRESET_HIGH};
 
 fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
     // When using a preset other than "FAST", f64 processing is preferred.
@@ -24,7 +24,7 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let mut resampler = Ardftsrc::<f64>::new(config).unwrap();
+    let mut resampler = ChunkResampler::<f64>::new(config).unwrap();
 
     let output = resampler.process_all(&input_f64).unwrap();
 
@@ -46,7 +46,7 @@ Use chunk streaming when you can control both read and write buffer sizes. Query
 To end the stream early, you can always just stop and call `reset()` on the stream.
 
 ```rust
-use ardftsrc::{Ardftsrc, PRESET_GOOD};
+use ardftsrc::{ChunkResampler, PRESET_GOOD};
 
 fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
     // When using a preset other than "FAST", f64 processing is preferred.
@@ -57,7 +57,7 @@ fn resample_streaming(input: Vec<f32>, in_rate: usize, out_rate: usize, channels
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let mut resampler = Ardftsrc::<f64>::new(config).unwrap();
+    let mut resampler = ChunkResampler::<f64>::new(config).unwrap();
 
     // Get the input and output chunk sizes
     // You must read and write in these buffer sizes
@@ -100,7 +100,7 @@ Use sample streaming when you do not control buffer sizes. This API supports arb
 Expect bursty read behavior when writing small numbers of samples at a time. To end the stream early, you can always just stop and call `reset()` on the stream.
 
 ```rust
-use ardftsrc::{Ardftsrc, PRESET_GOOD};
+use ardftsrc::{PRESET_GOOD, StreamingResampler};
 
 fn resample_sample_streaming(
     input: &[f32],
@@ -113,7 +113,7 @@ fn resample_sample_streaming(
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let mut resampler = Ardftsrc::<f32>::new(config).unwrap();
+    let mut resampler = StreamingResampler::<f32>::new(config).unwrap();
     let mut output = Vec::<f32>::new();
     let mut read_buf = vec![0.0_f32; resampler.output_chunk_size()];
 
@@ -156,7 +156,7 @@ For adjacent tracks, you can set edge context before processing:
 - `post(...)`: head samples from the next track
 
 `post(...)` may be called any time while the current stream is still active, but it must be
-set before `process_chunk_final(...)` (chunk API) or `finalize_samples()` (samples API).
+set before `process_chunk_final(...)` (chunk API) or `finalize_samples()` (sample API).
 
 This enables live gapless handoff: while track A is streaming, once track B is known you can
 call `post(...)` on A with B's head samples so A's stop-edge uses real next-track context.
@@ -208,7 +208,7 @@ fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels:
 
 ## Quality Tuning and Presets
 
-ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `Ardftsrc<f64>`, then convert back to `f32`. 
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `ChunkResampler<f64>` or `StreamingResampler<f64>`, then convert back to `f32`.
 
 If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
@@ -261,14 +261,15 @@ Contributions are welcome!
 
 At a high level there are two layers:
 
-- `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithim. It is private.
-- `Ardftsrc<T>` is the public orchestrator. It owns one `ArdftsrcCore` per channel, and routes incomming interleaved audio to channel-specific `ArdftsrcCore<T>` cores. 
+- `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithm. It is private.
+- `ChunkResampler<T>` is the fixed-size chunk orchestrator. It owns one `ArdftsrcCore` per channel and routes incoming interleaved audio to channel-specific cores.
+- `StreamingResampler<T>` wraps `ChunkResampler<T>` with arbitrary-size sample buffering for callers that do not control input chunk sizes.
 
 Interaction model:
 
-1. Caller uses `Ardftsrc` APIs (`process_chunk`, `write_samples`, `process_all`, etc.) with interleaved audio.
-2. `Ardftsrc` maps that stream into per-channel slices and routes each slice to the corresponding `ArdftsrcCore`. There is one core per channel.
-3. Each `ArdftsrcCore` advances independently (but in sync), then `Ardftsrc` combines channel outputs back into interleaved form.
+1. Caller uses `ChunkResampler` for fixed chunk APIs (`process_chunk`, `process_chunk_final`, `finalize`, `process_all`) or `StreamingResampler` for sample APIs (`write_samples`, `read_samples`, `finalize_samples`).
+2. `ChunkResampler` maps interleaved input into per-channel slices and routes each slice to the corresponding `ArdftsrcCore`. There is one core per channel.
+3. Each `ArdftsrcCore` advances independently (but in sync), then `ChunkResampler` combines channel outputs back into interleaved form.
 
 ### Golden Hashes
 
