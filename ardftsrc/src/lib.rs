@@ -1,4 +1,4 @@
-mod ardftsrc_core;
+mod core;
 mod batch;
 mod chunk;
 mod config;

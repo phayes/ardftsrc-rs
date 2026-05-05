@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{Config, Error, ardftsrc_core::ArdftsrcCore, config::DerivedConfig};
+use crate::{Config, Error, core::ArdftsrcCore, config::DerivedConfig};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
@@ -418,7 +418,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TaperType, ardftsrc_core::ArdftsrcCore};
+    use crate::{TaperType, core::ArdftsrcCore};
     use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
 

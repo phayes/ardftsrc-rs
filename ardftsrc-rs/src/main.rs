@@ -98,6 +98,10 @@ struct Args {
     /// Output sample format. For .flac output, float formats are rejected.
     #[arg(long = "out-format", value_enum, default_value_t = OutFormatArg::Same)]
     out_format: OutFormatArg,
+
+    /// Treat multiple inputs as adjacent tracks and use neighboring tracks as edge context.
+    #[arg(long)]
+    gapless: bool,
 }
 
 struct InputTrack {
@@ -124,7 +128,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = build_config(&args, first.input_rate_hz, first.channels)?;
     let processor = BatchResampler::<f64>::new(config)?;
 
-    // TODO: Re-add --gapless once the gapless batch API can preserve planar buffers end-to-end.
     let mut source_out_formats = Vec::with_capacity(tracks.len());
     let mut inputs = Vec::with_capacity(tracks.len());
     for track in tracks {
@@ -132,7 +135,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         inputs.push(track.samples_f64);
     }
 
-    let converted = processor.batch_planar(inputs)?;
+    let converted = if args.gapless {
+        processor.batch_planar_gapless(inputs)?
+    } else {
+        processor.batch_planar(inputs)?
+    };
 
     for ((output_path, source_out_format), converted_samples) in args
         .output
