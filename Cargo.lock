@@ -108,6 +108,7 @@ dependencies = [
  "flac-codec",
  "i24",
  "mimalloc",
+ "rayon",
  "wavers",
 ]
 

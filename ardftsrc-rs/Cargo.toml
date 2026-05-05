@@ -14,11 +14,12 @@ clap.workspace = true
 flac-codec.workspace = true
 i24.workspace = true
 mimalloc.workspace = true
+rayon = { workspace = true, optional = true }
 wavers.workspace = true
 
 [features]
 default = ["avx", "neon", "sse", "wasm_simd", "rayon"]
-rayon = ["ardftsrc/rayon"]
+rayon = ["dep:rayon", "ardftsrc/rayon"]
 avx = ["ardftsrc/avx"]
 neon = ["ardftsrc/neon"]
 sse = ["ardftsrc/sse"]

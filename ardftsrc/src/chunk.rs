@@ -353,8 +353,7 @@ where
     /// back-to-back. In that case, pass the first chunk of the next track.
     ///
     /// You may call this at any time while the current stream is still active. It must be called
-    /// before "process_chunk_final(...)" (or `StreamingResampler::finalize_samples()` for the
-    /// sample API).
+    /// before "process_chunk_final(...)".
     ///
     /// This is useful for live gapless handoff: while track A is streaming, once track B is known you
     /// can call `post(...)` on track A with B's head samples so A's stop-edge uses real next-track

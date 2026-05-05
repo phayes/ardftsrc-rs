@@ -312,3 +312,4 @@ AI use is allowed for the following:
 5. Add bindings to other languages, python, ts (wasm) etc.
 6. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
 7. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread.
+8. Investigate: On the `StreamingResampler`, when a new span starts, if compatible, set post() on previous span? (Maybe - compatible spans should be a no-op, so no post() required). 

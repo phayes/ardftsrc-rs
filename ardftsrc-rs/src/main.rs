@@ -1,6 +1,5 @@
 use ardftsrc::{
     BatchResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, SequentialVecOfVecs, TaperType,
-    adapter_to_interleaved_vec,
 };
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacChannelReader;
@@ -8,14 +7,19 @@ use flac_codec::encode::{FlacChannelWriter, Options as FlacOptions};
 use flac_codec::metadata::Metadata;
 use i24::i24;
 use mimalloc::MiMalloc;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use wavers::{Wav, WavType, read, write};
+
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 const DEFAULT_ALPHA: f32 = 3.4375;
+const FLAC_WRITE_CHUNK_FRAMES: usize = 32768;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum PresetArg {
@@ -104,12 +108,24 @@ struct Args {
     gapless: bool,
 }
 
+#[derive(Debug)]
 struct InputTrack {
-    path: PathBuf,
     samples_f64: SequentialVecOfVecs<f64>,
     channels: usize,
     input_rate_hz: usize,
     source_out_format: OutFormatArg,
+}
+
+#[derive(Debug)]
+struct InputJob {
+    output_path: PathBuf,
+    track: InputTrack,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+struct BatchGroupKey {
+    channels: usize,
+    input_rate_hz: usize,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -122,17 +138,52 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(|path| read_audio_file(path))
         .collect::<Result<Vec<_>, _>>()?;
 
-    validate_batch_compatibility(&tracks)?;
+    let jobs = tracks
+        .into_iter()
+        .zip(args.output.iter().cloned())
+        .map(|(track, output_path)| InputJob { output_path, track })
+        .collect::<Vec<_>>();
 
-    let first = tracks.first().ok_or("at least one --input is required")?;
-    let config = build_config(&args, first.input_rate_hz, first.channels)?;
+    let grouped_jobs = group_compatible_jobs(jobs)?;
+    if args.gapless && grouped_jobs.len() > 1 {
+        return Err("--gapless requires all inputs to have matching channel count and sample rate".into());
+    }
+
+    process_and_write_all_groups(&args, grouped_jobs)?;
+
+    Ok(())
+}
+
+#[cfg(feature = "rayon")]
+fn process_and_write_all_groups(args: &Args, grouped_jobs: Vec<Vec<InputJob>>) -> Result<(), Box<dyn Error>> {
+    grouped_jobs
+        .into_par_iter()
+        .map(|group| process_batch_group(args, group).map_err(|err| err.to_string()))
+        .collect::<Result<Vec<_>, _>>()
+        .map(|_| ())
+        .map_err(|err: String| -> Box<dyn Error> { std::io::Error::other(err).into() })
+}
+
+#[cfg(not(feature = "rayon"))]
+fn process_and_write_all_groups(args: &Args, grouped_jobs: Vec<Vec<InputJob>>) -> Result<(), Box<dyn Error>> {
+    for group in grouped_jobs {
+        process_batch_group(args, group)?;
+    }
+    Ok(())
+}
+
+fn process_batch_group(args: &Args, group: Vec<InputJob>) -> Result<(), Box<dyn Error>> {
+    let output_rate_hz = args.output_rate as u32;
+    let out_format = args.out_format;
+    let first = group.first().ok_or("batch group cannot be empty")?;
+    let config = build_config(args, first.track.input_rate_hz, first.track.channels)?;
     let processor = BatchResampler::<f64>::new(config)?;
 
-    let mut source_out_formats = Vec::with_capacity(tracks.len());
-    let mut inputs = Vec::with_capacity(tracks.len());
-    for track in tracks {
-        source_out_formats.push(track.source_out_format);
-        inputs.push(track.samples_f64);
+    let mut metadata = Vec::with_capacity(group.len());
+    let mut inputs = Vec::with_capacity(group.len());
+    for job in group {
+        metadata.push((job.output_path, job.track.source_out_format));
+        inputs.push(job.track.samples_f64);
     }
 
     let converted = if args.gapless {
@@ -141,22 +192,80 @@ fn main() -> Result<(), Box<dyn Error>> {
         processor.batch_planar(inputs)?
     };
 
-    for ((output_path, source_out_format), converted_samples) in args
-        .output
-        .iter()
-        .zip(source_out_formats.into_iter())
-        .zip(converted.into_iter())
-    {
-        write_output_audio(
-            output_path,
-            args.output_rate as u32,
-            converted_samples,
-            args.out_format,
-            source_out_format,
-        )?;
+    if metadata.len() != converted.len() {
+        return Err(std::io::Error::other(format!(
+            "batch conversion output count mismatch: expected {}, got {}",
+            metadata.len(),
+            converted.len()
+        ))
+        .into());
+    }
+
+    let write_output_results = write_output(metadata, converted, output_rate_hz, out_format);
+    let failed_writes = write_output_results
+        .into_iter()
+        .filter_map(|(output_path, maybe_err)| maybe_err.map(|err| (output_path, err)))
+        .collect::<Vec<_>>();
+
+    if !failed_writes.is_empty() {
+        let mut message = format!("failed to write {} track(s):", failed_writes.len());
+        for (output_path, err) in failed_writes {
+            message.push_str(&format!("\n- {}: {}", output_path.display(), err));
+        }
+        return Err(std::io::Error::other(message).into());
     }
 
     Ok(())
+}
+
+#[cfg(feature = "rayon")]
+fn write_output(
+    metadata: Vec<(PathBuf, OutFormatArg)>,
+    converted: Vec<SequentialVecOfVecs<f64>>,
+    output_rate_hz: u32,
+    out_format: OutFormatArg,
+) -> Vec<(PathBuf, Option<String>)> {
+    metadata
+        .into_par_iter()
+        .zip(converted.into_par_iter())
+        .map(|((output_path, source_out_format), converted_samples)| {
+            let maybe_err = write_output_audio(
+                &output_path,
+                output_rate_hz,
+                converted_samples,
+                out_format,
+                source_out_format,
+            )
+            .err()
+            .map(|err| err.to_string());
+            (output_path, maybe_err)
+        })
+        .collect::<Vec<_>>()
+}
+
+#[cfg(not(feature = "rayon"))]
+fn write_output(
+    metadata: Vec<(PathBuf, OutFormatArg)>,
+    converted: Vec<SequentialVecOfVecs<f64>>,
+    output_rate_hz: u32,
+    out_format: OutFormatArg,
+) -> Vec<(PathBuf, Option<String>)> {
+    metadata
+        .into_iter()
+        .zip(converted.into_iter())
+        .map(|((output_path, source_out_format), converted_samples)| {
+            let maybe_err = write_output_audio(
+                &output_path,
+                output_rate_hz,
+                converted_samples,
+                out_format,
+                source_out_format,
+            )
+            .err()
+            .map(|err| err.to_string());
+            (output_path, maybe_err)
+        })
+        .collect::<Vec<_>>()
 }
 
 fn validate_args(args: &Args) -> Result<(), Box<dyn Error>> {
@@ -189,38 +298,39 @@ fn validate_args(args: &Args) -> Result<(), Box<dyn Error>> {
             .into());
         }
     }
+    let unique_outputs = args.output.iter().collect::<HashSet<_>>();
+    if unique_outputs.len() != args.output.len() {
+        return Err("--output must not contain duplicate paths".into());
+    }
     if matches!(args.taper_type, Some(TaperTypeArg::Planck)) && args.alpha.is_some() {
         return Err("--alpha cannot be used with --taper-type=planck".into());
     }
     Ok(())
 }
 
-fn validate_batch_compatibility(tracks: &[InputTrack]) -> Result<(), Box<dyn Error>> {
-    if tracks.is_empty() {
+fn group_compatible_jobs(jobs: Vec<InputJob>) -> Result<Vec<Vec<InputJob>>, Box<dyn Error>> {
+    if jobs.is_empty() {
         return Err("at least one input track is required".into());
     }
-    let reference = &tracks[0];
-    for track in tracks {
-        if track.channels != reference.channels {
-            return Err(format!(
-                "all inputs must have the same channel count for batch processing ({} has {}, expected {})",
-                track.path.display(),
-                track.channels,
-                reference.channels
-            )
-            .into());
-        }
-        if track.input_rate_hz != reference.input_rate_hz {
-            return Err(format!(
-                "all inputs must have the same input sample rate for batch processing ({} has {}, expected {})",
-                track.path.display(),
-                track.input_rate_hz,
-                reference.input_rate_hz
-            )
-            .into());
+
+    let mut groups = Vec::<Vec<InputJob>>::new();
+    let mut group_index_by_key = HashMap::<BatchGroupKey, usize>::new();
+
+    for job in jobs {
+        let key = BatchGroupKey {
+            channels: job.track.channels,
+            input_rate_hz: job.track.input_rate_hz,
+        };
+        if let Some(group_idx) = group_index_by_key.get(&key).copied() {
+            groups[group_idx].push(job);
+        } else {
+            let group_idx = groups.len();
+            groups.push(vec![job]);
+            group_index_by_key.insert(key, group_idx);
         }
     }
-    Ok(())
+
+    Ok(groups)
 }
 
 fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Result<Config, Box<dyn Error>> {
@@ -278,7 +388,6 @@ fn read_wav_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
 
     let (samples, _) = read::<f64, _>(path)?;
     Ok(InputTrack {
-        path: path.to_path_buf(),
         samples_f64: interleaved_to_planar(samples.as_ref(), channels)?,
         channels,
         input_rate_hz,
@@ -320,7 +429,6 @@ fn read_flac_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
     let samples_f64 = SequentialVecOfVecs::new(per_channel)?;
 
     Ok(InputTrack {
-        path: path.to_path_buf(),
         samples_f64,
         channels,
         input_rate_hz,
@@ -369,11 +477,7 @@ fn write_output_audio(
     };
 
     match audio_container(path) {
-        Some(AudioContainer::Wav) => {
-            let channels = samples.channels();
-            let interleaved = adapter_to_interleaved_vec(&samples);
-            write_output_wav(path, channels, output_rate_hz, &interleaved, target_format)
-        }
+        Some(AudioContainer::Wav) => write_output_wav(path, output_rate_hz, &samples, target_format),
         Some(AudioContainer::Flac) => write_output_flac(path, output_rate_hz, samples, target_format),
         None => Err(format!(
             "unsupported output extension for {} (supported: .wav, .flac)",
@@ -385,36 +489,51 @@ fn write_output_audio(
 
 fn write_output_wav(
     path: &Path,
-    channels: usize,
     output_rate_hz: u32,
-    samples_f64: &[f64],
+    samples_f64: &SequentialVecOfVecs<f64>,
     target_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
     let sample_rate = output_rate_hz as i32;
-    let n_channels = channels as u16;
+    let n_channels = samples_f64.channels() as u16;
     match target_format {
         OutFormatArg::Same => unreachable!("same is resolved to a concrete format"),
         OutFormatArg::I16 => {
-            let out = samples_f64.iter().copied().map(float64_to_i16).collect::<Vec<_>>();
+            let out = interleave_planar_mapped(samples_f64, float64_to_i16);
             write::<i16, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::I24 => {
-            let out = samples_f64.iter().copied().map(float64_to_i24).collect::<Vec<_>>();
+            let out = interleave_planar_mapped(samples_f64, float64_to_i24);
             write::<i24, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::I32 => {
-            let out = samples_f64.iter().copied().map(float64_to_i32).collect::<Vec<_>>();
+            let out = interleave_planar_mapped(samples_f64, float64_to_i32);
             write::<i32, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::F32 => {
-            let out = samples_f64.iter().map(|sample| *sample as f32).collect::<Vec<_>>();
+            let out = interleave_planar_mapped(samples_f64, |sample| sample as f32);
             write::<f32, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::F64 => {
-            write::<f64, _>(path, samples_f64, sample_rate, n_channels)?;
+            let out = interleave_planar_mapped(samples_f64, std::convert::identity);
+            write::<f64, _>(path, &out, sample_rate, n_channels)?;
         }
     }
     Ok(())
+}
+
+fn interleave_planar_mapped<T>(samples: &SequentialVecOfVecs<f64>, mut map_sample: impl FnMut(f64) -> T) -> Vec<T> {
+    let channels = samples.channels();
+    let frames = samples.frames();
+    let per_channel = samples.as_slice();
+    let mut output = Vec::with_capacity(channels * frames);
+
+    for frame_idx in 0..frames {
+        for channel in per_channel {
+            output.push(map_sample(channel[frame_idx]));
+        }
+    }
+
+    output
 }
 
 fn write_output_flac(
@@ -444,7 +563,7 @@ fn write_output_flac(
     };
 
     let frames = samples.frames();
-    let encoded = encode_planar_flac_channels(samples, target_format);
+    let planar = samples.as_slice();
     let channels_u8 = u8::try_from(channels).map_err(|_| "invalid FLAC channel count")?;
 
     let mut writer = FlacChannelWriter::create(
@@ -455,27 +574,26 @@ fn write_output_flac(
         channels_u8,
         Some(frames as u64),
     )?;
-    writer.write(&encoded)?;
-    writer.finalize()?;
-    Ok(())
-}
 
-fn encode_planar_flac_channels(samples: SequentialVecOfVecs<f64>, target_format: OutFormatArg) -> Vec<Vec<i32>> {
-    let channels = samples.channels();
-    let frames = samples.frames();
-    if frames == 0 {
-        return vec![Vec::new(); channels];
+    let mut frame_offset = 0;
+    while frame_offset < frames {
+        let chunk_frames = (frames - frame_offset).min(FLAC_WRITE_CHUNK_FRAMES);
+        let mut encoded_chunk = Vec::with_capacity(channels);
+        for channel in planar {
+            let end = frame_offset + chunk_frames;
+            let encoded_channel = channel[frame_offset..end]
+                .iter()
+                .copied()
+                .map(|sample| encode_flac_sample(sample, target_format))
+                .collect::<Vec<i32>>();
+            encoded_chunk.push(encoded_channel);
+        }
+        writer.write(&encoded_chunk)?;
+        frame_offset += chunk_frames;
     }
 
-    samples
-        .into_iter()
-        .map(|channel| {
-            channel
-                .into_iter()
-                .map(|sample| encode_flac_sample(sample, target_format))
-                .collect()
-        })
-        .collect()
+    writer.finalize()?;
+    Ok(())
 }
 
 fn encode_flac_sample(sample: f64, target_format: OutFormatArg) -> i32 {
