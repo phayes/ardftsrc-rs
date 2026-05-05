@@ -8,7 +8,7 @@ use crate::Error;
 use crate::config::DerivedConfig;
 use crate::lpc::{ExtrapolateFallback, extrapolate_backward, extrapolate_forward};
 
-pub(crate) struct ArdftsrcCore<T = f32>
+pub(crate) struct ArdftsrcCore<T = f64>
 where
     T: Float + FftNum,
 {

@@ -9,7 +9,7 @@ use audioadapter::{Adapter, AdapterMut};
 use audioadapter_buffers::direct::InterleavedSlice;
 use std::collections::VecDeque;
 
-pub struct ChunkResampler<T = f32>
+pub struct ChunkResampler<T = f64>
 where
     T: Float + FftNum + Sample,
 {

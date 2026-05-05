@@ -210,7 +210,7 @@ where
     }
 }
 
-pub struct BatchResampler<T = f32>
+pub struct BatchResampler<T = f64>
 where
     T: Float + FftNum + Sample,
 {
