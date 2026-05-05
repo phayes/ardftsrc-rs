@@ -382,6 +382,17 @@ mod tests {
         resampler.process_chunk(&input_adapter, &mut output_adapter)
     }
 
+    fn process_all_samples(resampler: &mut ChunkResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
+        let channels = resampler.config().channels;
+        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
+            Error::MalformedInputLength {
+                channels,
+                samples: input.len(),
+            }
+        })?;
+        Ok(resampler.process_all(&input_adapter)?.interleave())
+    }
+
     fn resample_stream_with_sample_api(
         config: Config,
         input: &[f32],
@@ -505,7 +516,7 @@ mod tests {
         let first_input: Vec<f32> = (0..first_len)
             .map(|frame| (frame as f32 * 0.019).sin() * 0.25)
             .collect();
-        let first_expected = first_offline.process_all(&first_input).unwrap();
+        let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
 
         let second_config = Config {
             input_sample_rate: 32_000,
@@ -516,7 +527,7 @@ mod tests {
         let second_input: Vec<f32> = (0..second_len)
             .map(|frame| (frame as f32 * 0.023).cos() * 0.2)
             .collect();
-        let second_expected = second_offline.process_all(&second_input).unwrap();
+        let second_expected = process_all_samples(&mut second_offline, &second_input).unwrap();
 
         let mut resampler = StreamingResampler::new(first_config).unwrap();
         resampler.write_samples(&first_input).unwrap();
@@ -546,7 +557,7 @@ mod tests {
         let first_input: Vec<f32> = (0..(first_offline.input_chunk_size() + 3))
             .map(|frame| (frame as f32 * 0.011).sin() * 0.3)
             .collect();
-        let first_expected = first_offline.process_all(&first_input).unwrap();
+        let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
 
         let second_config = stereo_config(44_100, 48_000);
         let mut second_offline = ChunkResampler::new(second_config).unwrap();
@@ -556,7 +567,7 @@ mod tests {
             second_input.push((frame as f32 * 0.013).sin() * 0.2);
             second_input.push((frame as f32 * 0.017).cos() * 0.2);
         }
-        let second_expected = second_offline.process_all(&second_input).unwrap();
+        let second_expected = process_all_samples(&mut second_offline, &second_input).unwrap();
 
         let mut resampler = StreamingResampler::new(first_config).unwrap();
         resampler.write_samples(&first_input).unwrap();
@@ -636,7 +647,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.008).sin() * 0.25)
             .collect();
 
-        let expected = offline.process_all(&input).unwrap();
+        let expected = process_all_samples(&mut offline, &input).unwrap();
         let actual = resample_stream_with_sample_api(config, &input, 7, 11);
 
         assert_eq!(actual.len(), expected.len());
@@ -657,7 +668,7 @@ mod tests {
             input.push((frame as f32 * 0.017).cos() * 0.2);
         }
 
-        let expected = offline.process_all(&input).unwrap();
+        let expected = process_all_samples(&mut offline, &input).unwrap();
         let actual = resample_stream_with_sample_api(config, &input, 9, 13);
 
         assert_eq!(actual.len(), expected.len());
@@ -676,7 +687,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.011).sin() * 0.2)
             .collect();
 
-        let expected = offline.process_all(&input).unwrap();
+        let expected = process_all_samples(&mut offline, &input).unwrap();
 
         stream.write_samples(&input).unwrap();
         stream.finalize_samples().unwrap();

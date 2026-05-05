@@ -109,8 +109,14 @@ where
         // Deinterleave the input
         let mut planar_input: Vec<Vec<T>> = Vec::with_capacity(self.config.channels);
         for channel_idx in 0..self.config.channels {
-            planar_input.push(Vec::with_capacity(input.frames()));
-            input.copy_from_channel_to_slice(channel_idx, 0, &mut planar_input[channel_idx]);
+            let mut channel = vec![T::zero(); input.frames()];
+            input.copy_from_channel_to_slice(channel_idx, 0, &mut channel);
+            planar_input.push(channel);
+        }
+
+        // If it's passthrough, just return the input
+        if self.is_passthrough() {
+            return Ok(SequentialVecOfVecs::new(planar_input)?);
         }
 
         #[cfg(feature = "rayon")]
@@ -463,6 +469,17 @@ mod tests {
         resampler.finalize(&mut output_adapter)
     }
 
+    fn process_all_samples(resampler: &mut ChunkResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
+        let channels = resampler.config().channels;
+        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
+            Error::MalformedInputLength {
+                channels,
+                samples: input.len(),
+            }
+        })?;
+        Ok(resampler.process_all(&input_adapter)?.interleave())
+    }
+
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
         Config {
             input_sample_rate,
@@ -561,7 +578,7 @@ mod tests {
         let mut resampler = ChunkResampler::new(mono_config(48_000, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
 
-        let output = resampler.process_all(&input).unwrap();
+        let output = process_all_samples(&mut resampler, &input).unwrap();
 
         assert!(output.iter().all(|sample| *sample == 0.0));
     }
@@ -573,7 +590,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.013).cos())
             .collect();
 
-        let output = resampler.process_all(&input).unwrap();
+        let output = process_all_samples(&mut resampler, &input).unwrap();
 
         assert_eq!(output, input);
         assert_eq!(resampler.output_delay_frames(), 0);
@@ -585,7 +602,7 @@ mod tests {
         let mut input = vec![0.0; input_chunk_frames(&resampler)];
         input[0] = 1.0;
 
-        let output = resampler.process_all(&input).unwrap();
+        let output = process_all_samples(&mut resampler, &input).unwrap();
 
         assert_eq!(output.len(), resampler.expected_output_size(input.len()));
         assert!(output.iter().all(|sample| sample.is_finite()));
@@ -617,7 +634,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.02).sin() * 0.1)
             .collect();
 
-        let output = resampler.process_all(&input).unwrap();
+        let output = process_all_samples(&mut resampler, &input).unwrap();
 
         assert_eq!(output.len(), resampler.expected_output_size(input_frames));
         assert!(output.iter().all(|sample| sample.is_finite()));
@@ -670,7 +687,7 @@ mod tests {
 
         wrapper.pre(&pre).unwrap();
         wrapper.post(&post).unwrap();
-        let wrapped_output = wrapper.process_all(&input).unwrap();
+        let wrapped_output = process_all_samples(&mut wrapper, &input).unwrap();
 
         let mono_config = Config {
             channels: 1,
@@ -799,7 +816,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
 
-        let offline_output = offline.process_all(&input).unwrap();
+        let offline_output = process_all_samples(&mut offline, &input).unwrap();
 
         let full_chunks = input.len() / input_chunk_frames(&streaming);
         let has_partial = !input.len().is_multiple_of(input_chunk_frames(&streaming));
@@ -846,7 +863,7 @@ mod tests {
             .map(|sample| sample as f32 * 0.25)
             .collect();
 
-        let full_output = full_resampler.process_all(&input).unwrap();
+        let full_output = process_all_samples(&mut full_resampler, &input).unwrap();
 
         let split0 = &input[..split_frames];
         let split1 = &input[split_frames..split_frames * 2];
@@ -900,7 +917,7 @@ mod tests {
             .map(|sample| sample as f32 * 0.25)
             .collect();
 
-        let full_output = full_resampler.process_all(&input).unwrap();
+        let full_output = process_all_samples(&mut full_resampler, &input).unwrap();
 
         let split0 = &input[..split_frames];
         let split1 = &input[split_frames..split_frames * 2];
@@ -962,15 +979,15 @@ mod tests {
             .map(|frame| (frame as f32 * 0.013).cos() * 0.15)
             .collect();
 
-        let first_reused = reused.process_all(&first_input).unwrap();
-        let first_reference = reference.process_all(&first_input).unwrap();
+        let first_reused = process_all_samples(&mut reused, &first_input).unwrap();
+        let first_reference = process_all_samples(&mut reference, &first_input).unwrap();
         assert_eq!(first_reused.len(), first_reference.len());
         for (left, right) in first_reused.iter().zip(first_reference.iter()) {
             assert!((*left - *right).abs() < 1e-5);
         }
 
-        let second_reused = reused.process_all(&second_input).unwrap();
-        let second_reference = reference.process_all(&second_input).unwrap();
+        let second_reused = process_all_samples(&mut reused, &second_input).unwrap();
+        let second_reference = process_all_samples(&mut reference, &second_input).unwrap();
         assert_eq!(second_reused.len(), second_reference.len());
         for (left, right) in second_reused.iter().zip(second_reference.iter()) {
             assert!((*left - *right).abs() < 1e-5);
@@ -983,7 +1000,7 @@ mod tests {
         let mut input = vec![0.0; resampler.input_chunk_size()];
         input[0] = 1.0;
 
-        let output = resampler.process_all(&input).unwrap();
+        let output = process_all_samples(&mut resampler, &input).unwrap();
 
         assert_eq!(
             output.len(),
@@ -1006,7 +1023,7 @@ mod tests {
             input.push((frame as f32 * 0.017).cos() * 0.125);
         }
 
-        let offline_output = offline.process_all(&input).unwrap();
+        let offline_output = process_all_samples(&mut offline, &input).unwrap();
 
         let input_buffer_size = streaming.input_chunk_size();
         let full_chunks = input.len() / input_buffer_size;

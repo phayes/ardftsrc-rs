@@ -362,7 +362,9 @@ mod tests {
                 resampler.post(&next[..next.len().min(context_chunk_size)]).unwrap();
             }
 
-            let expected = resampler.process_all(input.get_channel(0).unwrap()).unwrap();
+            let expected_input = input.get_channel(0).unwrap();
+            let expected_adapter = InterleavedSlice::new(expected_input, 1, expected_input.len()).unwrap();
+            let expected = resampler.process_all(&expected_adapter).unwrap().interleave();
             assert_eq!(output.get_channel(0).unwrap().len(), expected.len());
             for (actual, expected) in output.get_channel(0).unwrap().iter().zip(expected.iter()) {
                 assert!((*actual - *expected).abs() < 1e-5);
@@ -431,7 +433,8 @@ mod tests {
             .iter()
             .map(|track| {
                 let mut resampler = ChunkResampler::new(config.clone()).unwrap();
-                resampler.process_all(track).unwrap()
+                let input_adapter = InterleavedSlice::new(track, 1, track.len()).unwrap();
+                resampler.process_all(&input_adapter).unwrap().interleave()
             })
             .collect();
         let actual = batch_driver.batch(&input_adapter_refs).unwrap();

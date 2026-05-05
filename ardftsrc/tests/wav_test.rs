@@ -1,4 +1,5 @@
 use ardftsrc::{ChunkResampler, Config};
+use audioadapter_buffers::direct::InterleavedSlice;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -61,8 +62,15 @@ fn resample_all(input: &[f32], input_rate: usize, output_rate: usize, channels: 
             input_rate, output_rate
         )
     });
+    let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).unwrap_or_else(|_| {
+        panic!(
+            "invalid interleaved input length for channels={channels}: samples={}",
+            input.len()
+        )
+    });
     resampler
-        .process_all(input)
+        .process_all(&input_adapter)
+        .map(|output| output.interleave())
         .unwrap_or_else(|err| panic!("resampling failed for {} -> {} Hz: {err}", input_rate, output_rate))
 }
 
@@ -198,8 +206,16 @@ fn test_wavs_f32_2048_bw095_outputs_are_finite() {
                 input_path.display()
             )
         });
+        let input_adapter = InterleavedSlice::new(&input_samples, channels, input_samples.len() / channels)
+            .unwrap_or_else(|_| {
+                panic!(
+                    "invalid interleaved input length for channels={channels}: samples={}",
+                    input_samples.len()
+                )
+            });
         let output_samples = resampler
-            .process_all(&input_samples)
+            .process_all(&input_adapter)
+            .map(|output| output.interleave())
             .unwrap_or_else(|err| panic!("resampling failed for '{}': {err}", input_path.display()));
 
         assert_all_finite(&output_samples, "single-pass", &input_path);

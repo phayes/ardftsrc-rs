@@ -8,6 +8,7 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 use ardftsrc::{ChunkResampler, PRESET_HIGH};
+use audioadapter_buffers::direct::InterleavedSlice;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use wavers::{Wav, read};
 
@@ -83,9 +84,10 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
             group.throughput(Throughput::Elements(output_samples as u64));
             let bench_id = BenchmarkId::new(&fixture.name, format!("to_{target_label}"));
             group.bench_with_input(bench_id, fixture, |b, wav| {
+                let input_adapter = InterleavedSlice::new(&wav.samples, wav.channels, wav.samples.len() / wav.channels).unwrap();
                 b.iter(|| {
                     resampler.reset();
-                    resampler.process_all(&wav.samples).unwrap();
+                    resampler.process_all(&input_adapter).unwrap();
                 });
             });
             sleep(INTER_TEST_SLEEP);
