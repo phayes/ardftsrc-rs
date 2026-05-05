@@ -257,7 +257,6 @@ where
         self.batch_planar_gapless(prepared_inputs)
     }
 
-
     /// Process multiple independent tracks. This is a planar specialization of `batch()`.
     ///
     /// Each input slice is treated as its own stream with no inter-track context. See
@@ -480,6 +479,7 @@ where
 mod tests {
     use super::*;
     use crate::TaperType;
+    use audioadapter_buffers::direct::InterleavedSlice;
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
         Config {
@@ -559,6 +559,52 @@ mod tests {
         assert_eq!(adapter_outputs.len(), planar_outputs.len());
         for (adapter_output, planar_output) in adapter_outputs.iter().zip(planar_outputs.iter()) {
             assert_eq!(adapter_output, planar_output);
+        }
+    }
+
+    #[test]
+    fn batch_test() {
+        let config = mono_config(44_100, 48_000);
+        let batch_driver = BatchResampler::new(config.clone()).unwrap();
+        let chunk = batch_driver.inner.input_chunk_size();
+        let tracks: Vec<Vec<f32>> = vec![
+            (0..(chunk + 17))
+                .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
+                .collect(),
+            (0..(chunk * 2 + 5))
+                .map(|frame| (frame as f32 * 0.012).cos() * 0.15)
+                .collect(),
+            (0..(chunk / 2 + 11))
+                .map(|frame| (frame as f32 * 0.021).sin() * 0.25)
+                .collect(),
+        ];
+        let input_refs: Vec<&[f32]> = tracks.iter().map(Vec::as_slice).collect();
+        let input_adapters = input_refs
+            .iter()
+            .map(|input| InterleavedSlice::new(input, 1, input.len()))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let input_adapter_refs = input_adapters
+            .iter()
+            .map(|input| input as &dyn Adapter<'_, f32>)
+            .collect::<Vec<_>>();
+
+        let expected: Vec<Vec<f32>> = tracks
+            .iter()
+            .map(|track| {
+                let mut resampler = ChunkResampler::new(config.clone()).unwrap();
+                resampler.process_all(track).unwrap()
+            })
+            .collect();
+        let actual = batch_driver.batch(&input_adapter_refs).unwrap();
+
+        assert_eq!(actual.len(), expected.len());
+        for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
+            let actual_interleaved = crate::adapter_to_interleaved_vec(actual_track);
+            assert_eq!(actual_interleaved.len(), expected_track.len());
+            for (left, right) in actual_interleaved.iter().zip(expected_track.iter()) {
+                assert!((*left - *right).abs() < 1e-5);
+            }
         }
     }
 }

@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{ardftsrc_core::ArdftsrcCore, config::DerivedConfig, Config, Error};
+use crate::{Config, Error, ardftsrc_core::ArdftsrcCore, config::DerivedConfig};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
@@ -418,8 +418,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ardftsrc_core::ArdftsrcCore, BatchResampler, TaperType};
-    use audioadapter::Adapter;
+    use crate::{TaperType, ardftsrc_core::ArdftsrcCore};
     use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
 
@@ -1195,52 +1194,5 @@ mod tests {
             finalize_samples_chunk(&mut resampler, &mut output),
             Err(Error::AlreadyFlushed)
         ));
-    }
-
-    #[test]
-    fn batch_test() {
-        let config = mono_config(44_100, 48_000);
-        let driver = ChunkResampler::new(config.clone()).unwrap();
-        let batch_driver = BatchResampler::new(config.clone()).unwrap();
-        let chunk = input_chunk_frames(&driver);
-        let tracks: Vec<Vec<f32>> = vec![
-            (0..(chunk + 17))
-                .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
-                .collect(),
-            (0..(chunk * 2 + 5))
-                .map(|frame| (frame as f32 * 0.012).cos() * 0.15)
-                .collect(),
-            (0..(chunk / 2 + 11))
-                .map(|frame| (frame as f32 * 0.021).sin() * 0.25)
-                .collect(),
-        ];
-        let input_refs: Vec<&[f32]> = tracks.iter().map(Vec::as_slice).collect();
-        let input_adapters = input_refs
-            .iter()
-            .map(|input| InterleavedSlice::new(input, 1, input.len()))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-        let input_adapter_refs = input_adapters
-            .iter()
-            .map(|input| input as &dyn Adapter<'_, f32>)
-            .collect::<Vec<_>>();
-
-        let expected: Vec<Vec<f32>> = tracks
-            .iter()
-            .map(|track| {
-                let mut resampler = ChunkResampler::new(config.clone()).unwrap();
-                resampler.process_all(track).unwrap()
-            })
-            .collect();
-        let actual = batch_driver.batch(&input_adapter_refs).unwrap();
-
-        assert_eq!(actual.len(), expected.len());
-        for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
-            let actual_interleaved = crate::adapter_to_interleaved_vec(actual_track);
-            assert_eq!(actual_interleaved.len(), expected_track.len());
-            for (left, right) in actual_interleaved.iter().zip(expected_track.iter()) {
-                assert!((*left - *right).abs() < 1e-5);
-            }
-        }
     }
 }
