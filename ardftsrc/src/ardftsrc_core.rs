@@ -7,8 +7,6 @@ use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
 use crate::Error;
 use crate::config::DerivedConfig;
 use crate::lpc::{ExtrapolateFallback, extrapolate_backward, extrapolate_forward};
-use audioadapter::Adapter;
-use audioadapter_buffers::owned::SequentialOwned;
 
 pub(crate) struct ArdftsrcCore<T = f32>
 where
@@ -142,18 +140,6 @@ where
     /// Use this to allocate/read fixed-size streaming input buffers.
     pub(crate) fn input_buffer_size(&self) -> usize {
         self.input_chunk_samples()
-    }
-
-    /// Returns produced sample count for each non-passthrough transform block before trimming.
-    pub(crate) fn output_chunk_samples(&self) -> usize {
-        self.output_chunk_len_samples()
-    }
-
-    /// Returns the recommended per-call `output` capacity in samples.
-    ///
-    /// For chunked streaming, size output slices passed to chunk processing to at least this value.
-    pub(crate) fn output_buffer_size(&self) -> usize {
-        self.output_chunk_samples()
     }
 
     /// Sets previous-track context.

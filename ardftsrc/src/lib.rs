@@ -33,10 +33,7 @@ where
 /// Utility function that copies an adapter into an interleaved slice.
 ///
 /// Returns the number of samples copied, or an error if `output` is too small.
-pub fn adapter_to_interleaved_slice<'a, T: 'a>(
-    adapter: &dyn Adapter<'a, T>,
-    output: &mut [T],
-) -> Result<usize, Error> {
+pub fn adapter_to_interleaved_slice<'a, T: 'a>(adapter: &dyn Adapter<'a, T>, output: &mut [T]) -> Result<usize, Error> {
     let channels = adapter.channels();
     let required = channels * adapter.frames();
     if output.len() < required {

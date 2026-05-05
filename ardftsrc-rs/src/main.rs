@@ -1,5 +1,5 @@
 use ardftsrc::{
-    Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType, adapter_to_interleaved,
+    Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType, adapter_to_interleaved_vec,
 };
 use audioadapter::Adapter;
 use audioadapter_buffers::direct::InterleavedSlice;
@@ -149,7 +149,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         processor
             .batch(&input_adapter_refs)?
             .into_iter()
-            .map(|buffer| adapter_to_interleaved(&buffer))
+            .map(|buffer| adapter_to_interleaved_vec(&buffer))
             .collect()
     };
 

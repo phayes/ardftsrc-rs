@@ -759,26 +759,6 @@ where
         self.config.input_sample_rate == self.config.output_sample_rate
     }
 
-    // Copy the interleaved input samples into the input staging buffers (one input buffer per channel).
-    fn stage_input_channels(&mut self, input: &[T]) {
-        let num_frames = input.len() / self.config.channels;
-
-        if self.config.channels == 1 {
-            self.input_staging[0][..num_frames].copy_from_slice(&input[..num_frames]);
-            return;
-        }
-
-        for channel_input in &mut self.input_staging {
-            channel_input[..num_frames].fill(T::zero());
-        }
-
-        for (frame_idx, frame) in input.chunks_exact(self.config.channels).enumerate() {
-            for (channel_idx, sample) in frame.iter().enumerate() {
-                self.input_staging[channel_idx][frame_idx] = *sample;
-            }
-        }
-    }
-
     /// Sets previous-track context.
     ///
     /// Use this when resampling gapless material, for example an album where tracks are played
@@ -1872,7 +1852,7 @@ mod tests {
 
         assert_eq!(actual.len(), expected.len());
         for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
-            let actual_interleaved = crate::adapter_to_interleaved(actual_track);
+            let actual_interleaved = crate::adapter_to_interleaved_vec(actual_track);
             assert_eq!(actual_interleaved.len(), expected_track.len());
             for (left, right) in actual_interleaved.iter().zip(expected_track.iter()) {
                 assert!((*left - *right).abs() < 1e-5);

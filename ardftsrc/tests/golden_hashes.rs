@@ -17,7 +17,7 @@
 //!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //!
-use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, adapter_to_interleaved};
+use ardftsrc::{Ardftsrc, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, adapter_to_interleaved_vec};
 use audioadapter::Adapter;
 use audioadapter_buffers::direct::InterleavedSlice;
 use serde::Deserialize;
@@ -231,7 +231,7 @@ fn generate_hashes_f32(
         let outputs = driver.batch(&input_adapter_refs)?;
 
         for (wav_index, output) in indices.into_iter().zip(outputs) {
-            let interleaved = adapter_to_interleaved(&output);
+            let interleaved = adapter_to_interleaved_vec(&output);
             let channel_hashes = hash_interleaved_channels(&interleaved, wavs[wav_index].channels)?;
             hashes.insert(wavs[wav_index].file_name.clone(), channel_hashes);
         }
@@ -274,7 +274,7 @@ fn generate_hashes_f64_from_f32(
         let outputs_f64 = driver.batch(&input_adapter_refs)?;
 
         for (wav_index, output_f64) in indices.into_iter().zip(outputs_f64) {
-            let interleaved_f64 = adapter_to_interleaved(&output_f64);
+            let interleaved_f64 = adapter_to_interleaved_vec(&output_f64);
             let output_f32 = interleaved_f64.iter().map(|&v| v as f32).collect::<Vec<f32>>();
             let channel_hashes = hash_interleaved_channels(&output_f32, wavs[wav_index].channels)?;
             hashes.insert(wavs[wav_index].file_name.clone(), channel_hashes);
