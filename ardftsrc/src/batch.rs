@@ -234,71 +234,36 @@ where
     /// `batch_gapless()` for gapless processing of multiple tracks.
     ///
     /// Enable the `rayon` feature for parallel processing.
-    ///
-    /// Input adapters are copied into planar buffers before processing.
-    ///
     pub fn batch<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<SequentialVecOfVecs<T>>, Error>
     where
         T: Send + Sync,
     {
-        let config = self.inner.config().clone();
-        let prepared_inputs: Vec<Vec<Vec<T>>> = inputs
-            .iter()
-            .map(|input| {
-                if input.channels() != config.channels {
-                    return Err(Error::WrongChannelCount {
-                        expected: config.channels,
-                        actual: input.channels(),
-                    });
-                }
-
-                let frames = input.frames();
-                let mut per_channel = Vec::with_capacity(config.channels);
-                for channel_idx in 0..config.channels {
-                    let mut channel = vec![T::zero(); frames];
-                    let copied = input.copy_from_channel_to_slice(channel_idx, 0, &mut channel);
-                    if copied != frames {
-                        return Err(Error::WrongFrameCount {
-                            expected: frames,
-                            actual: copied,
-                        });
-                    }
-                    per_channel.push(channel);
-                }
-                Ok(per_channel)
-            })
-            .collect::<Result<_, _>>()?;
-
-        #[cfg(feature = "rayon")]
-        {
-            prepared_inputs
-                .par_iter()
-                .map(|channel_inputs| {
-                    let channel_outputs = Self::process_track(config.clone(), channel_inputs, None, None)?;
-                    SequentialVecOfVecs::new(channel_outputs)
-                })
-                .collect()
-        }
-
-        #[cfg(not(feature = "rayon"))]
-        {
-            prepared_inputs
-                .iter()
-                .map(|channel_inputs| {
-                    let channel_outputs = Self::process_track(config.clone(), channel_inputs, None, None)?;
-                    SequentialVecOfVecs::new(channel_outputs)
-                })
-                .collect()
-        }
+        let prepared_inputs = Self::prepare_generic_adapter_inputs(self.inner.config(), inputs)?;
+        self.batch_planar(prepared_inputs)
     }
 
-    /// Process multiple planar tracks in parallel.
+    /// Process multiple tracks as one gapless sequence.
     ///
-    /// This is a planar specialization of `batch()`.
+    /// Adjacent inputs are treated as tracks from the same album or other back-to-back
+    /// material. Each track is returned separately, but the previous track's tail and next
+    /// track's head are used as edge context to improve gapless playback.
     ///
-    /// Inputs is a vector of multi-channel planar tracks.
+    /// Enable the `rayon` feature for parallel processing.
+    pub fn batch_gapless<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<SequentialVecOfVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let prepared_inputs = Self::prepare_generic_adapter_inputs(self.inner.config(), inputs)?;
+        self.batch_planar_gapless(prepared_inputs)
+    }
+
+
+    /// Process multiple independent tracks. This is a planar specialization of `batch()`.
     ///
-    /// Output is in the same format as inputs.
+    /// Each input slice is treated as its own stream with no inter-track context. See
+    /// `batch_gapless()` for gapless processing of multiple tracks.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
     pub fn batch_planar(&self, inputs: Vec<SequentialVecOfVecs<T>>) -> Result<Vec<SequentialVecOfVecs<T>>, Error>
     where
         T: Send + Sync,
@@ -328,15 +293,14 @@ where
         }
     }
 
-    /// Process multiple planar tracks as one gapless sequence.
+
+    /// Process multiple tracks as one gapless sequence. This is a planar specialization of `batch_gapless()`.
     ///
-    /// This is a planar specialization for albums or other material where adjacent tracks
-    /// should be played back-to-back. Each track is returned separately, but the previous
-    /// track's tail and next track's head are used as edge context.
+    /// Adjacent inputs are treated as tracks from the same album or other back-to-back
+    /// material. Each track is returned separately, but the previous track's tail and next
+    /// track's head are used as edge context to improve gapless playback.
     ///
-    /// Inputs is a vector of multi-channel planar tracks.
-    ///
-    /// Output is in the same format as inputs.
+    /// Enable the `rayon` feature for parallel processing.
     pub fn batch_planar_gapless(
         &self,
         inputs: Vec<SequentialVecOfVecs<T>>,
@@ -386,6 +350,38 @@ where
                 })
                 .collect()
         }
+    }
+
+    fn prepare_generic_adapter_inputs<'a>(
+        config: &Config,
+        inputs: &[&dyn Adapter<'a, T>],
+    ) -> Result<Vec<SequentialVecOfVecs<T>>, Error> {
+        inputs
+            .iter()
+            .map(|input| {
+                if input.channels() != config.channels {
+                    return Err(Error::WrongChannelCount {
+                        expected: config.channels,
+                        actual: input.channels(),
+                    });
+                }
+
+                let frames = input.frames();
+                let mut per_channel = Vec::with_capacity(config.channels);
+                for channel_idx in 0..config.channels {
+                    let mut channel = vec![T::zero(); frames];
+                    let copied = input.copy_from_channel_to_slice(channel_idx, 0, &mut channel);
+                    if copied != frames {
+                        return Err(Error::WrongFrameCount {
+                            expected: frames,
+                            actual: copied,
+                        });
+                    }
+                    per_channel.push(channel);
+                }
+                SequentialVecOfVecs::new(per_channel)
+            })
+            .collect()
     }
 
     fn process_track(
@@ -534,6 +530,36 @@ mod tests {
             for (actual, expected) in output.get_channel(0).unwrap().iter().zip(expected.iter()) {
                 assert!((*actual - *expected).abs() < 1e-5);
             }
+        }
+    }
+
+    #[test]
+    fn batch_gapless_matches_planar_gapless() {
+        let config = mono_config(44_100, 48_000);
+        let batch = BatchResampler::new(config).unwrap();
+        let context_chunk_size = batch.inner.input_chunk_size();
+        let track_frames = context_chunk_size * 2 + 17;
+
+        let tracks: Vec<SequentialVecOfVecs<f32>> = (0..3)
+            .map(|track_idx| {
+                let channel = (0..track_frames)
+                    .map(|frame| {
+                        let continuous_frame = track_idx * track_frames + frame;
+                        (continuous_frame as f32 * 0.017).sin() * 0.25
+                    })
+                    .collect();
+                SequentialVecOfVecs::new(vec![channel]).unwrap()
+            })
+            .collect();
+        let adapter_inputs: Vec<&dyn Adapter<'_, f32>> =
+            tracks.iter().map(|track| track as &dyn Adapter<'_, f32>).collect();
+
+        let adapter_outputs = batch.batch_gapless(&adapter_inputs).unwrap();
+        let planar_outputs = batch.batch_planar_gapless(tracks.clone()).unwrap();
+
+        assert_eq!(adapter_outputs.len(), planar_outputs.len());
+        for (adapter_output, planar_output) in adapter_outputs.iter().zip(planar_outputs.iter()) {
+            assert_eq!(adapter_output, planar_output);
         }
     }
 }
