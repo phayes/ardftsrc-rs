@@ -35,7 +35,7 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 
 ## Chunk Resampling
 
-Use chunk resampling when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API is preferred when you are able to control the buffer sizes.
+Use chunk resampling when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API and is preferred when you are not doing live resampling.
 
 1. `process_chunk(...)` for each chunk, input and output slice sizes should match `input_chunk_size()` and `output_chunk_size()`
 2. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
@@ -109,11 +109,13 @@ Use the streaming resampler for live resampling. It accepts interleaved sample s
 4. Before calling `new_span(...)` or `finalize_samples(...)`, the current span must be frame aligned.
 5. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
 
-Expect bursty read behavior when writing small numbers of samples at a time. `read_samples(...)` accepts any output buffer size; it is not tied to the internal chunk size.
+Expect bursty read behavior. `read_samples(...)` accepts any output buffer size.
 
-Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The streaming resampler models those format regions as spans. When a new span starts, the previous span is finalized implicitly, later writes go to the new span immediately, and reads continue draining the previous span first. 
+### Spans
 
-The output sample rate and quality settings stay the same across spans. If a channel count or sample rate change matters to your output consumer, use `samples_left_in_span()` to avoid reading across the span boundary in one buffer.
+Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The streaming resampler models those format regions as spans. You can start a new span with `new_span()`. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next. 
+
+Input spans and output spans are non-synchronous. After calling `new_span`, you should query `samples_left_in_span()` to see how many samples are left on the output side before the output will switch to a new span.
 
 To end the stream early, you can always just stop and call `reset()` on the stream.
 
@@ -218,7 +220,7 @@ fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels:
 
 ## Quality Tuning and Presets
 
-ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `ChunkResampler<f64>` or `StreamingResampler<f64>`, then convert back to `f32`.
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `Resampler<f64>`, then convert back to `f32`.
 
 If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
@@ -310,6 +312,5 @@ AI use is allowed for the following:
 3. Add `tanh` taper.
 4. Calc performance metrics and post links
 5. Add bindings to other languages, python, ts (wasm) etc.
-6. Improve CLI to handle heterogenous input files (different channel count, different input sample rate etc)
-7. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread.
-8. Investigate: On the `StreamingResampler`, when a new span starts, if compatible, set post() on previous span? (Maybe - compatible spans should be a no-op, so no post() required). 
+6. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread.
+7. Investigate: On the `StreamingResampler`, when a new span starts, if compatible, set post() on previous span? (Maybe - compatible spans should be a no-op, so no post() required). 
