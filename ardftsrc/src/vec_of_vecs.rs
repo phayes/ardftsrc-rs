@@ -80,6 +80,27 @@ impl<T> SequentialVecOfVecs<T> {
         }
         channel
     }
+
+    /// Returns a single interleaved buffer in frame-major order.
+    ///
+    /// The returned layout is:
+    /// `[L1, R1, L2, R2, ...]`
+    ///
+    /// For example, channels `[[1, 2], [3, 4]]` become `[1, 3, 2, 4]`.
+    pub fn interleave(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        let mut interleaved = Vec::with_capacity(self.channels() * self.frames());
+
+        for frame in 0..self.frames {
+            for channel in &self.buf {
+                interleaved.push(channel[frame].clone());
+            }
+        }
+
+        interleaved
+    }
 }
 
 impl<'a, T> Iterator for SequentialVecOfVecsIter<'a, T> {

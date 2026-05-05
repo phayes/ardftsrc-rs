@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{Config, Error, config::DerivedConfig, core::ArdftsrcCore};
+use crate::{config::DerivedConfig, core::ArdftsrcCore, Config, Error, SequentialVecOfVecs};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
@@ -102,57 +102,35 @@ where
     /// This is a convenience wrapper around the streaming API.
     ///
     /// When the `rayon` feature is enabled, each channel is processed in parallel.
-    pub fn process_all(&mut self, input: &[T]) -> Result<Vec<T>, Error>
+    pub fn process_all<'a>(&mut self, input: &dyn Adapter<'a, T>) -> Result<SequentialVecOfVecs<T>, Error>
     where
         T: Send + Sync,
     {
-        if !input.len().is_multiple_of(self.config.channels) {
-            return Err(Error::MalformedInputLength {
-                channels: self.config.channels,
-                samples: input.len(),
-            });
+        // Deinterleave the input
+        let mut planar_input: Vec<Vec<T>> = Vec::with_capacity(self.config.channels);
+        for channel_idx in 0..self.config.channels {
+            planar_input.push(Vec::with_capacity(input.frames()));
+            input.copy_from_channel_to_slice(channel_idx, 0, &mut planar_input[channel_idx]);
         }
-
-        if self.config.channels == 1 {
-            return self.cores[0].process_all(input);
-        }
-
-        let channel_inputs = self.deinterleave_context(input);
-        let mut channel_outputs: Vec<Vec<T>> = (0..self.config.channels).map(|_| Vec::new()).collect();
 
         #[cfg(feature = "rayon")]
-        {
-            self.cores
-                .par_iter_mut()
-                .zip(channel_inputs.par_iter())
-                .zip(channel_outputs.par_iter_mut())
-                .try_for_each(|((core, channel_input), channel_output)| -> Result<(), Error> {
-                    *channel_output = core.process_all(channel_input)?;
-                    Ok(())
-                })?;
-        }
+        let output: Vec<Vec<T>> = self
+            .cores
+            .par_iter_mut()
+            .zip(planar_input.par_iter())
+            .map(|(core, channel)| core.process_all(channel))
+            .collect::<Result<_, _>>()?;
 
         #[cfg(not(feature = "rayon"))]
-        {
-            for ((core, channel_input), channel_output) in self
-                .cores
-                .iter_mut()
-                .zip(channel_inputs.iter())
-                .zip(channel_outputs.iter_mut())
-            {
-                *channel_output = core.process_all(channel_input)?;
+        let output: Vec<Vec<T>> = {
+            let mut output = Vec::with_capacity(self.config.channels);
+            for (core, channel) in self.cores.iter_mut().zip(planar_input.iter()) {
+                output.push(core.process_all(channel)?);
             }
-        }
+            output
+        };
 
-        let written_per_channel = channel_outputs.first().map_or(0, Vec::len);
-        let mut output = vec![T::zero(); written_per_channel * self.config.channels];
-        for frame_idx in 0..written_per_channel {
-            for channel_idx in 0..self.config.channels {
-                output[frame_idx * self.config.channels + channel_idx] = channel_outputs[channel_idx][frame_idx];
-            }
-        }
-
-        Ok(output)
+        Ok(SequentialVecOfVecs::new(output)?)
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
