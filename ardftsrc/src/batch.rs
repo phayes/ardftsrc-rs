@@ -293,7 +293,6 @@ where
         }
     }
 
-
     /// Process multiple tracks as one gapless sequence. This is a planar specialization of `batch_gapless()`.
     ///
     /// Adjacent inputs are treated as tracks from the same album or other back-to-back
