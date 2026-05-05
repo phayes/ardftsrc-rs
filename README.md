@@ -109,7 +109,7 @@ Use the streaming resampler for live resampling. It accepts interleaved sample s
 4. Before calling `new_span(...)` or `finalize_samples(...)`, the current span must be frame aligned.
 5. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
 
-Expect bursty read behavior. `read_samples(...)` accepts any output buffer size; it is not tied to the internal chunk size.
+Expect bursty read behavior. `read_samples(...)` accepts any output buffer size.
 
 ### Spans
 
