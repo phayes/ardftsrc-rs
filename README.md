@@ -113,9 +113,9 @@ Expect bursty read behavior. `read_samples(...)` accepts any output buffer size;
 
 ### Spans
 
-Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The streaming resampler models those format regions as spans. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching the second. You can start a new span with `new_span()`.  
+Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The streaming resampler models those format regions as spans. You can start a new span with `new_span()`. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next. 
 
-Input spans and output spans are non-synchronous. After calling `new_span` query `samples_left_in_span()` to see how many samples are left on the output side before the output will switch to a new span.
+Input spans and output spans are non-synchronous. After calling `new_span`, you should query `samples_left_in_span()` to see how many samples are left on the output side before the output will switch to a new span.
 
 To end the stream early, you can always just stop and call `reset()` on the stream.
 
