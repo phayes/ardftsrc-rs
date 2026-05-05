@@ -45,6 +45,7 @@ To end the stream early, you can always just stop and call `reset()` on the stre
 
 ```rust
 use ardftsrc::{ChunkResampler, PRESET_GOOD};
+use audioadapter_buffers::direct::InterleavedSlice;
 
 fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
     // When using a preset other than "FAST", f64 processing is preferred.
@@ -61,27 +62,46 @@ fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: 
     // You must read and write in these buffer sizes
     let input_chunk_size = resampler.input_chunk_size();
     let output_chunk_size = resampler.output_chunk_size();
+    let input_chunk_frames = input_chunk_size / channels;
+    let output_chunk_frames = output_chunk_size / channels;
     let mut out_buf = vec![0.0_f64; output_chunk_size];
     let mut out_f64 = Vec::<f64>::new();
     let mut offset = 0;
 
+    // Process whole chunks in the size of input_chunk_size
     while offset + input_chunk_size <= input_f64.len() {
         let chunk = &input_f64[offset..offset + input_chunk_size];
-        let written = resampler.process_chunk(chunk, &mut out_buf).unwrap();
+
+        // Prepare the input and output adapters.
+        let input_adapter = InterleavedSlice::new(chunk, channels, input_chunk_frames).unwrap();
+        let mut output_adapter = InterleavedSlice::new_mut(&mut out_buf, channels, output_chunk_frames).unwrap();
+
+        // Process the chunk
+        let written = resampler.process_chunk(&input_adapter, &mut output_adapter).unwrap();
+
+        // Process otuput
         out_f64.extend_from_slice(&out_buf[..written]);
         offset += input_chunk_size;
     }
 
     // The final chunk can be undersized (or even zero sized)
     let final_chunk = &input_f64[offset..];
-    let written = resampler.process_chunk_final(final_chunk, &mut out_buf).unwrap();
+
+    // Prepare input and output adapters
+    let final_input_adapter = InterleavedSlice::new(final_chunk, channels, final_chunk.len() / channels).unwrap();
+    let mut final_output_adapter = InterleavedSlice::new_mut(&mut out_buf, channels, output_chunk_frames).unwrap();
+
+    // Process Output
+    let written = resampler.process_chunk_final(&final_input_adapter, &mut final_output_adapter).unwrap();
     out_f64.extend_from_slice(&out_buf[..written]);
 
     // After processing the final chunk, you must call "finalize()" to get tail content.
     // finalize() also resets the resampler instance so it can be used again.
-    let written = resampler.finalize(&mut out_buf).unwrap();
+    let mut finalize_output_adapter = InterleavedSlice::new_mut(&mut out_buf, channels, output_chunk_frames).unwrap();
+    let written = resampler.finalize(&mut finalize_output_adapter).unwrap();
     out_f64.extend_from_slice(&out_buf[..written]);
 
+    // Convert back into f32
     out_f64.into_iter().map(|v| v as f32).collect()
 }
 ```
@@ -187,11 +207,16 @@ Use batching when you have multiple full tracks to convert with the same configu
 Enable the `rayon` feature to parallelize work across tracks.
 
 ```rust
-use ardftsrc::{BatchResampler, PRESET_GOOD};
-use audioadapter::Adapter;
-use audioadapter_buffers::direct::InterleavedSlice;
+use ardftsrc::{BatchResampler, PRESET_GOOD, SequentialVecOfVecs};
+use ardftsrc::audioadapter::Adapter;
+use ardftsrc::audioadapter_buffers::direct::InterleavedSlice;
 
-fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels: usize) -> Vec<Vec<f64>> {
+fn resample_tracks(
+    inputs: &[&[f64]],
+    in_rate: usize,
+    out_rate: usize,
+    channels: usize,
+) -> Vec<SequentialVecOfVecs<f64>> {
     let config = PRESET_GOOD
         .with_input_rate(in_rate)
         .with_output_rate(out_rate)
@@ -211,7 +236,7 @@ fn resample_tracks(inputs: &[&[f64]], in_rate: usize, out_rate: usize, channels:
     let _independent = driver.batch(&adapter_refs).unwrap();
 
     // Gapless sequence (album tracks played back-to-back).
-    let gapless = driver.batch_gapless(inputs).unwrap();
+    let gapless = driver.batch_gapless(&adapter_refs).unwrap();
 
     // Return one of the two results based on your use case.
     gapless

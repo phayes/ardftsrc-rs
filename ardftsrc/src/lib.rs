@@ -16,6 +16,10 @@ pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, 
 pub use error::Error;
 pub use streaming::StreamingResampler;
 
+// Re-export audioadapter and audioadapter_buffers for convenience.
+pub use audioadapter;
+pub use audioadapter_buffers;
+
 /// Utility function that copies an adapter into a new interleaved `Vec`.
 ///
 /// Samples are copied frame-by-frame with [`Adapter::copy_from_frame_to_slice`]. The returned
