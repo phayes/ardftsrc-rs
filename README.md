@@ -35,7 +35,7 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 
 ## Chunk Resampling
 
-Use chunk resampling when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API is preferred when you are able to control the buffer sizes.
+Use chunk resampling when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API and is preferred when you are not doing live resampling.
 
 1. `process_chunk(...)` for each chunk, input and output slice sizes should match `input_chunk_size()` and `output_chunk_size()`
 2. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
