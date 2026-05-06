@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{config::DerivedConfig, core::ArdftsrcCore, Config, Error, PlanarVecs};
+use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
@@ -15,8 +15,11 @@ where
     derived: DerivedConfig<T>,
     pub(crate) cores: Vec<ArdftsrcCore<T>>,
 
-    // Staging area for input. Non-planar incomming inputs are staged into planar before calling Core::process_chunk
+    // Staging area for non-planar input. Non-planar incomming inputs are staged into planar before calling Core::process_chunk
     input_staging: Vec<Vec<T>>,
+
+    // Staging area for non-planar output. Non-planar outgoing outputs are staged into planar before calling AdapterMut::copy_from_slice_to_channel
+    output_staging: Vec<Vec<T>>,
 }
 
 impl<T> ChunkResampler<T>
@@ -32,14 +35,16 @@ where
         let cores = (0..config.channels)
             .map(|_| ArdftsrcCore::new(derived.clone()))
             .collect();
-    
-         let input_staging = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
+
+        let input_staging = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
+        let output_staging = vec![vec![T::zero(); derived.output_chunk_frames]; config.channels];
 
         Ok(Self {
             config,
             derived,
             cores,
             input_staging,
+            output_staging,
         })
     }
 
@@ -259,10 +264,19 @@ where
         }
 
         // Destructure self to allow multability of different fields at the same time.
-        let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
+        let (cores, input_staging, output_staging) =
+            (&mut self.cores, &mut self.input_staging, &mut self.output_staging);
 
         // Process the chunk.
-        Self::process_chunk_inner(cores, input_staging, output, false)
+        let total_written = Self::process_chunk_inner(cores, input_staging, output_staging, false)?;
+
+        // Copy the output from the output_staging to the output
+        let total_written_per_channel = total_written / self.config.channels;
+        for (channel_idx, channel_output) in self.output_staging.iter().enumerate() {
+            output.copy_from_slice_to_channel(channel_idx, 0, &channel_output[..total_written_per_channel]);
+        }
+
+        Ok(total_written)
     }
 
     /// Processes the final chunk, which may be shorter than the regular chunk size.
@@ -291,38 +305,44 @@ where
         }
 
         // Destructure self to allow multability of different fields at the same time.
-        let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
+        let (cores, input_staging, output_staging) =
+            (&mut self.cores, &mut self.input_staging, &mut self.output_staging);
 
         // Process the chunk.
-        Self::process_chunk_inner(cores, input_staging, output, true)
+        let total_written = Self::process_chunk_inner(cores, input_staging, output_staging, true)?;
+
+        // Copy the output from the output_staging to the output
+        let total_written_per_channel = total_written / self.config.channels;
+        for (channel_idx, channel_output) in self.output_staging.iter().enumerate() {
+            output.copy_from_slice_to_channel(channel_idx, 0, &channel_output[..total_written_per_channel]);
+        }
+
+        Ok(total_written)
     }
 
     #[inline]
-    fn process_chunk_inner<I, C>(
+    fn process_chunk_inner<I, C, O, D>(
         cores: &mut [ArdftsrcCore<T>],
         input: I,
-        output: &mut dyn AdapterMut<T>,
+        output: O,
         is_final: bool,
     ) -> Result<usize, Error>
     where
         I: IntoIterator<Item = C>,
         C: AsRef<[T]>,
+        O: IntoIterator<Item = D>,
+        D: AsMut<[T]>,
     {
         let mut total_written = 0;
 
         // For each channel, process the chunk in the core.
-        for (channel_idx, channel_input) in input.into_iter().enumerate() {
+        for (channel_idx, (channel_input, mut channel_output)) in input.into_iter().zip(output).enumerate() {
+            let channel_output = channel_output.as_mut();
             let core_output = cores[channel_idx].process_chunk(channel_input.as_ref(), is_final)?;
 
-            let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, core_output);
-            if out_written != core_output.len() {
-                return Err(Error::WrongFrameCount {
-                    expected: core_output.len(),
-                    actual: out_written,
-                });
-            }
-
-            total_written += out_written;
+            debug_assert!(channel_output.len() >= core_output.len());
+            channel_output[..core_output.len()].copy_from_slice(&core_output);
+            total_written += core_output.len();
         }
 
         Ok(total_written)
@@ -812,17 +832,11 @@ mod tests {
 
         assert!(matches!(
             resampler.pre(&context_adapter),
-            Err(Error::WrongChannelCount {
-                expected: 2,
-                actual: 1
-            })
+            Err(Error::WrongChannelCount { expected: 2, actual: 1 })
         ));
         assert!(matches!(
             resampler.post(&context_adapter),
-            Err(Error::WrongChannelCount {
-                expected: 2,
-                actual: 1
-            })
+            Err(Error::WrongChannelCount { expected: 2, actual: 1 })
         ));
     }
 

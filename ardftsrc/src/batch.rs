@@ -96,10 +96,7 @@ where
     /// track's head are used as edge context to improve gapless playback.
     ///
     /// Enable the `rayon` feature for parallel processing.
-    pub fn batch_planar_gapless(
-        &self,
-        inputs: Vec<PlanarVecs<T>>,
-    ) -> Result<Vec<PlanarVecs<T>>, Error>
+    pub fn batch_planar_gapless(&self, inputs: Vec<PlanarVecs<T>>) -> Result<Vec<PlanarVecs<T>>, Error>
     where
         T: Send + Sync,
     {
@@ -358,15 +355,12 @@ mod tests {
                 let pre_context = &previous[previous.len().saturating_sub(context_chunk_size)..];
                 let pre_channels = [pre_context];
                 let pre_adapter = SequentialSliceOfSlices::new(&pre_channels, 1, pre_context.len()).unwrap();
-                resampler
-                    .pre(&pre_adapter)
-                    .unwrap();
+                resampler.pre(&pre_adapter).unwrap();
             }
             if let Some(next) = tracks.get(track_idx + 1).map(|track| track.get_channel(0).unwrap()) {
                 let post_context = &next[..next.len().min(context_chunk_size)];
                 let post_channels = [post_context];
-                let post_adapter =
-                    SequentialSliceOfSlices::new(&post_channels, 1, post_context.len()).unwrap();
+                let post_adapter = SequentialSliceOfSlices::new(&post_channels, 1, post_context.len()).unwrap();
                 resampler.post(&post_adapter).unwrap();
             }
 

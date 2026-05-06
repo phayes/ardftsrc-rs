@@ -645,7 +645,10 @@ mod tests {
     fn taper_has_expected_passband_transition_and_stopband() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let taper = DerivedConfig::<f32>::build_taper(16, 6, 4, false, taper_type);
-            assert_no_nans(&taper, "config::taper_has_expected_passband_transition_and_stopband taper");
+            assert_no_nans(
+                &taper,
+                "config::taper_has_expected_passband_transition_and_stopband taper",
+            );
 
             assert_eq!(taper.len(), 9);
 

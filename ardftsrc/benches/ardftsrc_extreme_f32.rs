@@ -84,7 +84,8 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
             group.throughput(Throughput::Elements(output_samples as u64));
             let bench_id = BenchmarkId::new(&fixture.name, format!("to_{target_label}"));
             group.bench_with_input(bench_id, fixture, |b, wav| {
-                let input_adapter = InterleavedSlice::new(&wav.samples, wav.channels, wav.samples.len() / wav.channels).unwrap();
+                let input_adapter =
+                    InterleavedSlice::new(&wav.samples, wav.channels, wav.samples.len() / wav.channels).unwrap();
                 b.iter(|| {
                     resampler.reset();
                     resampler.process_all(&input_adapter).unwrap();

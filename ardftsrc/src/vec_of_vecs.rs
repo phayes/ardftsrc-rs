@@ -1,6 +1,6 @@
+use crate::Error;
 use audioadapter::Adapter;
 use audioadapter::AdapterMut;
-use crate::Error;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlanarVecs<T> {

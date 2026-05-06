@@ -1,6 +1,6 @@
 use audio_core::Sample;
-use num_traits::Float;
 use audioadapter_buffers::direct::InterleavedSlice;
+use num_traits::Float;
 use realfft::FftNum;
 
 use crate::{ChunkResampler, Error};
@@ -19,12 +19,11 @@ where
     T: Float + FftNum + Sample + Send + Sync,
 {
     let channels = resampler.config().channels;
-    let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
-        Error::MalformedInputLength {
+    let input_adapter =
+        InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| Error::MalformedInputLength {
             channels,
             samples: input.len(),
-        }
-    })?;
+        })?;
     let output = resampler.process_all(&input_adapter)?.interleave();
     assert_no_nans(&output, "test_utils::process_all_samples output");
     Ok(output)

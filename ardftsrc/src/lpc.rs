@@ -299,7 +299,10 @@ mod tests {
     fn test_extrapolate_forward_empty_and_zero_extra() {
         assert!(extrapolate_forward::<f64>(&[1.0, 2.0], 0, ExtrapolateFallback::Hold).is_empty());
         let predicted = extrapolate_forward::<f64>(&[], 3, ExtrapolateFallback::Hold);
-        assert_no_nans(&predicted, "lpc::test_extrapolate_forward_empty_and_zero_extra predicted");
+        assert_no_nans(
+            &predicted,
+            "lpc::test_extrapolate_forward_empty_and_zero_extra predicted",
+        );
         assert_eq!(predicted, vec![0.0, 0.0, 0.0]);
     }
 
