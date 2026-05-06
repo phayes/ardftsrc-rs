@@ -14,6 +14,10 @@ where
     config: Config,
     derived: DerivedConfig<T>,
     pub(crate) cores: Vec<ArdftsrcCore<T>>,
+
+    // Staging areas.
+    // TODO: This can be removed by using Core::mut_input_ref() and writing samples directly
+    input_staging: Vec<Vec<T>>,
 }
 
 impl<T> ChunkResampler<T>
@@ -30,10 +34,13 @@ where
             .map(|_| ArdftsrcCore::new(derived.clone()))
             .collect();
 
+        let input_staging: Vec<Vec<T>> = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
+
         Ok(Self {
             config,
             derived,
             cores,
+            input_staging,
         })
     }
 
@@ -242,8 +249,11 @@ where
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, false)?;
 
+        // Desructure self to allow multability of different fields at the same time.
+        let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
+
         // Process the chunk.
-        Self::process_chunk_inner(&mut self.cores, self.config.channels, input, output, false)
+        Self::process_chunk_inner(cores, input_staging, self.config.channels, input, output, false)
     }
 
     /// Processes the final chunk, which may be shorter than the regular chunk size.
@@ -263,13 +273,17 @@ where
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, true)?;
 
+        // Desructure self to allow multability of different fields at the same time.
+        let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
+
         // Process the chunk.
-        Self::process_chunk_inner(&mut self.cores, self.config.channels, input, output, true)
+        Self::process_chunk_inner(cores, input_staging, self.config.channels, input, output, true)
     }
 
     #[inline]
     fn process_chunk_inner<'a>(
         cores: &mut [ArdftsrcCore<T>],
+        input_staging: &mut [Vec<T>],
         channels: usize,
         input: &dyn Adapter<'a, T>,
         output: &mut dyn AdapterMut<'a, T>,
@@ -277,16 +291,12 @@ where
     ) -> Result<usize, Error> {
         let mut total_written = 0;
 
-        // For each channel, write input directly into the core window, then process.
+        // For each channel, process the chunk in the core.
         for channel_idx in 0..channels {
             let core = &mut cores[channel_idx];
-            let input_frames = input.frames();
-            let input_window = core.mut_input_ref();
-            input.copy_from_channel_to_slice(channel_idx, 0, &mut input_window[..input_frames]);
-            if is_final && input_frames < input_window.len() {
-                input_window[input_frames..].fill(T::zero());
-            }
-            let core_output = core.process_chunk(input_frames, is_final)?;
+            let core_input = &mut input_staging[channel_idx][..input.frames()];
+            input.copy_from_channel_to_slice(channel_idx, 0, core_input);
+            let core_output = core.process_chunk(core_input, is_final)?;
 
             let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, core_output);
             if out_written != core_output.len() {
@@ -613,22 +623,13 @@ mod tests {
         let input_chunk = core.input_buffer_size();
 
         while offset + input_chunk <= input.len() {
-            {
-                let core_input = core.mut_input_ref();
-                core_input.copy_from_slice(&input[offset..offset + input_chunk]);
-            }
-            let written = core.process_chunk(input_chunk, false).unwrap();
+            let written = core.process_chunk(&input[offset..offset + input_chunk], false).unwrap();
             output.extend_from_slice(written);
             offset += input_chunk;
         }
 
         let final_input = &input[offset..];
-        {
-            let core_input = core.mut_input_ref();
-            core_input[..final_input.len()].copy_from_slice(final_input);
-            core_input[final_input.len()..].fill(0.0);
-        }
-        let written = core.process_chunk(final_input.len(), true).unwrap();
+        let written = core.process_chunk(final_input, true).unwrap();
         output.extend_from_slice(written);
 
         let written = core.finalize().unwrap();
