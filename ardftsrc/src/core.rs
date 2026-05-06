@@ -212,12 +212,22 @@ where
         let input_chunk_size = self.input_buffer_size();
 
         while offset + input_chunk_size <= input.len() {
-            let chunk_output = self.process_chunk(&input[offset..offset + input_chunk_size], false)?;
+            {
+                let core_input = self.mut_input_ref();
+                core_input.copy_from_slice(&input[offset..offset + input_chunk_size]);
+            }
+            let chunk_output = self.process_chunk(input_chunk_size, false)?;
             output.extend_from_slice(chunk_output);
             offset += input_chunk_size;
         }
 
-        let final_chunk_output = self.process_chunk(&input[offset..], true)?;
+        let final_samples = input.len() - offset;
+        {
+            let core_input = self.mut_input_ref();
+            core_input[..final_samples].copy_from_slice(&input[offset..]);
+            core_input[final_samples..].fill(T::zero());
+        }
+        let final_chunk_output = self.process_chunk(final_samples, true)?;
         output.extend_from_slice(&final_chunk_output);
 
         let finalize_output = self.finalize()?;
@@ -315,29 +325,34 @@ where
 
     /// Processes one chunk through the streaming core resampler.
     ///
-    /// This internal entry point assumes `input` has already been validated by the caller.
+    /// This internal entry point assumes input has already been written via `mut_input_ref()`.
     /// It handles stream-level control flow (passthrough, first/final chunk state, transform
     /// dispatch, and trim/flush accounting).
     ///
     /// Behavior by mode:
     ///
     /// - If final input was already seen, returns `Error::StreamFinished`.
-    /// - In passthrough mode (equal rates), it copies input directly to output.
+    /// - In passthrough mode (equal rates), it forwards samples from the `mut_input_ref()` window.
     /// - In FFT mode, it processes one chunk, then applies startup trim and writes contiguous
     ///   samples from `output_block`.
     ///
     /// # Parameters
     ///
-    /// - `input`: Input samples for this chunk.
+    /// - `input_samples`: Number of valid samples currently written into `mut_input_ref()`.
     /// - `is_final`: Marks this chunk as the final chunk in the stream.
     ///
     /// Returns a reference to the output samples.
-    pub(crate) fn process_chunk<'a>(&'a mut self, input: &'a [T], is_final: bool) -> Result<&'a [T], Error> {
+    pub(crate) fn process_chunk<'a>(&'a mut self, input_samples: usize, is_final: bool) -> Result<&'a [T], Error> {
         if self.finalized {
             self.reset();
         }
 
-        let input_samples = input.len();
+        if input_samples > self.input_chunk_len_samples() {
+            return Err(Error::WrongFrameCount {
+                expected: self.input_chunk_len_samples(),
+                actual: input_samples,
+            });
+        }
 
         if self.final_input_seen {
             return Err(Error::StreamAlreadyFinalized);
@@ -351,27 +366,30 @@ where
             self.input_sample_count += input_samples;
             let written_samples = self.cap_write_to_output_budget(input_samples);
             self.output_sample_count += written_samples;
-            return Ok(&input[..written_samples]);
+            let input_start = self.derived.input_offset;
+            return Ok(&self.scratch.rdft_in[input_start..input_start + written_samples]);
         }
 
         if is_final {
             self.final_input_seen = true;
             if input_samples == 0 {
-                return Ok(&input);
+                let input_start = self.derived.input_offset;
+                return Ok(&self.scratch.rdft_in[input_start..input_start]);
             }
         }
 
-        self.copy_input_to_window(input, input_samples);
-
         let is_first_input = self.input_sample_count == 0;
         if is_first_input {
+            let input_start = self.derived.input_offset;
+            let input_end = input_start + input_samples;
+            let original_input = self.scratch.rdft_in[input_start..input_end].to_vec();
             self.synthesize_start_context(input_samples)?;
-            self.copy_input_to_window(input, input_samples);
+            self.scratch.rdft_in[input_start..input_end].copy_from_slice(&original_input);
         }
 
         let is_short_final = is_final && input_samples < self.input_chunk_len_samples();
         if is_short_final {
-            self.synthesize_final_block_missing_samples(input, input_samples);
+            self.synthesize_final_block_missing_samples(input_samples);
         }
 
         self.transform_chunk(TransformMode::Normal)?;
@@ -405,18 +423,12 @@ where
         if context.is_empty() { None } else { Some(context) }
     }
 
-    /// Loads input samples into the FFT window at the configured offset.
-    #[inline]
-    fn copy_input_to_window(&mut self, input: &[T], input_samples: usize) {
-        self.scratch.rdft_in.fill(T::zero());
-        let dst = &mut self.scratch.rdft_in[self.derived.input_offset..self.derived.input_offset + input_samples];
-        dst.copy_from_slice(&input[..input_samples]);
-    }
-
-    // Get a mutable reference to the input buffer.
+    // Returns a mutable reference to the writable chunk input window.
     #[inline]
     pub(crate) fn mut_input_ref<'a>(&'a mut self) -> &'a mut [T] {
-        self.scratch.rdft_in.as_mut_slice()
+        let input_start = self.derived.input_offset;
+        let input_end = input_start + self.input_chunk_len_samples();
+        &mut self.scratch.rdft_in[input_start..input_end]
     }
 
     /// Copies up to `dst.len()` trailing samples from `pre` into `dst`'s tail.
@@ -488,14 +500,15 @@ where
     /// Builds stop-edge work window from prior history for a final short chunk.
     fn assemble_short_final_work_window(
         &self,
-        input: &[T],
         input_samples: usize,
         chunk_samples: usize,
         pad_samples: usize,
     ) -> Vec<T> {
         let mut work = vec![T::zero(); chunk_samples * 2];
+        let input_start = self.derived.input_offset;
+        let input_end = input_start + input_samples;
         work[..pad_samples].copy_from_slice(&self.prev_input_window[input_samples..input_samples + pad_samples]);
-        work[pad_samples..pad_samples + input_samples].copy_from_slice(&input[..input_samples]);
+        work[pad_samples..pad_samples + input_samples].copy_from_slice(&self.scratch.rdft_in[input_start..input_end]);
         work
     }
 
@@ -531,11 +544,11 @@ where
     }
 
     /// Builds stop-edge window from prior history for a final short chunk.
-    fn synthesize_final_block_missing_samples(&mut self, input: &[T], input_samples: usize) {
+    fn synthesize_final_block_missing_samples(&mut self, input_samples: usize) {
         let chunk_samples = self.input_chunk_len_samples();
         let pad_samples = chunk_samples - input_samples;
 
-        let mut work = self.assemble_short_final_work_window(input, input_samples, chunk_samples, pad_samples);
+        let mut work = self.assemble_short_final_work_window(input_samples, chunk_samples, pad_samples);
         let predicted = self.fill_short_final_predicted_tail(&mut work, chunk_samples);
         self.commit_short_final_history(input_samples, pad_samples, &predicted, chunk_samples);
         self.stage_short_final_rdft_input_from_work(&work, pad_samples, chunk_samples);
