@@ -1,4 +1,4 @@
-use ardftsrc::{ChunkResampler, Config};
+use ardftsrc::{ChunkAdapterResampler, Config};
 use audioadapter_buffers::direct::InterleavedSlice;
 use std::error::Error;
 use std::fs;
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             channels: wav.channels,
             ..Config::default()
         };
-        let mut resampler = ChunkResampler::new(config)?;
+        let mut resampler = ChunkAdapterResampler::new(config)?;
         let input_adapter = InterleavedSlice::new(&wav.samples, wav.channels, wav.samples.len() / wav.channels)
             .map_err(|_| "invalid interleaved WAV buffer length")?;
         let converted = resampler.process_all(&input_adapter)?.interleave();

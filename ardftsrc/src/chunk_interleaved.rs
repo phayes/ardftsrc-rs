@@ -1060,6 +1060,77 @@ mod tests {
     }
 
     #[test]
+    fn batch_gapless_matches_planar_gapless() {
+        let config = mono_config(44_100, 48_000);
+        let interleaved = ChunkInterleavedResampler::<f32>::new(config.clone()).unwrap();
+        let planar = ChunkPlanarResampler::<f32>::new(config).unwrap();
+        let context_chunk_size = interleaved.input_chunk_size() / interleaved.config().channels;
+        let track_frames = context_chunk_size * 2 + 17;
+
+        let tracks: Vec<Vec<f32>> = (0..3)
+            .map(|track_idx| {
+                (0..track_frames)
+                    .map(|frame| {
+                        let continuous_frame = track_idx * track_frames + frame;
+                        (continuous_frame as f32 * 0.017).sin() * 0.25
+                    })
+                    .collect()
+            })
+            .collect();
+        let planar_tracks = tracks
+            .iter()
+            .map(|track| PlanarVecs::new(vec![track.clone()]))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let input_refs = tracks.iter().map(Vec::as_slice).collect::<Vec<_>>();
+
+        let interleaved_outputs = interleaved.batch_gapless(&input_refs).unwrap();
+        let planar_outputs = planar.batch_gapless(planar_tracks).unwrap();
+
+        assert_eq!(interleaved_outputs.len(), planar_outputs.len());
+        for (interleaved_output, planar_output) in interleaved_outputs.iter().zip(planar_outputs.iter()) {
+            assert_eq!(interleaved_output, planar_output);
+        }
+    }
+
+    #[test]
+    fn batch_matches_independent_process_all() {
+        let config = mono_config(44_100, 48_000);
+        let batch = ChunkInterleavedResampler::<f32>::new(config.clone()).unwrap();
+        let chunk = batch.input_chunk_size() / batch.config().channels;
+        let tracks: Vec<Vec<f32>> = vec![
+            (0..(chunk + 17))
+                .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
+                .collect(),
+            (0..(chunk * 2 + 5))
+                .map(|frame| (frame as f32 * 0.012).cos() * 0.15)
+                .collect(),
+            (0..(chunk / 2 + 11))
+                .map(|frame| (frame as f32 * 0.021).sin() * 0.25)
+                .collect(),
+        ];
+        let input_refs = tracks.iter().map(Vec::as_slice).collect::<Vec<_>>();
+
+        let expected: Vec<Vec<f32>> = tracks
+            .iter()
+            .map(|track| {
+                let mut resampler = ChunkInterleavedResampler::new(config.clone()).unwrap();
+                process_all_samples(&mut resampler, track).unwrap()
+            })
+            .collect();
+        let actual = batch.batch(&input_refs).unwrap();
+
+        assert_eq!(actual.len(), expected.len());
+        for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
+            let actual_channel = actual_track.get_channel(0).unwrap();
+            assert_eq!(actual_channel.len(), expected_track.len());
+            for (left, right) in actual_channel.iter().zip(expected_track.iter()) {
+                assert!((*left - *right).abs() < 1e-5);
+            }
+        }
+    }
+
+    #[test]
     fn stereo_channels_are_processed_independently() {
         let mut resampler = ChunkInterleavedResampler::new(stereo_config(44_100, 48_000)).unwrap();
         let mut input = vec![0.0; resampler.input_chunk_size()];

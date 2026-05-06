@@ -1145,6 +1145,109 @@ mod tests {
     }
 
     #[test]
+    fn batch_gapless_matches_manual_pre_post() {
+        let config = mono_config(44_100, 48_000);
+        let batch = ChunkPlanarResampler::<f32>::new(config.clone()).unwrap();
+        let context_chunk_size = batch.input_chunk_size() / batch.config().channels;
+        let track_frames = context_chunk_size * 2 + 17;
+
+        let tracks: Vec<PlanarVecs<f32>> = (0..3)
+            .map(|track_idx| {
+                let channel = (0..track_frames)
+                    .map(|frame| {
+                        let continuous_frame = track_idx * track_frames + frame;
+                        (continuous_frame as f32 * 0.017).sin() * 0.25
+                    })
+                    .collect();
+                PlanarVecs::new(vec![channel]).unwrap()
+            })
+            .collect();
+
+        let outputs = batch.batch_gapless(tracks.clone()).unwrap();
+
+        for (track_idx, (input, output)) in tracks.iter().zip(outputs.iter()).enumerate() {
+            let mut resampler = ChunkPlanarResampler::new(config.clone()).unwrap();
+            if let Some(previous) = track_idx.checked_sub(1).map(|idx| tracks[idx].get_channel(0).unwrap()) {
+                let pre_context = previous[previous.len().saturating_sub(context_chunk_size)..].to_vec();
+                resampler.pre(vec![pre_context]).unwrap();
+            }
+            if let Some(next) = tracks.get(track_idx + 1).map(|track| track.get_channel(0).unwrap()) {
+                let post_context = next[..next.len().min(context_chunk_size)].to_vec();
+                resampler.post(vec![post_context]).unwrap();
+            }
+
+            let expected_input = input.get_channel(0).unwrap();
+            let expected_inputs = [expected_input];
+            let expected = resampler.process_all(&expected_inputs).unwrap();
+            assert_eq!(
+                output.get_channel(0).unwrap().len(),
+                expected.get_channel(0).unwrap().len()
+            );
+            for (actual, expected) in output
+                .get_channel(0)
+                .unwrap()
+                .iter()
+                .zip(expected.get_channel(0).unwrap().iter())
+            {
+                assert!((*actual - *expected).abs() < 1e-5);
+            }
+        }
+    }
+
+    #[test]
+    fn batch_matches_independent_process_all() {
+        let config = mono_config(44_100, 48_000);
+        let batch = ChunkPlanarResampler::<f32>::new(config.clone()).unwrap();
+        let chunk = batch.input_chunk_size() / batch.config().channels;
+        let tracks: Vec<PlanarVecs<f32>> = vec![
+            PlanarVecs::new(vec![
+                (0..(chunk + 17))
+                    .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
+                    .collect(),
+            ])
+            .unwrap(),
+            PlanarVecs::new(vec![
+                (0..(chunk * 2 + 5))
+                    .map(|frame| (frame as f32 * 0.012).cos() * 0.15)
+                    .collect(),
+            ])
+            .unwrap(),
+            PlanarVecs::new(vec![
+                (0..(chunk / 2 + 11))
+                    .map(|frame| (frame as f32 * 0.021).sin() * 0.25)
+                    .collect(),
+            ])
+            .unwrap(),
+        ];
+
+        let expected: Vec<PlanarVecs<f32>> = tracks
+            .iter()
+            .map(|track| {
+                let mut resampler = ChunkPlanarResampler::new(config.clone()).unwrap();
+                let input_refs = [track.get_channel(0).unwrap()];
+                resampler.process_all(&input_refs).unwrap()
+            })
+            .collect();
+        let actual = batch.batch(tracks).unwrap();
+
+        assert_eq!(actual.len(), expected.len());
+        for (actual_track, expected_track) in actual.iter().zip(expected.iter()) {
+            assert_eq!(
+                actual_track.get_channel(0).unwrap().len(),
+                expected_track.get_channel(0).unwrap().len()
+            );
+            for (left, right) in actual_track
+                .get_channel(0)
+                .unwrap()
+                .iter()
+                .zip(expected_track.get_channel(0).unwrap().iter())
+            {
+                assert!((*left - *right).abs() < 1e-5);
+            }
+        }
+    }
+
+    #[test]
     fn stereo_channels_are_processed_independently() {
         let mut resampler = ChunkPlanarResampler::new(stereo_config(44_100, 48_000)).unwrap();
         let mut input = vec![0.0; resampler.input_chunk_size()];

@@ -1,6 +1,5 @@
 #![doc = include_str!("../../README.md")]
 
-mod batch;
 mod chunk_adapter;
 mod chunk_interleaved;
 mod chunk_planar;
@@ -13,7 +12,6 @@ mod streaming;
 #[cfg(test)]
 mod test_utils;
 
-pub use batch::BatchResampler;
 pub use chunk_adapter::ChunkAdapterResampler;
 pub use chunk_interleaved::ChunkInterleavedResampler;
 pub use chunk_planar::ChunkPlanarResampler;
