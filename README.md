@@ -301,7 +301,6 @@ rust-script scripts/generate_golden_hashes.rs
 
 Updates to `test_wavs/golden_hashes.<arch>.json` are allowed, but only when accompanied by verifiable quality improvements demonstrated with the HydrogenAudio SRC test suite.
 
-
 ### AI Usage Policy
 
 AI use is allowed for the following:
