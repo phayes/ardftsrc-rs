@@ -3,12 +3,11 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
-use audio_core::Sample;
+use crate::{ChunkPlanarResampler, Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
 
 pub struct ChunkInterleavedResampler<T = f64>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     config: Config,
     derived: DerivedConfig<T>,
@@ -23,7 +22,7 @@ where
 
 impl<T> ChunkInterleavedResampler<T>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     /// Constructs a resampler from `config`.
     ///
@@ -385,6 +384,78 @@ where
         }
 
         Ok(())
+    }
+
+    /// Process multiple independent tracks.
+    ///
+    /// Each input slice is treated as its own stream with no inter-track context. See
+    /// `batch_gapless()` for gapless processing of multiple tracks.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
+    pub fn batch(&self, inputs: &[&[T]]) -> Result<Vec<PlanarVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let prepared_inputs = self.batch_prepare_interleaved_inputs(inputs)?;
+
+        let planar_adapter = ChunkPlanarResampler::new(self.config.clone())?;
+        planar_adapter.batch(prepared_inputs)
+    }
+
+    /// Process multiple tracks as one gapless sequence.
+    ///
+    /// Adjacent inputs are treated as tracks from the same album or other back-to-back
+    /// material. Each track is returned separately, but the previous track's tail and next
+    /// track's head are used as edge context to improve gapless playback.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
+    pub fn batch_gapless(&self, inputs: &[&[T]]) -> Result<Vec<PlanarVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let prepared_inputs = self.batch_prepare_interleaved_inputs(inputs)?;
+        let planar_adapter = ChunkPlanarResampler::new(self.config.clone())?;
+        planar_adapter.batch_gapless(prepared_inputs)
+    }
+
+    fn batch_prepare_interleaved_inputs(&self, inputs: &[&[T]]) -> Result<Vec<PlanarVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        #[cfg(feature = "rayon")]
+        {
+            inputs
+                .par_iter()
+                .map(|input| Self::batch_deinterleave_track(input, self.config.channels))
+                .collect()
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            inputs
+                .iter()
+                .map(|input| Self::batch_deinterleave_track(input, self.config.channels))
+                .collect()
+        }
+    }
+
+    fn batch_deinterleave_track(input: &[T], channels: usize) -> Result<PlanarVecs<T>, Error> {
+        if !input.len().is_multiple_of(channels) {
+            return Err(Error::MalformedInputLength {
+                channels,
+                samples: input.len(),
+            });
+        }
+
+        let frames = input.len() / channels;
+        let mut per_channel = vec![Vec::with_capacity(frames); channels];
+        for frame in input.chunks_exact(channels) {
+            for (channel_idx, sample) in frame.iter().copied().enumerate() {
+                per_channel[channel_idx].push(sample);
+            }
+        }
+
+        PlanarVecs::new(per_channel)
     }
 
     // Utility function to convert an interleaved input to a planar staging area.

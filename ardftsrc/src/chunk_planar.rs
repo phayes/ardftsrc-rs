@@ -373,6 +373,170 @@ where
         }
         Ok(())
     }
+
+    /// Process multiple independent tracks.
+    ///
+    /// Each input slice is treated as its own stream with no inter-track context. See
+    /// `batch_gapless()` for gapless processing of multiple tracks.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
+    pub fn batch(&self, inputs: Vec<PlanarVecs<T>>) -> Result<Vec<PlanarVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        #[cfg(feature = "rayon")]
+        {
+            inputs
+                .into_par_iter()
+                .map(|input| {
+                    let channel_outputs = Self::batch_process_track(self.config.clone(), input.as_slice(), None, None)?;
+                    PlanarVecs::new(channel_outputs)
+                })
+                .collect()
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            inputs
+                .into_iter()
+                .map(|input| {
+                    let channel_outputs = Self::batch_process_track(self.config.clone(), input.as_slice(), None, None)?;
+                    PlanarVecs::new(channel_outputs)
+                })
+                .collect()
+        }
+    }
+
+    /// Process multiple tracks as one gapless sequence. This is a planar specialization of `batch_gapless()`.
+    ///
+    /// Adjacent inputs are treated as tracks from the same album or other back-to-back
+    /// material. Each track is returned separately, but the previous track's tail and next
+    /// track's head are used as edge context to improve gapless playback.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
+    pub fn batch_gapless(&self, inputs: Vec<PlanarVecs<T>>) -> Result<Vec<PlanarVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let context_chunk_size = self.input_chunk_size() / self.config.channels;
+
+        #[cfg(feature = "rayon")]
+        {
+            inputs
+                .par_iter()
+                .enumerate()
+                .map(|(track_idx, input)| {
+                    let pre = track_idx
+                        .checked_sub(1)
+                        .map(|idx| Self::batch_track_tail_context(inputs[idx].as_slice(), context_chunk_size));
+                    let post = inputs
+                        .get(track_idx + 1)
+                        .map(|input| Self::batch_track_head_context(input.as_slice(), context_chunk_size));
+                    let channel_outputs = Self::batch_process_track(self.config.clone(), input.as_slice(), pre, post)?;
+                    PlanarVecs::new(channel_outputs)
+                })
+                .collect()
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            inputs
+                .iter()
+                .enumerate()
+                .map(|(track_idx, input)| {
+                    let pre = track_idx
+                        .checked_sub(1)
+                        .map(|idx| Self::batch_track_tail_context(inputs[idx].as_slice(), context_chunk_size));
+                    let post = inputs
+                        .get(track_idx + 1)
+                        .map(|input| Self::batch_track_head_context(input.as_slice(), context_chunk_size));
+                    let channel_outputs = Self::batch_process_track(self.config.clone(), input.as_slice(), pre, post)?;
+                    PlanarVecs::new(channel_outputs)
+                })
+                .collect()
+        }
+    }
+
+    fn batch_process_track(
+        config: Config,
+        channel_inputs: &[Vec<T>],
+        pre: Option<Vec<Vec<T>>>,
+        post: Option<Vec<Vec<T>>>,
+    ) -> Result<Vec<Vec<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        // Validate the track
+        if channel_inputs.len() != config.channels {
+            return Err(Error::WrongChannelCount {
+                expected: config.channels,
+                actual: channel_inputs.len(),
+            });
+        }
+        let frames = channel_inputs.first().map_or(0, Vec::len);
+        if let Some(channel) = channel_inputs.iter().find(|channel| channel.len() != frames) {
+            return Err(Error::WrongFrameCount {
+                expected: frames,
+                actual: channel.len(),
+            });
+        }
+
+        // Create a resampler just for this track
+        let mut resampler = ChunkPlanarResampler::new(config)?;
+
+        // Set the pre and post context if provided
+        if let Some(pre) = pre {
+            for (core, channel_pre) in resampler.cores.iter_mut().zip(pre) {
+                core.pre(channel_pre);
+            }
+        }
+        if let Some(post) = post {
+            for (core, channel_post) in resampler.cores.iter_mut().zip(post) {
+                core.post(channel_post);
+            }
+        }
+
+        // Process cores for each channel
+        #[cfg(feature = "rayon")]
+        {
+            resampler
+                .cores
+                .par_iter_mut()
+                .zip(channel_inputs.par_iter())
+                .map(|(core, channel_input)| core.process_all(channel_input))
+                .collect()
+        }
+
+        #[cfg(not(feature = "rayon"))]
+        {
+            resampler
+                .cores
+                .iter_mut()
+                .zip(channel_inputs.iter())
+                .map(|(core, channel_input)| core.process_all(channel_input))
+                .collect()
+        }
+    }
+
+    fn batch_track_tail_context(channel_inputs: &[Vec<T>], context_chunk_size: usize) -> Vec<Vec<T>> {
+        channel_inputs
+            .iter()
+            .map(|channel| {
+                let start = channel.len().saturating_sub(context_chunk_size);
+                channel[start..].to_vec()
+            })
+            .collect()
+    }
+
+    fn batch_track_head_context(channel_inputs: &[Vec<T>], context_chunk_size: usize) -> Vec<Vec<T>> {
+        channel_inputs
+            .iter()
+            .map(|channel| {
+                let end = channel.len().min(context_chunk_size);
+                channel[..end].to_vec()
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
+use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore, ChunkPlanarResampler};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
@@ -421,6 +421,71 @@ where
             core.post(samples);
         }
         Ok(())
+    }
+
+    /// Process multiple independent tracks.
+    ///
+    /// Each input slice is treated as its own stream with no inter-track context. See
+    /// `batch_gapless()` for gapless processing of multiple tracks.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
+    pub fn batch<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<PlanarVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let prepared_inputs = self.batch_prepare_generic_adapter_inputs(inputs)?;
+
+        let planar_adapter = ChunkPlanarResampler::new(self.config.clone())?;
+        planar_adapter.batch(prepared_inputs)
+    }
+
+    /// Process multiple tracks as one gapless sequence.
+    ///
+    /// Adjacent inputs are treated as tracks from the same album or other back-to-back
+    /// material. Each track is returned separately, but the previous track's tail and next
+    /// track's head are used as edge context to improve gapless playback.
+    ///
+    /// Enable the `rayon` feature for parallel processing.
+    pub fn batch_gapless<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<PlanarVecs<T>>, Error>
+    where
+        T: Send + Sync,
+    {
+        let prepared_inputs = self.batch_prepare_generic_adapter_inputs(inputs)?;
+        let planar_adapter = ChunkPlanarResampler::new(self.config.clone())?;
+        planar_adapter.batch_gapless(prepared_inputs)
+    }
+
+    fn batch_prepare_generic_adapter_inputs<'a>(
+        &self,
+        inputs: &[&dyn Adapter<'a, T>],
+    ) -> Result<Vec<PlanarVecs<T>>, Error> {
+        let config = self.config();
+        inputs
+            .iter()
+            .map(|input| {
+                if input.channels() != config.channels {
+                    return Err(Error::WrongChannelCount {
+                        expected: config.channels,
+                        actual: input.channels(),
+                    });
+                }
+
+                let frames = input.frames();
+                let mut per_channel = Vec::with_capacity(config.channels);
+                for channel_idx in 0..config.channels {
+                    let mut channel = vec![T::zero(); frames];
+                    let copied = input.copy_from_channel_to_slice(channel_idx, 0, &mut channel);
+                    if copied != frames {
+                        return Err(Error::WrongFrameCount {
+                            expected: frames,
+                            actual: copied,
+                        });
+                    }
+                    per_channel.push(channel);
+                }
+                PlanarVecs::new(per_channel)
+            })
+            .collect()
     }
 }
 
