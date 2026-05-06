@@ -51,11 +51,13 @@ where
     }
 
     /// Returns the total number of interleaved input samples processed.
+    #[inline]
     pub fn input_sample_processed(&self) -> usize {
         self.cores.iter().map(ArdftsrcCore::input_sample_processed).sum()
     }
 
     /// Returns the total number of interleaved output samples processed.
+    #[inline]
     pub fn output_sample_processed(&self) -> usize {
         self.cores.iter().map(ArdftsrcCore::output_sample_processed).sum()
     }
@@ -74,12 +76,14 @@ where
     /// For chunked streaming, size output slices passed to `process_chunk()` and
     /// `process_chunk_final()` to at least this value.
     #[must_use]
+    #[inline]
     pub fn output_chunk_size(&self) -> usize {
         self.derived.output_chunk_frames * self.config.channels
     }
 
     /// Returns algorithmic latency to trim/flush, or zero in same-rate passthrough mode.
     #[must_use]
+    #[inline]
     pub fn output_delay_frames(&self) -> usize {
         if self.is_passthrough() {
             0
@@ -93,6 +97,7 @@ where
     /// `input_size` can be expressed in either frames or samples; the
     /// returned value uses the same unit.
     #[must_use]
+    #[inline]
     pub fn expected_output_size(&self, input_size: usize) -> usize {
         (input_size * self.config.output_sample_rate).div_ceil(self.config.input_sample_rate)
     }
@@ -136,7 +141,84 @@ where
             output
         };
 
-        Ok(PlanarVecs::new(output)?)
+        PlanarVecs::new(output)
+    }
+
+    /// Resamples a complete interleaved input buffer and returns all output samples.
+    ///
+    /// This is a convenience wrapper around the streaming API.
+    ///
+    /// When the `rayon` feature is enabled, each channel is processed in parallel.
+    pub fn process_all_planar<'a>(&mut self, input: &[&[T]]) -> Result<PlanarVecs<T>, Error>
+    where
+        T: Send + Sync,
+    {
+        // If it's passthrough, just return the input
+        if self.is_passthrough() {
+            let output: Vec<Vec<T>> = input.iter().map(|channel| channel.to_vec()).collect();
+            return PlanarVecs::new(output);
+        }
+
+        #[cfg(feature = "rayon")]
+        let output: Vec<Vec<T>> = self
+            .cores
+            .par_iter_mut()
+            .zip(input.par_iter())
+            .map(|(core, channel)| core.process_all(channel))
+            .collect::<Result<_, _>>()?;
+
+        #[cfg(not(feature = "rayon"))]
+        let output: Vec<Vec<T>> = {
+            let mut output = Vec::with_capacity(self.config.channels);
+            for (core, channel) in self.cores.iter_mut().zip(input.iter()) {
+                output.push(core.process_all(channel)?);
+            }
+            output
+        };
+
+        PlanarVecs::new(output)
+    }
+
+    /// Resamples a complete interleaved input buffer and returns all output samples.
+    ///
+    /// This is a convenience wrapper around the streaming API.
+    ///
+    /// When the `rayon` feature is enabled, each channel is processed in parallel.
+    pub fn process_all_interleaved<'a>(&mut self, input: &[T]) -> Result<PlanarVecs<T>, Error>
+    where
+        T: Send + Sync,
+    {
+        // If it's passthrough, just return the input
+        if self.is_passthrough() {
+            // translate input to planar
+            let input_planar: Vec<Vec<T>> = (0..self.config.channels)
+                .map(|channel| input[channel..].iter().step_by(self.config.channels).copied().collect())
+                .collect();
+            return Ok(PlanarVecs::new(input_planar)?);
+        }
+
+        let input_planar: Vec<Vec<T>> = (0..self.config.channels)
+            .map(|channel| input[channel..].iter().step_by(self.config.channels).copied().collect())
+            .collect();
+
+        #[cfg(feature = "rayon")]
+        let output: Vec<Vec<T>> = self
+            .cores
+            .par_iter_mut()
+            .zip(input_planar.par_iter())
+            .map(|(core, channel)| core.process_all(channel))
+            .collect::<Result<_, _>>()?;
+
+        #[cfg(not(feature = "rayon"))]
+        let output: Vec<Vec<T>> = {
+            let mut output = Vec::with_capacity(self.config.channels);
+            for (core, channel) in self.cores.iter_mut().zip(input_planar.iter()) {
+                output.push(core.process_all(channel)?);
+            }
+            output
+        };
+
+        PlanarVecs::new(output)
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -296,6 +378,7 @@ where
     }
 
     /// Returns true when rates match and FFT processing can be bypassed losslessly.
+    #[inline]
     fn is_passthrough(&self) -> bool {
         self.config.input_sample_rate == self.config.output_sample_rate
     }

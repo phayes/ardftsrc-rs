@@ -8,7 +8,6 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 use ardftsrc::{ChunkResampler, PRESET_FAST};
-use audioadapter_buffers::direct::InterleavedSlice;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use wavers::{Wav, read};
 
@@ -25,7 +24,7 @@ struct WavData {
     name: String,
     sample_rate_hz: usize,
     channels: usize,
-    samples: Vec<f32>,
+    planar_samples: Vec<Vec<f32>>,
 }
 
 fn read_wav_f32(path: &Path) -> WavData {
@@ -42,7 +41,7 @@ fn read_wav_f32(path: &Path) -> WavData {
             .to_string(),
         sample_rate_hz: wav.sample_rate() as usize,
         channels: wav.n_channels() as usize,
-        samples: samples.to_vec(),
+        planar_samples: interleaved_to_planar(&samples, wav.n_channels() as usize),
     }
 }
 
@@ -78,16 +77,16 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
                 .with_output_rate(*target_sample_rate_hz)
                 .with_channels(fixture.channels);
             let mut resampler: ChunkResampler<f32> = ChunkResampler::new(config).unwrap();
-            let input_frames = fixture.samples.len() / fixture.channels;
-            let output_frames = resampler.expected_output_size(input_frames);
-            let output_samples = output_frames * fixture.channels;
+            let input_samples = fixture.planar_samples.first().unwrap().len() * fixture.channels;
+            let output_samples = resampler.expected_output_size(input_samples);
             group.throughput(Throughput::Elements(output_samples as u64));
             let bench_id = BenchmarkId::new(&fixture.name, format!("to_{target_label}"));
             group.bench_with_input(bench_id, fixture, |b, wav| {
-                let input_adapter = InterleavedSlice::new(&wav.samples, wav.channels, wav.samples.len() / wav.channels).unwrap();
+                let planar_samples: Vec<&[f32]> = wav.planar_samples.iter().map(Vec::as_slice).collect();
+
                 b.iter(|| {
                     resampler.reset();
-                    resampler.process_all(&input_adapter).unwrap();
+                    resampler.process_all_planar(&planar_samples).unwrap();
                 });
             });
             sleep(INTER_TEST_SLEEP);
@@ -101,6 +100,19 @@ fn criterion_benchmark(c: &mut Criterion) {
     // Preload and decode all WAV fixtures before any timed benchmark loops.
     let fixtures = load_fixtures();
     benchmark_process_all(c, &fixtures);
+}
+
+fn interleaved_to_planar(samples: &[f32], channels: usize) -> Vec<Vec<f32>> {
+    let frame_count = samples.len() / channels;
+    let mut planar = (0..channels)
+        .map(|_| Vec::with_capacity(frame_count))
+        .collect::<Vec<_>>();
+    for frame in samples.chunks_exact(channels) {
+        for (channel, sample) in frame.iter().enumerate() {
+            planar[channel].push(*sample);
+        }
+    }
+    planar
 }
 
 criterion_group!(benches, criterion_benchmark);

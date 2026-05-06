@@ -76,10 +76,12 @@ impl<T> ArdftsrcCore<T>
 where
     T: Float + FftNum,
 {
+    #[inline]
     fn input_chunk_len_samples(&self) -> usize {
         self.derived.input_chunk_frames
     }
 
+    #[inline]
     fn output_chunk_len_samples(&self) -> usize {
         self.derived.output_chunk_frames
     }
@@ -122,15 +124,18 @@ where
     }
 
     /// Returns the total number of input samples processed.
+    #[inline]
     pub(crate) fn input_sample_processed(&self) -> usize {
         self.input_sample_count
     }
 
+    #[inline]
     pub(crate) fn output_sample_processed(&self) -> usize {
         self.output_sample_count
     }
 
     /// Returns the required non-final streaming chunk length in samples.
+    #[inline]
     pub(crate) fn input_chunk_samples(&self) -> usize {
         self.input_chunk_len_samples()
     }
@@ -138,6 +143,7 @@ where
     /// Returns the required `input` length for each `process_chunk()` call.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
+    #[inline]
     pub(crate) fn input_buffer_size(&self) -> usize {
         self.input_chunk_samples()
     }
@@ -154,6 +160,7 @@ where
     ///
     /// Shorter buffers are still valid: any missing start context falls back to LPC
     /// extrapolation.
+    #[inline]
     pub fn pre(&mut self, pre: Vec<T>) {
         self.pre = self.normalize_context(pre);
     }
@@ -173,6 +180,7 @@ where
     ///
     /// Shorter buffers are still valid: any missing stop context falls back to LPC
     /// extrapolation.
+    #[inline]
     pub fn post(&mut self, post: Vec<T>) {
         self.post = self.normalize_context(post);
     }
@@ -180,6 +188,7 @@ where
     /// Output samples for a complete input length.
     ///
     /// Returns the ceil-rounded number of output samples expected for `input_samples`.
+    #[inline]
     pub fn output_sample_count_for_input(&self, input_samples: usize) -> usize {
         (input_samples * self.derived.output_sample_rate).div_ceil(self.derived.input_sample_rate)
     }
@@ -187,6 +196,7 @@ where
     /// Output samples needed for a complete input length.
     ///
     /// This can be used to size the output buffer for the entire input stream.
+    #[inline]
     pub fn output_sample_count(&self, input_samples: usize) -> usize {
         self.output_sample_count_for_input(input_samples)
     }
@@ -281,6 +291,7 @@ where
     /// Returns expected total output samples once final stream extent is known.
     ///
     /// Before final input is seen, stream extent is unknown and this returns `None`.
+    #[inline]
     fn expected_total_output_samples(&self) -> Option<usize> {
         if !self.final_input_seen {
             return None;
@@ -289,12 +300,14 @@ where
     }
 
     /// Returns remaining output budget once final stream extent is known.
+    #[inline]
     fn remaining_output_budget_samples(&self) -> Option<usize> {
         self.expected_total_output_samples()
             .map(|expected_total| expected_total.saturating_sub(self.output_sample_count))
     }
 
     /// Caps a candidate write size to the remaining output budget when known.
+    #[inline]
     fn cap_write_to_output_budget(&self, candidate_samples: usize) -> usize {
         self.remaining_output_budget_samples()
             .map_or(candidate_samples, |remaining| candidate_samples.min(remaining))
@@ -381,16 +394,19 @@ where
     }
 
     /// Returns true when rates match and FFT processing can be bypassed losslessly.
+    #[inline]
     fn is_passthrough(&self) -> bool {
         self.derived.input_sample_rate == self.derived.output_sample_rate
     }
 
     /// Normalizes empty edge context vectors to `None`.
+    #[inline]
     fn normalize_context(&self, context: Vec<T>) -> Option<Vec<T>> {
         if context.is_empty() { None } else { Some(context) }
     }
 
     /// Loads input samples into the FFT window at the configured offset.
+    #[inline]
     fn copy_input_to_window(&mut self, input: &[T], input_samples: usize) {
         self.scratch.rdft_in.fill(T::zero());
         let dst = &mut self.scratch.rdft_in[self.derived.input_offset..self.derived.input_offset + input_samples];
@@ -398,6 +414,7 @@ where
     }
 
     // Get a mutable reference to the input buffer.
+    #[inline]
     pub(crate) fn mut_input_ref<'a>(&'a mut self) -> &'a mut [T] {
         self.scratch.rdft_in.as_mut_slice()
     }
