@@ -1,5 +1,5 @@
 use ardftsrc::{
-    BatchResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, SequentialVecOfVecs, TaperType,
+    BatchResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs, TaperType,
 };
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacChannelReader;
@@ -110,7 +110,7 @@ struct Args {
 
 #[derive(Debug)]
 struct InputTrack {
-    samples_f64: SequentialVecOfVecs<f64>,
+    samples_f64: PlanarVecs<f64>,
     channels: usize,
     input_rate_hz: usize,
     source_out_format: OutFormatArg,
@@ -221,7 +221,7 @@ fn process_batch_group(args: &Args, group: Vec<InputJob>) -> Result<(), Box<dyn 
 #[cfg(feature = "rayon")]
 fn write_output(
     metadata: Vec<(PathBuf, OutFormatArg)>,
-    converted: Vec<SequentialVecOfVecs<f64>>,
+    converted: Vec<PlanarVecs<f64>>,
     output_rate_hz: u32,
     out_format: OutFormatArg,
 ) -> Vec<(PathBuf, Option<String>)> {
@@ -246,7 +246,7 @@ fn write_output(
 #[cfg(not(feature = "rayon"))]
 fn write_output(
     metadata: Vec<(PathBuf, OutFormatArg)>,
-    converted: Vec<SequentialVecOfVecs<f64>>,
+    converted: Vec<PlanarVecs<f64>>,
     output_rate_hz: u32,
     out_format: OutFormatArg,
 ) -> Vec<(PathBuf, Option<String>)> {
@@ -426,7 +426,7 @@ fn read_flac_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
         reader.consume(frames);
     }
 
-    let samples_f64 = SequentialVecOfVecs::new(per_channel)?;
+    let samples_f64 = PlanarVecs::new(per_channel)?;
 
     Ok(InputTrack {
         samples_f64,
@@ -436,7 +436,7 @@ fn read_flac_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
     })
 }
 
-fn interleaved_to_planar(samples: &[f64], channels: usize) -> Result<SequentialVecOfVecs<f64>, Box<dyn Error>> {
+fn interleaved_to_planar(samples: &[f64], channels: usize) -> Result<PlanarVecs<f64>, Box<dyn Error>> {
     if channels == 0 {
         return Err("audio input cannot have zero channels".into());
     }
@@ -457,13 +457,13 @@ fn interleaved_to_planar(samples: &[f64], channels: usize) -> Result<SequentialV
         }
     }
 
-    Ok(SequentialVecOfVecs::new(planar)?)
+    Ok(PlanarVecs::new(planar)?)
 }
 
 fn write_output_audio(
     path: &Path,
     output_rate_hz: u32,
-    samples: SequentialVecOfVecs<f64>,
+    samples: PlanarVecs<f64>,
     out_format: OutFormatArg,
     source_out_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
@@ -490,7 +490,7 @@ fn write_output_audio(
 fn write_output_wav(
     path: &Path,
     output_rate_hz: u32,
-    samples_f64: &SequentialVecOfVecs<f64>,
+    samples_f64: &PlanarVecs<f64>,
     target_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
     let sample_rate = output_rate_hz as i32;
@@ -521,7 +521,7 @@ fn write_output_wav(
     Ok(())
 }
 
-fn interleave_planar_mapped<T>(samples: &SequentialVecOfVecs<f64>, mut map_sample: impl FnMut(f64) -> T) -> Vec<T> {
+fn interleave_planar_mapped<T>(samples: &PlanarVecs<f64>, mut map_sample: impl FnMut(f64) -> T) -> Vec<T> {
     let channels = samples.channels();
     let frames = samples.frames();
     let per_channel = samples.as_slice();
@@ -539,7 +539,7 @@ fn interleave_planar_mapped<T>(samples: &SequentialVecOfVecs<f64>, mut map_sampl
 fn write_output_flac(
     path: &Path,
     output_rate_hz: u32,
-    samples: SequentialVecOfVecs<f64>,
+    samples: PlanarVecs<f64>,
     target_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
     let channels = samples.channels();

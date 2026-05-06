@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{config::DerivedConfig, core::ArdftsrcCore, Config, Error, SequentialVecOfVecs};
+use crate::{config::DerivedConfig, core::ArdftsrcCore, Config, Error, PlanarVecs};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
@@ -102,7 +102,7 @@ where
     /// This is a convenience wrapper around the streaming API.
     ///
     /// When the `rayon` feature is enabled, each channel is processed in parallel.
-    pub fn process_all<'a>(&mut self, input: &dyn Adapter<'a, T>) -> Result<SequentialVecOfVecs<T>, Error>
+    pub fn process_all<'a>(&mut self, input: &dyn Adapter<'a, T>) -> Result<PlanarVecs<T>, Error>
     where
         T: Send + Sync,
     {
@@ -116,7 +116,7 @@ where
 
         // If it's passthrough, just return the input
         if self.is_passthrough() {
-            return Ok(SequentialVecOfVecs::new(planar_input)?);
+            return Ok(PlanarVecs::new(planar_input)?);
         }
 
         #[cfg(feature = "rayon")]
@@ -136,7 +136,7 @@ where
             output
         };
 
-        Ok(SequentialVecOfVecs::new(output)?)
+        Ok(PlanarVecs::new(output)?)
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -305,7 +305,7 @@ where
     /// Use this when resampling gapless material, for example an album where tracks are played
     /// back-to-back. In that case, pass the last chunk of the previous track.
     ///
-    /// The buffer must use the same channel interleaving as stream input.
+    /// The adapter must report the same channel count as this resampler.
     ///
     /// Recommended size:
     ///
@@ -314,19 +314,25 @@ where
     ///
     /// Shorter buffers are still valid: any missing start context falls back to LPC
     /// extrapolation.
-    pub fn pre(&mut self, pre: &[T]) -> Result<(), Error> {
-        match self.normalize_context(pre)? {
-            None => {
-                for core in &mut self.cores {
-                    core.pre(Vec::new());
-                }
+    pub fn pre<'a>(&mut self, pre: &dyn Adapter<'a, T>) -> Result<(), Error> {
+        if pre.channels() != self.config.channels {
+            return Err(Error::WrongChannelCount {
+                expected: self.config.channels,
+                actual: pre.channels(),
+            });
+        }
+
+        if pre.frames() == 0 {
+            for core in &mut self.cores {
+                core.pre(Vec::new());
             }
-            Some(pre) => {
-                let per_channel = self.deinterleave_context(pre);
-                for (core, samples) in self.cores.iter_mut().zip(per_channel) {
-                    core.pre(samples);
-                }
-            }
+            return Ok(());
+        }
+
+        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
+            let mut samples = vec![T::zero(); pre.frames()];
+            pre.copy_from_channel_to_slice(channel_idx, 0, &mut samples);
+            core.pre(samples);
         }
         Ok(())
     }
@@ -343,7 +349,7 @@ where
     /// can call `post(...)` on track A with B's head samples so A's stop-edge uses real next-track
     /// context.
     ///
-    /// The buffer must use the same channel interleaving as stream input.
+    /// The adapter must report the same channel count as this resampler.
     ///
     /// Recommended size:
     ///
@@ -352,49 +358,27 @@ where
     ///
     /// Shorter buffers are still valid: any missing stop context falls back to LPC
     /// extrapolation.
-    pub fn post(&mut self, post: &[T]) -> Result<(), Error> {
-        match self.normalize_context(post)? {
-            None => {
-                for core in &mut self.cores {
-                    core.post(Vec::new());
-                }
-            }
-            Some(post) => {
-                let per_channel = self.deinterleave_context(post);
-                for (core, samples) in self.cores.iter_mut().zip(per_channel) {
-                    core.post(samples);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn normalize_context<'a>(&self, context: &'a [T]) -> Result<Option<&'a [T]>, Error> {
-        if context.is_empty() {
-            return Ok(None);
-        }
-        if !context.len().is_multiple_of(self.config.channels) {
-            return Err(Error::MalformedInputLength {
-                channels: self.config.channels,
-                samples: context.len(),
+    pub fn post<'a>(&mut self, post: &dyn Adapter<'a, T>) -> Result<(), Error> {
+        if post.channels() != self.config.channels {
+            return Err(Error::WrongChannelCount {
+                expected: self.config.channels,
+                actual: post.channels(),
             });
         }
-        Ok(Some(context))
-    }
 
-    fn deinterleave_context(&self, context: &[T]) -> Vec<Vec<T>> {
-        let frames = context.len() / self.config.channels;
-        if self.config.channels == 1 {
-            return vec![context[..frames].to_vec()];
-        }
-
-        let mut channels = vec![Vec::with_capacity(frames); self.config.channels];
-        for frame in context.chunks_exact(self.config.channels) {
-            for (channel_idx, sample) in frame.iter().enumerate() {
-                channels[channel_idx].push(*sample);
+        if post.frames() == 0 {
+            for core in &mut self.cores {
+                core.post(Vec::new());
             }
+            return Ok(());
         }
-        channels
+
+        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
+            let mut samples = vec![T::zero(); post.frames()];
+            post.copy_from_channel_to_slice(channel_idx, 0, &mut samples);
+            core.post(samples);
+        }
+        Ok(())
     }
 }
 
@@ -505,11 +489,14 @@ mod tests {
         post: Option<&[f32]>,
     ) -> Vec<f32> {
         let mut resampler = ChunkResampler::new(config).unwrap();
+        let channels = resampler.config().channels;
         if let Some(pre) = pre {
-            resampler.pre(pre).unwrap();
+            let pre_adapter = InterleavedSlice::new(pre, channels, pre.len() / channels).unwrap();
+            resampler.pre(&pre_adapter).unwrap();
         }
         if let Some(post) = post {
-            resampler.post(post).unwrap();
+            let post_adapter = InterleavedSlice::new(post, channels, post.len() / channels).unwrap();
+            resampler.post(&post_adapter).unwrap();
         }
 
         let input_buffer_size = resampler.input_chunk_size();
@@ -685,8 +672,10 @@ mod tests {
             })
             .collect();
 
-        wrapper.pre(&pre).unwrap();
-        wrapper.post(&post).unwrap();
+        let pre_adapter = InterleavedSlice::new(&pre, 2, pre.len() / 2).unwrap();
+        let post_adapter = InterleavedSlice::new(&post, 2, post.len() / 2).unwrap();
+        wrapper.pre(&pre_adapter).unwrap();
+        wrapper.post(&post_adapter).unwrap();
         let wrapped_output = process_all_samples(&mut wrapper, &input).unwrap();
 
         let mono_config = Config {
@@ -717,21 +706,23 @@ mod tests {
     }
 
     #[test]
-    fn pre_and_post_reject_non_interleaved_length() {
+    fn pre_and_post_reject_wrong_channel_count() {
         let mut resampler = ChunkResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mono_context = [0.0f32; 8];
+        let context_adapter = InterleavedSlice::new(&mono_context, 1, mono_context.len()).unwrap();
 
         assert!(matches!(
-            resampler.pre(&[0.0; 3]),
-            Err(Error::MalformedInputLength {
-                channels: 2,
-                samples: 3
+            resampler.pre(&context_adapter),
+            Err(Error::WrongChannelCount {
+                expected: 2,
+                actual: 1
             })
         ));
         assert!(matches!(
-            resampler.post(&[0.0; 3]),
-            Err(Error::MalformedInputLength {
-                channels: 2,
-                samples: 3
+            resampler.post(&context_adapter),
+            Err(Error::WrongChannelCount {
+                expected: 2,
+                actual: 1
             })
         ));
     }
@@ -747,8 +738,10 @@ mod tests {
         let mut out_one = vec![0.0; output_chunk_frames(&with_one_pre)];
         let pre_zero = vec![0.0; input_chunk_frames(&with_zero_pre)];
         let pre_one = vec![1.0; input_chunk_frames(&with_one_pre)];
-        with_zero_pre.pre(&pre_zero).unwrap();
-        with_one_pre.pre(&pre_one).unwrap();
+        let pre_zero_adapter = InterleavedSlice::new(&pre_zero, 1, pre_zero.len()).unwrap();
+        let pre_one_adapter = InterleavedSlice::new(&pre_one, 1, pre_one.len()).unwrap();
+        with_zero_pre.pre(&pre_zero_adapter).unwrap();
+        with_one_pre.pre(&pre_one_adapter).unwrap();
 
         let written_zero = process_chunk_samples(&mut with_zero_pre, &input, &mut out_zero).unwrap();
         let written_one = process_chunk_samples(&mut with_one_pre, &input, &mut out_one).unwrap();
@@ -774,8 +767,10 @@ mod tests {
         let mut flush_one = vec![0.0; output_chunk_frames(&with_one_post)];
         let post_zero = vec![0.0; input_chunk_frames(&with_zero_post)];
         let post_one = vec![1.0; input_chunk_frames(&with_one_post)];
-        with_zero_post.post(&post_zero).unwrap();
-        with_one_post.post(&post_one).unwrap();
+        let post_zero_adapter = InterleavedSlice::new(&post_zero, 1, post_zero.len()).unwrap();
+        let post_one_adapter = InterleavedSlice::new(&post_one, 1, post_one.len()).unwrap();
+        with_zero_post.post(&post_zero_adapter).unwrap();
+        with_one_post.post(&post_one_adapter).unwrap();
 
         process_chunk_samples(&mut with_zero_post, &input, &mut chunk_out).unwrap();
         process_chunk_samples(&mut with_one_post, &input, &mut chunk_out).unwrap();

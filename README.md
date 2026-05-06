@@ -14,7 +14,7 @@ This crate makes use of the [audioadapter](https://crates.io/crates/audioadapter
 
 `ChunkResampler` and `BatchResampler` use an [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) to accept input data. 
 
-`ChunkResampler` uses [`AdapterMut`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.AdapterMut.html) for output, while `BatchResampler` returns `SequentialVecOfVecs` (which implements [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) ).
+`ChunkResampler` uses [`AdapterMut`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.AdapterMut.html) for output, while `BatchResampler` returns `PlanarVecs` (which implements [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) ).
 
 A user of this crate should familiarize themselves with the conceptes in the [audioadapter](https://crates.io/crates/audioadapter) and [audioadapter-buffers](https://crates.io/crates/audioadapter-buffers) crates.
 
@@ -122,8 +122,8 @@ fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: 
 
 For adjacent tracks, you can set edge context before processing:
 
-- `pre(...)`: tail samples from the previous track
-- `post(...)`: head samples from the next track
+- `pre(&dyn Adapter)`: tail frames from the previous track
+- `post(&dyn Adapter)`: head frames from the next track
 
 `post(...)` may be called any time while the current stream is still active, but it must be
 set before `process_chunk_final(...)`.
@@ -219,7 +219,7 @@ Use batching when you have multiple full tracks to convert with the same configu
 Enable the `rayon` feature to parallelize work across tracks.
 
 ```rust
-use ardftsrc::{BatchResampler, PRESET_GOOD, SequentialVecOfVecs};
+use ardftsrc::{BatchResampler, PRESET_GOOD, PlanarVecs};
 use ardftsrc::audioadapter::Adapter;
 use ardftsrc::audioadapter_buffers::direct::InterleavedSlice;
 
@@ -228,7 +228,7 @@ fn resample_tracks(
     in_rate: usize,
     out_rate: usize,
     channels: usize,
-) -> Vec<SequentialVecOfVecs<f64>> {
+) -> Vec<PlanarVecs<f64>> {
     let config = PRESET_GOOD
         .with_input_rate(in_rate)
         .with_output_rate(out_rate)
@@ -344,10 +344,9 @@ AI use is allowed for the following:
 
 ### Development TODOs:
 
-1. Use `mut_input_ref` and write input directly, removing `ChunkResampler::input_staging`, this will avoid a copy. 
+1. Use `mut_input_ref` and write input directly, removing `ChunkResampler::input_staging`, this will avoid a copy.  Similar pattern for pre and post (avoid an allocation here).
 2. Add support for `phase` config.
 3. Add `tanh` taper.
 4. Calc performance metrics and post links
 5. Add bindings to other languages, python, ts (wasm) etc.
-6. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread.
-7. Investigate: On the `StreamingResampler`, when a new span starts, if compatible, set post() on previous span? (Maybe - compatible spans should be a no-op, so no post() required). 
+6. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread. Probably, we are allocating...

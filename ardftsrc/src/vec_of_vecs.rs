@@ -3,20 +3,20 @@ use audioadapter::AdapterMut;
 use crate::Error;
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct SequentialVecOfVecs<T> {
+pub struct PlanarVecs<T> {
     buf: Vec<Vec<T>>,
     frames: usize,
 }
 
-pub struct SequentialVecOfVecsIter<'a, T> {
+pub struct PlanarVecsIter<'a, T> {
     inner: std::slice::Iter<'a, Vec<T>>,
 }
 
-pub struct SequentialVecOfVecsIterMut<'a, T> {
+pub struct PlanarVecsIterMut<'a, T> {
     inner: std::slice::IterMut<'a, Vec<T>>,
 }
 
-impl<T> SequentialVecOfVecs<T> {
+impl<T> PlanarVecs<T> {
     pub fn new(buf: Vec<Vec<T>>) -> Result<Self, Error> {
         let frames = buf.first().map_or(0, Vec::len);
         if let Some(channel) = buf.iter().find(|channel| channel.len() != frames) {
@@ -103,7 +103,7 @@ impl<T> SequentialVecOfVecs<T> {
     }
 }
 
-impl<'a, T> Iterator for SequentialVecOfVecsIter<'a, T> {
+impl<'a, T> Iterator for PlanarVecsIter<'a, T> {
     type Item = &'a [T];
 
     #[inline]
@@ -117,9 +117,9 @@ impl<'a, T> Iterator for SequentialVecOfVecsIter<'a, T> {
     }
 }
 
-impl<T> ExactSizeIterator for SequentialVecOfVecsIter<'_, T> {}
+impl<T> ExactSizeIterator for PlanarVecsIter<'_, T> {}
 
-impl<'a, T> Iterator for SequentialVecOfVecsIterMut<'a, T> {
+impl<'a, T> Iterator for PlanarVecsIterMut<'a, T> {
     type Item = &'a mut [T];
 
     #[inline]
@@ -133,16 +133,16 @@ impl<'a, T> Iterator for SequentialVecOfVecsIterMut<'a, T> {
     }
 }
 
-impl<T> ExactSizeIterator for SequentialVecOfVecsIterMut<'_, T> {}
+impl<T> ExactSizeIterator for PlanarVecsIterMut<'_, T> {}
 
-impl<T> From<SequentialVecOfVecs<T>> for Vec<Vec<T>> {
+impl<T> From<PlanarVecs<T>> for Vec<Vec<T>> {
     #[inline]
-    fn from(value: SequentialVecOfVecs<T>) -> Self {
+    fn from(value: PlanarVecs<T>) -> Self {
         value.into_inner()
     }
 }
 
-impl<T> IntoIterator for SequentialVecOfVecs<T> {
+impl<T> IntoIterator for PlanarVecs<T> {
     type Item = Vec<T>;
     type IntoIter = std::vec::IntoIter<Vec<T>>;
 
@@ -152,29 +152,29 @@ impl<T> IntoIterator for SequentialVecOfVecs<T> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a SequentialVecOfVecs<T> {
+impl<'a, T> IntoIterator for &'a PlanarVecs<T> {
     type Item = &'a [T];
-    type IntoIter = SequentialVecOfVecsIter<'a, T>;
+    type IntoIter = PlanarVecsIter<'a, T>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        SequentialVecOfVecsIter { inner: self.buf.iter() }
+        PlanarVecsIter { inner: self.buf.iter() }
     }
 }
 
-impl<'a, T> IntoIterator for &'a mut SequentialVecOfVecs<T> {
+impl<'a, T> IntoIterator for &'a mut PlanarVecs<T> {
     type Item = &'a mut [T];
-    type IntoIter = SequentialVecOfVecsIterMut<'a, T>;
+    type IntoIter = PlanarVecsIterMut<'a, T>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        SequentialVecOfVecsIterMut {
+        PlanarVecsIterMut {
             inner: self.buf.iter_mut(),
         }
     }
 }
 
-unsafe impl<'a, T> Adapter<'a, T> for SequentialVecOfVecs<T>
+unsafe impl<'a, T> Adapter<'a, T> for PlanarVecs<T>
 where
     T: Clone + 'a,
 {
@@ -204,7 +204,7 @@ where
     }
 }
 
-unsafe impl<'a, T> AdapterMut<'a, T> for SequentialVecOfVecs<T>
+unsafe impl<'a, T> AdapterMut<'a, T> for PlanarVecs<T>
 where
     T: Clone + 'a,
 {

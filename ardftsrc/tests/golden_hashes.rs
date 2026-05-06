@@ -17,7 +17,7 @@
 //!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //!
-use ardftsrc::{BatchResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, SequentialVecOfVecs};
+use ardftsrc::{BatchResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -265,7 +265,7 @@ fn generate_hashes_f64_from_f32(
     Ok(hashes)
 }
 
-fn interleaved_to_planar_f32(samples: &[f32], channels: usize) -> Result<SequentialVecOfVecs<f32>, Box<dyn Error>> {
+fn interleaved_to_planar_f32(samples: &[f32], channels: usize) -> Result<PlanarVecs<f32>, Box<dyn Error>> {
     if channels == 0 {
         return Err("channels must be greater than zero".into());
     }
@@ -285,10 +285,10 @@ fn interleaved_to_planar_f32(samples: &[f32], channels: usize) -> Result<Sequent
             planar[channel_idx][frame_idx] = *sample;
         }
     }
-    Ok(SequentialVecOfVecs::new(planar)?)
+    Ok(PlanarVecs::new(planar)?)
 }
 
-fn interleaved_f32_to_planar_f64(samples: &[f32], channels: usize) -> Result<SequentialVecOfVecs<f64>, Box<dyn Error>> {
+fn interleaved_f32_to_planar_f64(samples: &[f32], channels: usize) -> Result<PlanarVecs<f64>, Box<dyn Error>> {
     if channels == 0 {
         return Err("channels must be greater than zero".into());
     }
@@ -308,10 +308,10 @@ fn interleaved_f32_to_planar_f64(samples: &[f32], channels: usize) -> Result<Seq
             planar[channel_idx][frame_idx] = f64::from(*sample);
         }
     }
-    Ok(SequentialVecOfVecs::new(planar)?)
+    Ok(PlanarVecs::new(planar)?)
 }
 
-fn hash_planar_f32_channels(planar: &SequentialVecOfVecs<f32>) -> Vec<String> {
+fn hash_planar_f32_channels(planar: &PlanarVecs<f32>) -> Vec<String> {
     let frames = planar.frames();
     planar
         .into_iter()
@@ -319,7 +319,7 @@ fn hash_planar_f32_channels(planar: &SequentialVecOfVecs<f32>) -> Vec<String> {
         .collect()
 }
 
-fn hash_planar_f64_as_f32_channels(planar: &SequentialVecOfVecs<f64>) -> Vec<String> {
+fn hash_planar_f64_as_f32_channels(planar: &PlanarVecs<f64>) -> Vec<String> {
     let frames = planar.frames();
     planar
         .into_iter()

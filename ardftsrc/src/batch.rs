@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{ChunkResampler, Config, Error, SequentialVecOfVecs};
+use crate::{ChunkResampler, Config, Error, PlanarVecs};
 use audio_core::Sample;
 use audioadapter::Adapter;
 
@@ -31,7 +31,7 @@ where
     /// `batch_gapless()` for gapless processing of multiple tracks.
     ///
     /// Enable the `rayon` feature for parallel processing.
-    pub fn batch<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<SequentialVecOfVecs<T>>, Error>
+    pub fn batch<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<PlanarVecs<T>>, Error>
     where
         T: Send + Sync,
     {
@@ -46,7 +46,7 @@ where
     /// track's head are used as edge context to improve gapless playback.
     ///
     /// Enable the `rayon` feature for parallel processing.
-    pub fn batch_gapless<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<SequentialVecOfVecs<T>>, Error>
+    pub fn batch_gapless<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<PlanarVecs<T>>, Error>
     where
         T: Send + Sync,
     {
@@ -60,7 +60,7 @@ where
     /// `batch_gapless()` for gapless processing of multiple tracks.
     ///
     /// Enable the `rayon` feature for parallel processing.
-    pub fn batch_planar(&self, inputs: Vec<SequentialVecOfVecs<T>>) -> Result<Vec<SequentialVecOfVecs<T>>, Error>
+    pub fn batch_planar(&self, inputs: Vec<PlanarVecs<T>>) -> Result<Vec<PlanarVecs<T>>, Error>
     where
         T: Send + Sync,
     {
@@ -72,7 +72,7 @@ where
                 .into_par_iter()
                 .map(|input| {
                     let channel_outputs = Self::process_track(config.clone(), input.as_slice(), None, None)?;
-                    SequentialVecOfVecs::new(channel_outputs)
+                    PlanarVecs::new(channel_outputs)
                 })
                 .collect()
         }
@@ -83,7 +83,7 @@ where
                 .into_iter()
                 .map(|input| {
                     let channel_outputs = Self::process_track(config.clone(), input.as_slice(), None, None)?;
-                    SequentialVecOfVecs::new(channel_outputs)
+                    PlanarVecs::new(channel_outputs)
                 })
                 .collect()
         }
@@ -98,8 +98,8 @@ where
     /// Enable the `rayon` feature for parallel processing.
     pub fn batch_planar_gapless(
         &self,
-        inputs: Vec<SequentialVecOfVecs<T>>,
-    ) -> Result<Vec<SequentialVecOfVecs<T>>, Error>
+        inputs: Vec<PlanarVecs<T>>,
+    ) -> Result<Vec<PlanarVecs<T>>, Error>
     where
         T: Send + Sync,
     {
@@ -123,7 +123,7 @@ where
                         .get(track_idx + 1)
                         .map(|input| Self::track_head_context(input.as_slice(), context_chunk_size));
                     let channel_outputs = Self::process_track(config.clone(), input.as_slice(), pre, post)?;
-                    SequentialVecOfVecs::new(channel_outputs)
+                    PlanarVecs::new(channel_outputs)
                 })
                 .collect()
         }
@@ -141,7 +141,7 @@ where
                         .get(track_idx + 1)
                         .map(|input| Self::track_head_context(input.as_slice(), context_chunk_size));
                     let channel_outputs = Self::process_track(config.clone(), input.as_slice(), pre, post)?;
-                    SequentialVecOfVecs::new(channel_outputs)
+                    PlanarVecs::new(channel_outputs)
                 })
                 .collect()
         }
@@ -150,7 +150,7 @@ where
     fn prepare_generic_adapter_inputs<'a>(
         config: &Config,
         inputs: &[&dyn Adapter<'a, T>],
-    ) -> Result<Vec<SequentialVecOfVecs<T>>, Error> {
+    ) -> Result<Vec<PlanarVecs<T>>, Error> {
         inputs
             .iter()
             .map(|input| {
@@ -174,7 +174,7 @@ where
                     }
                     per_channel.push(channel);
                 }
-                SequentialVecOfVecs::new(per_channel)
+                PlanarVecs::new(per_channel)
             })
             .collect()
     }
@@ -276,7 +276,7 @@ where
 mod tests {
     use super::*;
     use crate::TaperType;
-    use audioadapter_buffers::direct::InterleavedSlice;
+    use audioadapter_buffers::direct::{InterleavedSlice, SequentialSliceOfSlices};
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
         Config {
@@ -337,7 +337,7 @@ mod tests {
         let context_chunk_size = ChunkResampler::<f32>::new(config.clone()).unwrap().input_chunk_size();
         let track_frames = context_chunk_size * 2 + 17;
 
-        let tracks: Vec<SequentialVecOfVecs<f32>> = (0..3)
+        let tracks: Vec<PlanarVecs<f32>> = (0..3)
             .map(|track_idx| {
                 let channel = (0..track_frames)
                     .map(|frame| {
@@ -345,7 +345,7 @@ mod tests {
                         (continuous_frame as f32 * 0.017).sin() * 0.25
                     })
                     .collect();
-                SequentialVecOfVecs::new(vec![channel]).unwrap()
+                PlanarVecs::new(vec![channel]).unwrap()
             })
             .collect();
 
@@ -354,12 +354,19 @@ mod tests {
         for (track_idx, (input, output)) in tracks.iter().zip(outputs.iter()).enumerate() {
             let mut resampler = ChunkResampler::new(config.clone()).unwrap();
             if let Some(previous) = track_idx.checked_sub(1).map(|idx| tracks[idx].get_channel(0).unwrap()) {
+                let pre_context = &previous[previous.len().saturating_sub(context_chunk_size)..];
+                let pre_channels = [pre_context];
+                let pre_adapter = SequentialSliceOfSlices::new(&pre_channels, 1, pre_context.len()).unwrap();
                 resampler
-                    .pre(&previous[previous.len().saturating_sub(context_chunk_size)..])
+                    .pre(&pre_adapter)
                     .unwrap();
             }
             if let Some(next) = tracks.get(track_idx + 1).map(|track| track.get_channel(0).unwrap()) {
-                resampler.post(&next[..next.len().min(context_chunk_size)]).unwrap();
+                let post_context = &next[..next.len().min(context_chunk_size)];
+                let post_channels = [post_context];
+                let post_adapter =
+                    SequentialSliceOfSlices::new(&post_channels, 1, post_context.len()).unwrap();
+                resampler.post(&post_adapter).unwrap();
             }
 
             let expected_input = input.get_channel(0).unwrap();
@@ -379,7 +386,7 @@ mod tests {
         let context_chunk_size = batch.inner.input_chunk_size();
         let track_frames = context_chunk_size * 2 + 17;
 
-        let tracks: Vec<SequentialVecOfVecs<f32>> = (0..3)
+        let tracks: Vec<PlanarVecs<f32>> = (0..3)
             .map(|track_idx| {
                 let channel = (0..track_frames)
                     .map(|frame| {
@@ -387,7 +394,7 @@ mod tests {
                         (continuous_frame as f32 * 0.017).sin() * 0.25
                     })
                     .collect();
-                SequentialVecOfVecs::new(vec![channel]).unwrap()
+                PlanarVecs::new(vec![channel]).unwrap()
             })
             .collect();
         let adapter_inputs: Vec<&dyn Adapter<'_, f32>> =
