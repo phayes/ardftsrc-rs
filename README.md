@@ -344,11 +344,10 @@ AI use is allowed for the following:
 
 ### Development TODOs:
 
-1. Use `mut_input_ref` and write input directly, removing `ChunkResampler::input_staging`, this will avoid a copy.  Similar pattern for pre and post (avoid an allocation here).
-2. Add support for `phase` config.
-3. Add `tanh` taper.
-4. Calc performance metrics and post links
-5. Add bindings to other languages, python, ts (wasm) etc.
-6. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread. Probably, we are allocating...
-7. Investigate why audiodapater interface is SOOO SLLOOWWW. 
-8. In the StreamingResampler, there could be some minor performance improvements when going from f32 -> f64 -> f32 by delaying conversion until there's enough to take advantage of autovectorization on the conversion. Converting one scalar at a time is inefficient. 
+1. Add support for `phase` config.
+2. Add `tanh` taper.
+3. Calc performance metrics and post links
+4. Add bindings to other languages, python, ts (wasm) etc.
+5. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread. Probably, we are allocating...
+6. Investigate why audiodapater interface appears to be much slower than other paths. 
+7. In the StreamingResampler, there could be some minor performance improvements when going from f32 -> f64 -> f32 by delaying conversion until there's enough to take advantage of autovectorization on the conversion. Converting one scalar at a time is inefficient. 

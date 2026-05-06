@@ -15,8 +15,7 @@ where
     derived: DerivedConfig<T>,
     pub(crate) cores: Vec<ArdftsrcCore<T>>,
 
-    // Staging areas.
-    // TODO: This can be removed by using Core::mut_input_ref() and writing samples directly
+    // Staging area for input. Non-planar incomming inputs are staged into planar before calling Core::process_chunk
     input_staging: Vec<Vec<T>>,
 }
 
@@ -33,8 +32,8 @@ where
         let cores = (0..config.channels)
             .map(|_| ArdftsrcCore::new(derived.clone()))
             .collect();
-
-        let input_staging: Vec<Vec<T>> = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
+    
+         let input_staging = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
 
         Ok(Self {
             config,
@@ -249,11 +248,21 @@ where
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, false)?;
 
-        // Desructure self to allow multability of different fields at the same time.
+        // Deinterleave the input into the input_staging
+        for channel in &mut self.input_staging {
+            if channel.len() != self.derived.input_chunk_frames {
+                channel.resize(self.derived.input_chunk_frames, T::zero());
+            }
+        }
+        for channel_idx in 0..self.config.channels {
+            input.copy_from_channel_to_slice(channel_idx, 0, &mut self.input_staging[channel_idx]);
+        }
+
+        // Destructure self to allow multability of different fields at the same time.
         let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
 
         // Process the chunk.
-        Self::process_chunk_inner(cores, input_staging, self.config.channels, input, output, false)
+        Self::process_chunk_inner(cores, input_staging, output, false)
     }
 
     /// Processes the final chunk, which may be shorter than the regular chunk size.
@@ -273,30 +282,37 @@ where
         self.ensure_output_buffer_size(output)?;
         self.ensure_input_buffer_size(input, true)?;
 
-        // Desructure self to allow multability of different fields at the same time.
+        // Deinterleave the input into the input_staging
+        for channel in &mut self.input_staging {
+            channel.resize(input.frames(), T::zero());
+        }
+        for channel_idx in 0..self.config.channels {
+            input.copy_from_channel_to_slice(channel_idx, 0, &mut self.input_staging[channel_idx]);
+        }
+
+        // Destructure self to allow multability of different fields at the same time.
         let (cores, input_staging) = (&mut self.cores, &mut self.input_staging);
 
         // Process the chunk.
-        Self::process_chunk_inner(cores, input_staging, self.config.channels, input, output, true)
+        Self::process_chunk_inner(cores, input_staging, output, true)
     }
 
     #[inline]
-    fn process_chunk_inner<'a>(
+    fn process_chunk_inner<I, C>(
         cores: &mut [ArdftsrcCore<T>],
-        input_staging: &mut [Vec<T>],
-        channels: usize,
-        input: &dyn Adapter<'a, T>,
-        output: &mut dyn AdapterMut<'a, T>,
+        input: I,
+        output: &mut dyn AdapterMut<T>,
         is_final: bool,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, Error>
+    where
+        I: IntoIterator<Item = C>,
+        C: AsRef<[T]>,
+    {
         let mut total_written = 0;
 
         // For each channel, process the chunk in the core.
-        for channel_idx in 0..channels {
-            let core = &mut cores[channel_idx];
-            let core_input = &mut input_staging[channel_idx][..input.frames()];
-            input.copy_from_channel_to_slice(channel_idx, 0, core_input);
-            let core_output = core.process_chunk(core_input, is_final)?;
+        for (channel_idx, channel_input) in input.into_iter().enumerate() {
+            let core_output = cores[channel_idx].process_chunk(channel_input.as_ref(), is_final)?;
 
             let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, core_output);
             if out_written != core_output.len() {
