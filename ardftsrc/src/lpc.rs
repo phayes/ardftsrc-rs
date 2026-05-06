@@ -242,6 +242,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::assert_no_nans;
 
     fn assert_close(actual: &[f64], expected: &[f64], tol: f64) {
         assert_eq!(actual.len(), expected.len());
@@ -263,6 +264,7 @@ mod tests {
         let depth = 3;
         let expected = vec![-0.6919053749597684, 0.7615062761506278, -0.3457515288059223];
         let (coeff, _err) = calc_lpc_by_levinson_durbin(&a, depth).unwrap();
+        assert_no_nans(&coeff, "lpc::test_calc_lpc_by_levinson_durbin coeff");
         assert_close(&coeff, &expected, 1e-12);
     }
 
@@ -272,6 +274,7 @@ mod tests {
         let depth = 3;
         let expected = vec![-1.0650404360323664, 1.157238171254371, -0.5771692748969812];
         let coeff = calc_lpc_by_burg(&a, depth).unwrap();
+        assert_no_nans(&coeff, "lpc::test_calc_lpc_by_burg coeff");
         assert_close(&coeff, &expected, 1e-12);
     }
 
@@ -286,6 +289,8 @@ mod tests {
         let input = vec![0.0f64; 16];
         let hold_coeff = lpc_coefficients(&input, 8, ExtrapolateFallback::Hold);
         let silence_coeff = lpc_coefficients(&input, 8, ExtrapolateFallback::Silence);
+        assert_no_nans(&hold_coeff, "lpc::test_lpc_coefficients_fallback_modes hold");
+        assert_no_nans(&silence_coeff, "lpc::test_lpc_coefficients_fallback_modes silence");
         assert_eq!(hold_coeff, vec![-1.0]);
         assert_eq!(silence_coeff, vec![0.0]);
     }
@@ -293,16 +298,16 @@ mod tests {
     #[test]
     fn test_extrapolate_forward_empty_and_zero_extra() {
         assert!(extrapolate_forward::<f64>(&[1.0, 2.0], 0, ExtrapolateFallback::Hold).is_empty());
-        assert_eq!(
-            extrapolate_forward::<f64>(&[], 3, ExtrapolateFallback::Hold),
-            vec![0.0, 0.0, 0.0]
-        );
+        let predicted = extrapolate_forward::<f64>(&[], 3, ExtrapolateFallback::Hold);
+        assert_no_nans(&predicted, "lpc::test_extrapolate_forward_empty_and_zero_extra predicted");
+        assert_eq!(predicted, vec![0.0, 0.0, 0.0]);
     }
 
     #[test]
     fn test_extrapolate_backward_length_and_finite() {
         let input: Vec<f64> = (0..32).map(|i| (i as f64 * 0.1).sin()).collect();
         let predicted = extrapolate_backward(&input, 24, ExtrapolateFallback::Hold);
+        assert_no_nans(&predicted, "lpc::test_extrapolate_backward_length_and_finite predicted");
         assert_eq!(predicted.len(), 24);
         assert!(predicted.iter().all(|v| v.is_finite()));
     }

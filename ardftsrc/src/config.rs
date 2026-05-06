@@ -506,6 +506,7 @@ fn gcd(mut a: usize, mut b: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::assert_no_nans;
     #[test]
     fn derives_chunk_sizes_from_reduced_rates() {
         let config = Config::new(44_100, 48_000, 2);
@@ -553,6 +554,7 @@ mod tests {
             };
             let derived = config.derive_config::<f32>().unwrap();
             let taper = &derived.taper;
+            assert_no_nans(taper, "config::taper_has_expected_rolloff_shape taper");
             let taper_bins = derived.taper_bins.max(1);
             let transition_start = derived.cutoff_bins.saturating_sub(taper_bins);
 
@@ -581,6 +583,7 @@ mod tests {
                 taper_type,
             };
             let derived = config.derive_config::<f32>().unwrap();
+            assert_no_nans(&derived.taper, "config::passthrough_taper_is_all_ones taper");
 
             assert_eq!(derived.taper.len(), derived.input_fft_size / 2 + 1);
             assert!(derived.taper.iter().all(|value| *value == 1.0));
@@ -631,6 +634,7 @@ mod tests {
     fn taper_is_all_ones_when_passthrough() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let taper = DerivedConfig::<f32>::build_taper(16, 8, 4, true, taper_type);
+            assert_no_nans(&taper, "config::taper_is_all_ones_when_passthrough taper");
 
             assert_eq!(taper.len(), 9);
             assert!(taper.iter().all(|v| *v == 1.0));
@@ -641,6 +645,7 @@ mod tests {
     fn taper_has_expected_passband_transition_and_stopband() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let taper = DerivedConfig::<f32>::build_taper(16, 6, 4, false, taper_type);
+            assert_no_nans(&taper, "config::taper_has_expected_passband_transition_and_stopband taper");
 
             assert_eq!(taper.len(), 9);
 
@@ -669,6 +674,7 @@ mod tests {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let cutoff_bin = 24;
             let taper = DerivedConfig::<f32>::build_taper(64, cutoff_bin, 16, false, taper_type);
+            assert_no_nans(&taper, "config::transition_is_descending_and_bounded taper");
             let transition_start = taper
                 .iter()
                 .position(|value| *value < 1.0)
@@ -695,6 +701,7 @@ mod tests {
     fn zero_taper_bins_produces_hard_cutoff() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let taper = DerivedConfig::<f32>::build_taper(16, 6, 0, false, taper_type);
+            assert_no_nans(&taper, "config::zero_taper_bins_produces_hard_cutoff taper");
 
             assert_eq!(taper.len(), 9);
 
@@ -712,6 +719,7 @@ mod tests {
     fn one_taper_bin_keeps_single_unity_transition_bin() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let taper = DerivedConfig::<f32>::build_taper(16, 6, 1, false, taper_type);
+            assert_no_nans(&taper, "config::one_taper_bin_keeps_single_unity_transition_bin taper");
 
             assert_eq!(taper[5], 1.0);
             assert_eq!(taper[6], 0.0);

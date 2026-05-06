@@ -350,3 +350,5 @@ AI use is allowed for the following:
 4. Calc performance metrics and post links
 5. Add bindings to other languages, python, ts (wasm) etc.
 6. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread. Probably, we are allocating...
+7. Investigate why audiodapater interface is SOOO SLLOOWWW. 
+8. In the StreamingResampler, there could be some minor performance improvements when going from f32 -> f64 -> f32 by delaying conversion until there's enough to take advantage of autovectorization on the conversion. Converting one scalar at a time is inefficient. 

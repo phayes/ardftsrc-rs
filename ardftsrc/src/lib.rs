@@ -7,6 +7,8 @@ mod core;
 mod error;
 mod lpc;
 mod streaming;
+#[cfg(test)]
+mod test_utils;
 mod vec_of_vecs;
 
 pub use vec_of_vecs::PlanarVecs;

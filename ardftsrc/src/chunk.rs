@@ -458,7 +458,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TaperType, core::ArdftsrcCore};
+    use crate::{
+        TaperType,
+        core::ArdftsrcCore,
+        test_utils::{assert_no_nans, process_all_samples},
+    };
     use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
 
@@ -489,7 +493,9 @@ mod tests {
                 samples: output_len,
             }
         })?;
-        resampler.process_chunk(&input_adapter, &mut output_adapter)
+        let written = resampler.process_chunk(&input_adapter, &mut output_adapter)?;
+        assert_no_nans(&output[..written], "chunk::process_chunk_samples output");
+        Ok(written)
     }
 
     fn process_chunk_final_samples(
@@ -511,7 +517,9 @@ mod tests {
                 samples: output_len,
             }
         })?;
-        resampler.process_chunk_final(&input_adapter, &mut output_adapter)
+        let written = resampler.process_chunk_final(&input_adapter, &mut output_adapter)?;
+        assert_no_nans(&output[..written], "chunk::process_chunk_final_samples output");
+        Ok(written)
     }
 
     fn finalize_samples_chunk(resampler: &mut ChunkResampler<f32>, output: &mut [f32]) -> Result<usize, Error> {
@@ -523,18 +531,9 @@ mod tests {
                 samples: output_len,
             }
         })?;
-        resampler.finalize(&mut output_adapter)
-    }
-
-    fn process_all_samples(resampler: &mut ChunkResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
-        let channels = resampler.config().channels;
-        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
-            Error::MalformedInputLength {
-                channels,
-                samples: input.len(),
-            }
-        })?;
-        Ok(resampler.process_all(&input_adapter)?.interleave())
+        let written = resampler.finalize(&mut output_adapter)?;
+        assert_no_nans(&output[..written], "chunk::finalize_samples_chunk output");
+        Ok(written)
     }
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
@@ -635,6 +634,7 @@ mod tests {
         let written = core.finalize().unwrap();
         output.extend_from_slice(written);
 
+        assert_no_nans(&output, "chunk::run_core_process_all output");
         output
     }
 

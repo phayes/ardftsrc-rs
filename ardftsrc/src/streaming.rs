@@ -336,7 +336,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TaperType;
+    use crate::{
+        TaperType,
+        test_utils::{assert_no_nans, process_all_samples},
+    };
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
         Config {
@@ -379,18 +382,9 @@ mod tests {
                 samples: output_len,
             }
         })?;
-        resampler.process_chunk(&input_adapter, &mut output_adapter)
-    }
-
-    fn process_all_samples(resampler: &mut ChunkResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
-        let channels = resampler.config().channels;
-        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
-            Error::MalformedInputLength {
-                channels,
-                samples: input.len(),
-            }
-        })?;
-        Ok(resampler.process_all(&input_adapter)?.interleave())
+        let written = resampler.process_chunk(&input_adapter, &mut output_adapter)?;
+        assert_no_nans(&output[..written], "streaming::process_chunk_samples output");
+        Ok(written)
     }
 
     fn resample_stream_with_sample_api(
@@ -434,6 +428,7 @@ mod tests {
             output.extend_from_slice(&read_buffer[..written]);
         }
 
+        assert_no_nans(&output, "streaming::resample_stream_with_sample_api output");
         output
     }
 
@@ -447,6 +442,7 @@ mod tests {
             }
             output.extend_from_slice(&read_buffer[..written]);
         }
+        assert_no_nans(&output, "streaming::drain_stream output");
         output
     }
 

@@ -275,7 +275,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TaperType;
+    use crate::{TaperType, test_utils::assert_no_nans};
     use audioadapter_buffers::direct::{InterleavedSlice, SequentialSliceOfSlices};
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
@@ -297,12 +297,13 @@ mod tests {
     #[must_use]
     pub fn adapter_to_interleaved_vec<'a, T>(adapter: &dyn Adapter<'a, T>) -> Vec<T>
     where
-        T: Clone + Default + 'a,
+        T: Float + Clone + Default + 'a,
     {
         let mut output = vec![T::default(); adapter.frames() * adapter.channels()];
         let written = adapter_to_interleaved_slice(adapter, &mut output)
             .expect("adapter_to_interleaved_vec allocates enough output samples");
         output.truncate(written);
+        assert_no_nans(&output, "batch::adapter_to_interleaved_vec output");
         output
     }
 
