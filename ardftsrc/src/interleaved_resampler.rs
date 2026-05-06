@@ -497,7 +497,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TaperType, core::ArdftsrcCore, test_utils::assert_no_nans};
+    use crate::{
+        TaperType,
+        core::ArdftsrcCore,
+        test_utils::{assert_no_nans, process_all_samples},
+    };
     use dasp_signal::Signal;
 
     fn input_chunk_frames(resampler: &InterleavedResampler<f32>) -> usize {
@@ -506,12 +510,6 @@ mod tests {
 
     fn output_chunk_frames(resampler: &InterleavedResampler<f32>) -> usize {
         resampler.output_chunk_size() / resampler.config().channels
-    }
-
-    fn process_all_samples(resampler: &mut InterleavedResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
-        let output = resampler.process_all(input)?.interleave();
-        assert_no_nans(&output, "chunk::process_all_samples output");
-        Ok(output)
     }
 
     fn process_chunk_samples(

@@ -1,5 +1,7 @@
 use crate::Error;
+#[cfg(feature = "audioadapter")]
 use audioadapter::Adapter;
+#[cfg(feature = "audioadapter")]
 use audioadapter::AdapterMut;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -174,6 +176,7 @@ impl<'a, T> IntoIterator for &'a mut PlanarVecs<T> {
     }
 }
 
+#[cfg(feature = "audioadapter")]
 unsafe impl<'a, T> Adapter<'a, T> for PlanarVecs<T>
 where
     T: Clone + 'a,
@@ -204,6 +207,7 @@ where
     }
 }
 
+#[cfg(feature = "audioadapter")]
 unsafe impl<'a, T> AdapterMut<'a, T> for PlanarVecs<T>
 where
     T: Clone + 'a,

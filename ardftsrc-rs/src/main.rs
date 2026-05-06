@@ -1,5 +1,5 @@
 use ardftsrc::{
-    ChunkPlanarResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs, TaperType,
+    PlanarResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs, TaperType,
 };
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacChannelReader;
@@ -177,7 +177,7 @@ fn process_batch_group(args: &Args, group: Vec<InputJob>) -> Result<(), Box<dyn 
     let out_format = args.out_format;
     let first = group.first().ok_or("batch group cannot be empty")?;
     let config = build_config(args, first.track.input_rate_hz, first.track.channels)?;
-    let processor = ChunkPlanarResampler::<f64>::new(config)?;
+    let processor = PlanarResampler::<f64>::new(config)?;
 
     let mut metadata = Vec::with_capacity(group.len());
     let mut inputs = Vec::with_capacity(group.len());

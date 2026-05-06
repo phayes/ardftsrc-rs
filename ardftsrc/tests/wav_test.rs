@@ -1,5 +1,4 @@
-use ardftsrc::{AdapterResampler, Config};
-use audioadapter_buffers::direct::InterleavedSlice;
+use ardftsrc::{Config, InterleavedResampler};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -56,20 +55,14 @@ fn resample_all(input: &[f32], input_rate: usize, output_rate: usize, channels: 
         bandwidth: 0.95,
         ..Config::default()
     };
-    let mut resampler = AdapterResampler::<f32>::new(config).unwrap_or_else(|err| {
+    let mut resampler = InterleavedResampler::<f32>::new(config).unwrap_or_else(|err| {
         panic!(
             "failed to initialize f32 resampler for {} -> {} Hz: {err}",
             input_rate, output_rate
         )
     });
-    let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).unwrap_or_else(|_| {
-        panic!(
-            "invalid interleaved input length for channels={channels}: samples={}",
-            input.len()
-        )
-    });
     resampler
-        .process_all(&input_adapter)
+        .process_all(input)
         .map(|output| output.interleave())
         .unwrap_or_else(|err| panic!("resampling failed for {} -> {} Hz: {err}", input_rate, output_rate))
 }
@@ -200,21 +193,14 @@ fn test_wavs_f32_2048_bw095_outputs_are_finite() {
             bandwidth: 0.95,
             ..Config::default()
         };
-        let mut resampler = AdapterResampler::<f32>::new(config).unwrap_or_else(|err| {
+        let mut resampler = InterleavedResampler::<f32>::new(config).unwrap_or_else(|err| {
             panic!(
                 "failed to initialize f32 resampler for '{}': {err}",
                 input_path.display()
             )
         });
-        let input_adapter = InterleavedSlice::new(&input_samples, channels, input_samples.len() / channels)
-            .unwrap_or_else(|_| {
-                panic!(
-                    "invalid interleaved input length for channels={channels}: samples={}",
-                    input_samples.len()
-                )
-            });
         let output_samples = resampler
-            .process_all(&input_adapter)
+            .process_all(&input_samples)
             .map(|output| output.interleave())
             .unwrap_or_else(|err| panic!("resampling failed for '{}': {err}", input_path.display()));
 

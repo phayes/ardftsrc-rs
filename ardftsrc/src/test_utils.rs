@@ -1,9 +1,13 @@
+#[cfg(feature = "audioadapter")]
 use audio_core::Sample;
+#[cfg(feature = "audioadapter")]
 use audioadapter_buffers::direct::InterleavedSlice;
 use num_traits::Float;
 use realfft::FftNum;
 
-use crate::{AdapterResampler, Error};
+#[cfg(feature = "audioadapter")]
+use crate::AdapterResampler;
+use crate::{Error, InterleavedResampler};
 
 pub(crate) fn assert_no_nans<T>(samples: &[T], label: &str)
 where
@@ -14,7 +18,17 @@ where
     }
 }
 
-pub(crate) fn process_all_samples<T>(resampler: &mut AdapterResampler<T>, input: &[T]) -> Result<Vec<T>, Error>
+pub(crate) fn process_all_samples<T>(resampler: &mut InterleavedResampler<T>, input: &[T]) -> Result<Vec<T>, Error>
+where
+    T: Float + FftNum + Send + Sync,
+{
+    let output = resampler.process_all(input)?.interleave();
+    assert_no_nans(&output, "test_utils::process_all_samples output");
+    Ok(output)
+}
+
+#[cfg(feature = "audioadapter")]
+pub(crate) fn process_all_samples_adapter<T>(resampler: &mut AdapterResampler<T>, input: &[T]) -> Result<Vec<T>, Error>
 where
     T: Float + FftNum + Sample + Send + Sync,
 {
@@ -25,6 +39,6 @@ where
             samples: input.len(),
         })?;
     let output = resampler.process_all(&input_adapter)?.interleave();
-    assert_no_nans(&output, "test_utils::process_all_samples output");
+    assert_no_nans(&output, "test_utils::process_all_samples_adapter output");
     Ok(output)
 }

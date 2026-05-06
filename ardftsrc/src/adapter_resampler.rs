@@ -495,7 +495,7 @@ mod tests {
     use crate::{
         TaperType,
         core::ArdftsrcCore,
-        test_utils::{assert_no_nans, process_all_samples},
+        test_utils::{assert_no_nans, process_all_samples_adapter},
     };
     use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
@@ -672,7 +672,7 @@ mod tests {
         let mut resampler = AdapterResampler::new(mono_config(48_000, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
 
-        let output = process_all_samples(&mut resampler, &input).unwrap();
+        let output = process_all_samples_adapter(&mut resampler, &input).unwrap();
 
         assert!(output.iter().all(|sample| *sample == 0.0));
     }
@@ -684,7 +684,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.013).cos())
             .collect();
 
-        let output = process_all_samples(&mut resampler, &input).unwrap();
+        let output = process_all_samples_adapter(&mut resampler, &input).unwrap();
 
         assert_eq!(output, input);
         assert_eq!(resampler.output_delay_frames(), 0);
@@ -696,7 +696,7 @@ mod tests {
         let mut input = vec![0.0; input_chunk_frames(&resampler)];
         input[0] = 1.0;
 
-        let output = process_all_samples(&mut resampler, &input).unwrap();
+        let output = process_all_samples_adapter(&mut resampler, &input).unwrap();
 
         assert_eq!(output.len(), resampler.expected_output_size(input.len()));
         assert!(output.iter().all(|sample| sample.is_finite()));
@@ -728,7 +728,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.02).sin() * 0.1)
             .collect();
 
-        let output = process_all_samples(&mut resampler, &input).unwrap();
+        let output = process_all_samples_adapter(&mut resampler, &input).unwrap();
 
         assert_eq!(output.len(), resampler.expected_output_size(input_frames));
         assert!(output.iter().all(|sample| sample.is_finite()));
@@ -783,7 +783,7 @@ mod tests {
         let post_adapter = InterleavedSlice::new(&post, 2, post.len() / 2).unwrap();
         wrapper.pre(&pre_adapter).unwrap();
         wrapper.post(&post_adapter).unwrap();
-        let wrapped_output = process_all_samples(&mut wrapper, &input).unwrap();
+        let wrapped_output = process_all_samples_adapter(&mut wrapper, &input).unwrap();
 
         let mono_config = Config {
             channels: 1,
@@ -912,7 +912,7 @@ mod tests {
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
 
-        let offline_output = process_all_samples(&mut offline, &input).unwrap();
+        let offline_output = process_all_samples_adapter(&mut offline, &input).unwrap();
 
         let full_chunks = input.len() / input_chunk_frames(&streaming);
         let has_partial = !input.len().is_multiple_of(input_chunk_frames(&streaming));
@@ -959,7 +959,7 @@ mod tests {
             .map(|sample| sample as f32 * 0.25)
             .collect();
 
-        let full_output = process_all_samples(&mut full_resampler, &input).unwrap();
+        let full_output = process_all_samples_adapter(&mut full_resampler, &input).unwrap();
 
         let split0 = &input[..split_frames];
         let split1 = &input[split_frames..split_frames * 2];
@@ -1013,7 +1013,7 @@ mod tests {
             .map(|sample| sample as f32 * 0.25)
             .collect();
 
-        let full_output = process_all_samples(&mut full_resampler, &input).unwrap();
+        let full_output = process_all_samples_adapter(&mut full_resampler, &input).unwrap();
 
         let split0 = &input[..split_frames];
         let split1 = &input[split_frames..split_frames * 2];
@@ -1075,15 +1075,15 @@ mod tests {
             .map(|frame| (frame as f32 * 0.013).cos() * 0.15)
             .collect();
 
-        let first_reused = process_all_samples(&mut reused, &first_input).unwrap();
-        let first_reference = process_all_samples(&mut reference, &first_input).unwrap();
+        let first_reused = process_all_samples_adapter(&mut reused, &first_input).unwrap();
+        let first_reference = process_all_samples_adapter(&mut reference, &first_input).unwrap();
         assert_eq!(first_reused.len(), first_reference.len());
         for (left, right) in first_reused.iter().zip(first_reference.iter()) {
             assert!((*left - *right).abs() < 1e-5);
         }
 
-        let second_reused = process_all_samples(&mut reused, &second_input).unwrap();
-        let second_reference = process_all_samples(&mut reference, &second_input).unwrap();
+        let second_reused = process_all_samples_adapter(&mut reused, &second_input).unwrap();
+        let second_reference = process_all_samples_adapter(&mut reference, &second_input).unwrap();
         assert_eq!(second_reused.len(), second_reference.len());
         for (left, right) in second_reused.iter().zip(second_reference.iter()) {
             assert!((*left - *right).abs() < 1e-5);
@@ -1096,7 +1096,7 @@ mod tests {
         let mut input = vec![0.0; resampler.input_chunk_size()];
         input[0] = 1.0;
 
-        let output = process_all_samples(&mut resampler, &input).unwrap();
+        let output = process_all_samples_adapter(&mut resampler, &input).unwrap();
 
         assert_eq!(
             output.len(),
@@ -1119,7 +1119,7 @@ mod tests {
             input.push((frame as f32 * 0.017).cos() * 0.125);
         }
 
-        let offline_output = process_all_samples(&mut offline, &input).unwrap();
+        let offline_output = process_all_samples_adapter(&mut offline, &input).unwrap();
 
         let input_buffer_size = streaming.input_chunk_size();
         let full_chunks = input.len() / input_buffer_size;

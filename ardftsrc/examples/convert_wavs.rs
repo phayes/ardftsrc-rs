@@ -1,5 +1,4 @@
-use ardftsrc::{AdapterResampler, Config};
-use audioadapter_buffers::direct::InterleavedSlice;
+use ardftsrc::{Config, InterleavedResampler};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,10 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             channels: wav.channels,
             ..Config::default()
         };
-        let mut resampler = AdapterResampler::new(config)?;
-        let input_adapter = InterleavedSlice::new(&wav.samples, wav.channels, wav.samples.len() / wav.channels)
-            .map_err(|_| "invalid interleaved WAV buffer length")?;
-        let converted = resampler.process_all(&input_adapter)?.interleave();
+        let mut resampler = InterleavedResampler::new(config)?;
+        let converted = resampler.process_all(&wav.samples)?.interleave();
 
         let output_path = output_dir.join(format!(
             "{}_to_{}hz.wav",

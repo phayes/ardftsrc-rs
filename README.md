@@ -8,23 +8,12 @@ Generally `ardftsrc` is preferred over other resamplers when quality is paramoun
 
 It is more compute and memory intensive than other resamplers, so consider [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
 
-## Input and output data format
-
-This crate makes use of the [audioadapter](https://crates.io/crates/audioadapter) family of crates to help abstract the layout of input and output data. 
-
-`AdapterResampler` uses an [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) to accept input data.
-
-`PlanarResampler` accepts planar buffers, while `InterleavedResampler` accepts interleaved buffers. Their batch APIs return `PlanarVecs` (which implements [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html)).
-
-A user of this crate should familiarize themselves with the conceptes in the [audioadapter](https://crates.io/crates/audioadapter) and [audioadapter-buffers](https://crates.io/crates/audioadapter-buffers) crates.
-
 ## Quick Start
 
-Use `ChunkResampler::process_all` to resample a complete interleaved audio stream for a single track.
+Use `InterleavedResampler::process_all` to resample a complete interleaved audio stream for a single track.
 
 ```rust
-use ardftsrc::{ChunkResampler, PRESET_HIGH};
-use audioadapter_buffers::direct::InterleavedSlice;
+use ardftsrc::{InterleavedResampler, PRESET_HIGH};
 
 fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
     // When using a preset other than "FAST", f64 processing is preferred.
@@ -35,10 +24,9 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let mut resampler = ChunkResampler::<f64>::new(config).unwrap();
+    let mut resampler = InterleavedResampler::<f64>::new(config).unwrap();
 
-    let input_adapter = InterleavedSlice::new(&input_f64, channels, input_f64.len() / channels).unwrap();
-    let output = resampler.process_all(&input_adapter).unwrap();
+    let output = resampler.process_all(&input_f64).unwrap();
 
     // Convert back to the original interleaved f32
     output.interleave().into_iter().map(|v| v as f32).collect()
@@ -56,8 +44,7 @@ Use chunk resampling when you can control both read and write buffer sizes. Quer
 To end the stream early, you can always just stop and call `reset()` on the stream.
 
 ```rust
-use ardftsrc::{ChunkResampler, PRESET_GOOD};
-use audioadapter_buffers::direct::InterleavedSlice;
+use ardftsrc::{InterleavedResampler, PRESET_GOOD};
 
 fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: usize) -> Vec<f32> {
     // When using a preset other than "FAST", f64 processing is preferred.
@@ -68,14 +55,12 @@ fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: 
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let mut resampler = ChunkResampler::<f64>::new(config).unwrap();
+    let mut resampler = InterleavedResampler::<f64>::new(config).unwrap();
 
     // Get the input and output chunk sizes
     // You must read and write in these buffer sizes
     let input_chunk_size = resampler.input_chunk_size();
     let output_chunk_size = resampler.output_chunk_size();
-    let input_chunk_frames = input_chunk_size / channels;
-    let output_chunk_frames = output_chunk_size / channels;
     let mut out_buf = vec![0.0_f64; output_chunk_size];
     let mut out_f64 = Vec::<f64>::new();
     let mut offset = 0;
@@ -84,14 +69,10 @@ fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: 
     while offset + input_chunk_size <= input_f64.len() {
         let chunk = &input_f64[offset..offset + input_chunk_size];
 
-        // Prepare the input and output adapters.
-        let input_adapter = InterleavedSlice::new(chunk, channels, input_chunk_frames).unwrap();
-        let mut output_adapter = InterleavedSlice::new_mut(&mut out_buf, channels, output_chunk_frames).unwrap();
-
         // Process the chunk
-        let written = resampler.process_chunk(&input_adapter, &mut output_adapter).unwrap();
+        let written = resampler.process_chunk(chunk, &mut out_buf).unwrap();
 
-        // Process otuput
+        // Process output
         out_f64.extend_from_slice(&out_buf[..written]);
         offset += input_chunk_size;
     }
@@ -99,18 +80,13 @@ fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: 
     // The final chunk can be undersized (or even zero sized)
     let final_chunk = &input_f64[offset..];
 
-    // Prepare input and output adapters
-    let final_input_adapter = InterleavedSlice::new(final_chunk, channels, final_chunk.len() / channels).unwrap();
-    let mut final_output_adapter = InterleavedSlice::new_mut(&mut out_buf, channels, output_chunk_frames).unwrap();
-
     // Process Output
-    let written = resampler.process_chunk_final(&final_input_adapter, &mut final_output_adapter).unwrap();
+    let written = resampler.process_chunk_final(final_chunk, &mut out_buf).unwrap();
     out_f64.extend_from_slice(&out_buf[..written]);
 
     // After processing the final chunk, you must call "finalize()" to get tail content.
     // finalize() also resets the resampler instance so it can be used again.
-    let mut finalize_output_adapter = InterleavedSlice::new_mut(&mut out_buf, channels, output_chunk_frames).unwrap();
-    let written = resampler.finalize(&mut finalize_output_adapter).unwrap();
+    let written = resampler.finalize(&mut out_buf).unwrap();
     out_f64.extend_from_slice(&out_buf[..written]);
 
     // Convert back into f32
@@ -122,8 +98,8 @@ fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: 
 
 For adjacent tracks, you can set edge context before processing:
 
-- `pre(&dyn Adapter)`: tail frames from the previous track
-- `post(&dyn Adapter)`: head frames from the next track
+- `pre(Vec<T>)`: tail frames from the previous track
+- `post(Vec<T>)`: head frames from the next track
 
 `post(...)` may be called any time while the current stream is still active, but it must be
 set before `process_chunk_final(...)`.
@@ -248,7 +224,7 @@ fn resample_tracks(
 
 ## Quality Tuning and Presets
 
-ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `Resampler<f64>`, then convert back to `f32`.
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `InterleavedResampler<f64>` or `PlanarResampler<f64>`, then convert back to `f32`.
 
 If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
@@ -271,13 +247,14 @@ let config = ardftsrc::PRESET_GOOD
 
 ## Feature Flags
 
-| Flag        | Enables                                                     | Default |
-| ----------- | ----------------------------------------------------------- | ------- |
-| `rayon`     | Parallel processing (channel and track parallelism)         | No      |
-| `avx`       | FFT AVX SIMD                                                | Yes     |
-| `sse`       | FFT SSE SIMD                                                | Yes     |
-| `neon`      | FFT NEON SIMD    for ARM / Mac                              | Yes     |
-| `wasm_simd` | FFT WebAssembly SIMD                                        | Yes     |
+| Flag           | Enables                                                                      | Default |
+| -------------- | ---------------------------------------------------------------------------- | ------- |
+| `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support | No      |
+| `rayon`        | Parallel processing (channel and track parallelism)                          | No      |
+| `avx`          | FFT AVX SIMD                                                                 | Yes     |
+| `sse`          | FFT SSE SIMD                                                                 | Yes     |
+| `neon`         | FFT NEON SIMD for ARM / Mac                                                  | Yes     |
+| `wasm_simd`    | FFT WebAssembly SIMD                                                         | Yes     |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
 
@@ -303,7 +280,7 @@ At a high level there are two layers:
 
 - `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithm. It is private.
 - `PlanarResampler<T>` and `InterleavedResampler<T>` are fixed-size chunk resamplers. They own one `ArdftsrcCore` per channel and expose full-buffer, chunked, and batch processing APIs for planar or interleaved audio.
-- `AdapterResampler<T>` adapts generic `audioadapter` inputs and outputs onto the chunk resampling core.
+- `AdapterResampler<T>` is optional behind the `audioadapter` feature and adapts generic audioadapter inputs and outputs onto the chunk resampling core. Right now there are performance issues with this.
 - `StreamingResampler<T>` provides arbitrary-size sample buffering for live resampling.
 
 ### Golden Hashes
@@ -340,5 +317,4 @@ AI use is allowed for the following:
 3. Calc performance metrics and post links
 4. Add bindings to other languages, python, ts (wasm) etc.
 5. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread. Probably, we are allocating...
-6. Investigate why audiodapater interface appears to be much slower than other paths. 
-7. In the StreamingResampler, there could be some minor performance improvements when going from f32 -> f64 -> f32 by delaying conversion until there's enough to take advantage of autovectorization on the conversion. Converting one scalar at a time is inefficient. 
+6. Investigate why the optional audioadapter interface appears to be much slower than other paths. 

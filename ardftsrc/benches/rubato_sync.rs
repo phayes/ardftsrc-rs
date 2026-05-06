@@ -17,7 +17,6 @@ static GLOBAL: MiMalloc = MiMalloc;
 const BENCH_CHUNK_SIZE: usize = 512;
 const BENCH_SUB_CHUNKS: usize = 1;
 const BENCH_FIXED_SYNC: FixedSync = FixedSync::Input;
-const BENCH_FIXED_SYNC_LABEL: &str = "input";
 const TARGET_SAMPLE_RATES: &[usize] = &[22_050, 48_000, 96_000];
 const FIXTURE_PATHS: &[&str] = &[
     "../test_wavs/example-pcm16-44k1-stereo.wav",

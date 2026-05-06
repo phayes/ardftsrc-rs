@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 
-use audio_core::Sample;
 use num_traits::Float;
 use realfft::FftNum;
 
@@ -8,14 +7,14 @@ use crate::{InterleavedResampler, Config, Error};
 
 pub struct StreamingResampler<T = f64>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     spans: VecDeque<StreamingSpan<T>>,
 }
 
 struct StreamingSpan<T = f64>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     inner: InterleavedResampler<T>,
     samples_pending_input: VecDeque<T>,
@@ -27,7 +26,7 @@ where
 
 impl<T> StreamingResampler<T>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     /// Constructs a sample-streaming resampler from `config`.
     pub fn new(config: Config) -> Result<Self, Error> {
@@ -187,7 +186,7 @@ where
 
 impl<T> StreamingSpan<T>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     fn new(config: Config) -> Result<Self, Error> {
         let inner = InterleavedResampler::new(config)?;
@@ -324,7 +323,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TaperType, test_utils::assert_no_nans};
+    use crate::{
+        TaperType,
+        test_utils::{assert_no_nans, process_all_samples},
+    };
 
     fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
         Config {
@@ -346,12 +348,6 @@ mod tests {
 
     fn input_chunk_frames(resampler: &StreamingResampler<f32>) -> usize {
         resampler.input_chunk_size() / resampler.config().channels
-    }
-
-    fn process_all_samples(resampler: &mut InterleavedResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
-        let output = resampler.process_all(input)?.interleave();
-        assert_no_nans(&output, "streaming::process_all_samples output");
-        Ok(output)
     }
 
     fn process_chunk_samples(
