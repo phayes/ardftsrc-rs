@@ -12,9 +12,9 @@ It is more compute and memory intensive than other resamplers, so consider [ruba
 
 This crate makes use of the [audioadapter](https://crates.io/crates/audioadapter) family of crates to help abstract the layout of input and output data. 
 
-`ChunkResampler` and `BatchResampler` use an [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) to accept input data. 
+`AdapterResampler` uses an [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) to accept input data.
 
-`ChunkResampler` uses [`AdapterMut`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.AdapterMut.html) for output, while `BatchResampler` returns `PlanarVecs` (which implements [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html) ).
+`PlanarResampler` accepts planar buffers, while `InterleavedResampler` accepts interleaved buffers. Their batch APIs return `PlanarVecs` (which implements [`Adapter`](https://docs.rs/audioadapter/2.0.0/audioadapter/trait.Adapter.html)).
 
 A user of this crate should familiarize themselves with the conceptes in the [audioadapter](https://crates.io/crates/audioadapter) and [audioadapter-buffers](https://crates.io/crates/audioadapter-buffers) crates.
 
@@ -213,15 +213,14 @@ fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32
 
 Use batching when you have multiple full tracks to convert with the same configuration.
 
-- `BatchResampler::batch(...)`: processes each input as an independent stream (no context shared between tracks).
-- `BatchResampler::batch_gapless(...)`: preserves adjacent-track context for gapless album-style playback.
+- `InterleavedResampler::batch(...)`: processes each interleaved input as an independent stream (no context shared between tracks).
+- `InterleavedResampler::batch_gapless(...)`: preserves adjacent-track context for gapless album-style playback.
+- `PlanarResampler` exposes the same `batch(...)` and `batch_gapless(...)` APIs for already-planar inputs.
 
 Enable the `rayon` feature to parallelize work across tracks.
 
 ```rust
-use ardftsrc::{BatchResampler, PRESET_GOOD, PlanarVecs};
-use ardftsrc::audioadapter::Adapter;
-use ardftsrc::audioadapter_buffers::direct::InterleavedSlice;
+use ardftsrc::{InterleavedResampler, PRESET_GOOD, PlanarVecs};
 
 fn resample_tracks(
     inputs: &[&[f64]],
@@ -234,21 +233,13 @@ fn resample_tracks(
         .with_output_rate(out_rate)
         .with_channels(channels);
 
-    let driver = BatchResampler::<f64>::new(config).unwrap();
-    let adapters = inputs
-        .iter()
-        .map(|input| InterleavedSlice::new(input, channels, input.len() / channels).unwrap())
-        .collect::<Vec<_>>();
-    let adapter_refs = adapters
-        .iter()
-        .map(|input| input as &dyn Adapter<'_, f64>)
-        .collect::<Vec<_>>();
+    let driver = InterleavedResampler::<f64>::new(config).unwrap();
 
     // Independent tracks (podcasts, unrelated files, etc.).
-    let _independent = driver.batch(&adapter_refs).unwrap();
+    let _independent = driver.batch(inputs).unwrap();
 
     // Gapless sequence (album tracks played back-to-back).
-    let gapless = driver.batch_gapless(&adapter_refs).unwrap();
+    let gapless = driver.batch_gapless(inputs).unwrap();
 
     // Return one of the two results based on your use case.
     gapless
@@ -311,9 +302,9 @@ Contributions are welcome!
 At a high level there are two layers:
 
 - `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithm. It is private.
-- `ChunkResampler<T>` is the fixed-size chunk resampler. It owns one `ArdftsrcCore` per channel and routes incoming interleaved audio to channel-specific cores.
-- `StreamingResampler<T>` wraps `ChunkResampler<T>` with arbitrary-size sample buffering for live resampling.
-- `BatchResampler<T>` wraps `ChunkResampler<T>` for batching processing multiple files at once.
+- `PlanarResampler<T>` and `InterleavedResampler<T>` are fixed-size chunk resamplers. They own one `ArdftsrcCore` per channel and expose full-buffer, chunked, and batch processing APIs for planar or interleaved audio.
+- `AdapterResampler<T>` adapts generic `audioadapter` inputs and outputs onto the chunk resampling core.
+- `StreamingResampler<T>` provides arbitrary-size sample buffering for live resampling.
 
 ### Golden Hashes
 

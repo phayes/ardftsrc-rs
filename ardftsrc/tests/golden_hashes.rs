@@ -17,7 +17,7 @@
 //!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //!
-use ardftsrc::{ChunkInterleavedResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs};
+use ardftsrc::{InterleavedResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -216,7 +216,7 @@ fn generate_hashes_f32(
             .with_input_rate(input_rate)
             .with_output_rate(target_rate)
             .with_channels(channels);
-        let driver = ChunkInterleavedResampler::<f32>::new(config)?;
+        let driver = InterleavedResampler::<f32>::new(config)?;
         let inputs = indices.iter().map(|&i| wavs[i].samples.as_slice()).collect::<Vec<_>>();
         let outputs = driver.batch(&inputs)?;
 
@@ -246,7 +246,7 @@ fn generate_hashes_f64_from_f32(
             .with_input_rate(input_rate)
             .with_output_rate(target_rate)
             .with_channels(channels);
-        let driver = ChunkInterleavedResampler::<f64>::new(config)?;
+        let driver = InterleavedResampler::<f64>::new(config)?;
         let inputs = indices
             .iter()
             .map(|&i| interleaved_f32_to_f64(&wavs[i].samples, channels))

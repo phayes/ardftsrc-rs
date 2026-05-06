@@ -3,11 +3,11 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{ChunkPlanarResampler, Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
+use crate::{PlanarResampler, Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
-pub struct ChunkAdapterResampler<T = f64>
+pub struct AdapterResampler<T = f64>
 where
     T: Float + FftNum + Sample,
 {
@@ -22,7 +22,7 @@ where
     output_staging: Vec<Vec<T>>,
 }
 
-impl<T> ChunkAdapterResampler<T>
+impl<T> AdapterResampler<T>
 where
     T: Float + FftNum + Sample,
 {
@@ -435,7 +435,7 @@ where
     {
         let prepared_inputs = self.batch_prepare_generic_adapter_inputs(inputs)?;
 
-        let planar_adapter = ChunkPlanarResampler::new(self.config.clone())?;
+        let planar_adapter = PlanarResampler::new(self.config.clone())?;
         planar_adapter.batch(prepared_inputs)
     }
 
@@ -451,7 +451,7 @@ where
         T: Send + Sync,
     {
         let prepared_inputs = self.batch_prepare_generic_adapter_inputs(inputs)?;
-        let planar_adapter = ChunkPlanarResampler::new(self.config.clone())?;
+        let planar_adapter = PlanarResampler::new(self.config.clone())?;
         planar_adapter.batch_gapless(prepared_inputs)
     }
 
@@ -500,16 +500,16 @@ mod tests {
     use audioadapter_buffers::direct::InterleavedSlice;
     use dasp_signal::Signal;
 
-    fn input_chunk_frames(resampler: &ChunkAdapterResampler<f32>) -> usize {
+    fn input_chunk_frames(resampler: &AdapterResampler<f32>) -> usize {
         resampler.input_chunk_size() / resampler.config().channels
     }
 
-    fn output_chunk_frames(resampler: &ChunkAdapterResampler<f32>) -> usize {
+    fn output_chunk_frames(resampler: &AdapterResampler<f32>) -> usize {
         resampler.output_chunk_size() / resampler.config().channels
     }
 
     fn process_chunk_samples(
-        resampler: &mut ChunkAdapterResampler<f32>,
+        resampler: &mut AdapterResampler<f32>,
         input: &[f32],
         output: &mut [f32],
     ) -> Result<usize, Error> {
@@ -533,7 +533,7 @@ mod tests {
     }
 
     fn process_chunk_final_samples(
-        resampler: &mut ChunkAdapterResampler<f32>,
+        resampler: &mut AdapterResampler<f32>,
         input: &[f32],
         output: &mut [f32],
     ) -> Result<usize, Error> {
@@ -556,7 +556,7 @@ mod tests {
         Ok(written)
     }
 
-    fn finalize_samples_chunk(resampler: &mut ChunkAdapterResampler<f32>, output: &mut [f32]) -> Result<usize, Error> {
+    fn finalize_samples_chunk(resampler: &mut AdapterResampler<f32>, output: &mut [f32]) -> Result<usize, Error> {
         let channels = resampler.config().channels;
         let output_len = output.len();
         let mut output_adapter = InterleavedSlice::new_mut(output, channels, output_len / channels).map_err(|_| {
@@ -594,7 +594,7 @@ mod tests {
         pre: Option<&[f32]>,
         post: Option<&[f32]>,
     ) -> Vec<f32> {
-        let mut resampler = ChunkAdapterResampler::new(config).unwrap();
+        let mut resampler = AdapterResampler::new(config).unwrap();
         let channels = resampler.config().channels;
         if let Some(pre) = pre {
             let pre_adapter = InterleavedSlice::new(pre, channels, pre.len() / channels).unwrap();
@@ -669,7 +669,7 @@ mod tests {
 
     #[test]
     fn silence_stays_silent() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(48_000, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(48_000, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
 
         let output = process_all_samples(&mut resampler, &input).unwrap();
@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn same_rate_passthrough_preserves_samples() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(48_000, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(48_000, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&resampler) * 2 + 7)
             .map(|frame| (frame as f32 * 0.013).cos())
             .collect();
@@ -692,7 +692,7 @@ mod tests {
 
     #[test]
     fn impulse_output_is_finite() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let mut input = vec![0.0; input_chunk_frames(&resampler)];
         input[0] = 1.0;
 
@@ -704,7 +704,7 @@ mod tests {
 
     #[test]
     fn first_chunk_lpc_start_edge_is_finite() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&resampler))
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
@@ -722,7 +722,7 @@ mod tests {
 
     #[test]
     fn short_final_chunk_lpc_stop_edge_is_finite_and_bounded() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input_frames = input_chunk_frames(&resampler) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.02).sin() * 0.1)
@@ -737,7 +737,7 @@ mod tests {
 
     #[test]
     fn expected_output_size_matches_frame_count_conversion() {
-        let resampler = ChunkAdapterResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let resampler = AdapterResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
         let input_samples = resampler.input_chunk_size() * 2 + 14;
         let input_frames = input_samples / resampler.config().channels;
 
@@ -748,7 +748,7 @@ mod tests {
 
     #[test]
     fn expected_output_size_accepts_non_interleaved_length() {
-        let resampler = ChunkAdapterResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let resampler = AdapterResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
         let expected = (3usize * 48_000).div_ceil(44_100);
         assert_eq!(resampler.expected_output_size(3), expected);
     }
@@ -756,7 +756,7 @@ mod tests {
     #[test]
     fn stereo_wrapper_matches_channel_core_outputs() {
         let config = stereo_config(44_100, 48_000);
-        let mut wrapper = ChunkAdapterResampler::<f32>::new(config.clone()).unwrap();
+        let mut wrapper = AdapterResampler::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&wrapper) * 2 + 37;
         let input: Vec<f32> = (0..input_frames)
             .flat_map(|frame| {
@@ -814,7 +814,7 @@ mod tests {
 
     #[test]
     fn pre_and_post_reject_wrong_channel_count() {
-        let mut resampler = ChunkAdapterResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
         let mono_context = [0.0f32; 8];
         let context_adapter = InterleavedSlice::new(&mono_context, 1, mono_context.len()).unwrap();
 
@@ -830,8 +830,8 @@ mod tests {
 
     #[test]
     fn pre_context_changes_first_chunk_output() {
-        let mut with_zero_pre = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
-        let mut with_one_pre = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_zero_pre = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_one_pre = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&with_zero_pre))
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
@@ -858,8 +858,8 @@ mod tests {
 
     #[test]
     fn post_context_changes_flush_output() {
-        let mut with_zero_post = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
-        let mut with_one_post = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_zero_post = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_one_post = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&with_zero_post))
             .map(|frame| (frame as f32 * 0.015).cos() * 0.125)
             .collect();
@@ -889,7 +889,7 @@ mod tests {
 
     #[test]
     fn flush_after_full_chunk_uses_lpc_tail_edge() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&resampler))
             .map(|frame| (frame as f32 * 0.015).cos() * 0.125)
             .collect();
@@ -905,8 +905,8 @@ mod tests {
     #[test]
     fn streaming_and_offline_paths_match() {
         let config = mono_config(44_100, 48_000);
-        let mut offline = ChunkAdapterResampler::new(config.clone()).unwrap();
-        let mut streaming = ChunkAdapterResampler::new(config).unwrap();
+        let mut offline = AdapterResampler::new(config.clone()).unwrap();
+        let mut streaming = AdapterResampler::new(config).unwrap();
         let input_frames = input_chunk_frames(&streaming) * 2 + input_chunk_frames(&streaming) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
@@ -946,7 +946,7 @@ mod tests {
     fn split_resampling_with_pre_post_matches_full_stream() {
         let mut config = mono_config(44_100, 48_000);
         config.taper_type = TaperType::Cosine(1.55);
-        let mut full_resampler = ChunkAdapterResampler::new(config.clone()).unwrap();
+        let mut full_resampler = AdapterResampler::new(config.clone()).unwrap();
         let context_len = full_resampler.input_chunk_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
@@ -1000,7 +1000,7 @@ mod tests {
     #[test]
     fn split_resampling_is_worse_without_pre_post() {
         let config = mono_config(44_100, 48_000);
-        let mut full_resampler = ChunkAdapterResampler::new(config.clone()).unwrap();
+        let mut full_resampler = AdapterResampler::new(config.clone()).unwrap();
         let context_len = full_resampler.input_chunk_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
@@ -1066,8 +1066,8 @@ mod tests {
     #[test]
     fn process_all_resets_state_between_calls() {
         let config = mono_config(44_100, 48_000);
-        let mut reused = ChunkAdapterResampler::new(config.clone()).unwrap();
-        let mut reference = ChunkAdapterResampler::new(config).unwrap();
+        let mut reused = AdapterResampler::new(config.clone()).unwrap();
+        let mut reference = AdapterResampler::new(config).unwrap();
         let first_input: Vec<f32> = (0..(input_chunk_frames(&reused) * 2 + 11))
             .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
             .collect();
@@ -1092,7 +1092,7 @@ mod tests {
 
     #[test]
     fn stereo_channels_are_processed_independently() {
-        let mut resampler = ChunkAdapterResampler::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(stereo_config(44_100, 48_000)).unwrap();
         let mut input = vec![0.0; resampler.input_chunk_size()];
         input[0] = 1.0;
 
@@ -1110,8 +1110,8 @@ mod tests {
     #[test]
     fn stereo_streaming_and_offline_paths_match() {
         let config = stereo_config(44_100, 48_000);
-        let mut offline = ChunkAdapterResampler::new(config.clone()).unwrap();
-        let mut streaming = ChunkAdapterResampler::new(config).unwrap();
+        let mut offline = AdapterResampler::new(config.clone()).unwrap();
+        let mut streaming = AdapterResampler::new(config).unwrap();
         let input_frames = input_chunk_frames(&streaming) * 2 + input_chunk_frames(&streaming) / 3;
         let mut input = Vec::with_capacity(input_frames * 2);
         for frame in 0..input_frames {
@@ -1151,7 +1151,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_streaming_chunk_size() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler) - 1];
 
         assert!(process_chunk_samples(&mut resampler, &input, &mut []).is_err());
@@ -1159,7 +1159,7 @@ mod tests {
 
     #[test]
     fn too_small_output_does_not_advance_stream_state() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut too_small = vec![0.0; output_chunk_frames(&resampler) - 1];
 
@@ -1180,7 +1180,7 @@ mod tests {
 
     #[test]
     fn input_sample_count_tracks_full_and_partial_stream_input() {
-        let mut resampler = ChunkAdapterResampler::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(stereo_config(44_100, 48_000)).unwrap();
         let mut output = vec![0.0; resampler.output_chunk_size()];
         let full = vec![0.0; resampler.input_chunk_size()];
         let partial = vec![0.0; 10];
@@ -1194,7 +1194,7 @@ mod tests {
 
     #[test]
     fn too_small_finish_output_does_not_mark_flushed() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut first_output = vec![0.0; output_chunk_frames(&resampler)];
         process_chunk_samples(&mut resampler, &input, &mut first_output).unwrap();
@@ -1215,7 +1215,7 @@ mod tests {
 
     #[test]
     fn first_chunk_is_delay_trimmed_and_flushes_tail() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
@@ -1232,7 +1232,7 @@ mod tests {
 
     #[test]
     fn finalize_without_explicit_final_chunk_caps_to_expected_total() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let input_samples = input.len() * 2;
         let expected_total = resampler.expected_output_size(input_samples);
@@ -1247,7 +1247,7 @@ mod tests {
 
     #[test]
     fn empty_finish_does_not_emit_extra_block() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
@@ -1264,7 +1264,7 @@ mod tests {
 
     #[test]
     fn empty_stream_flushes_no_samples() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         assert_eq!(
@@ -1276,7 +1276,7 @@ mod tests {
 
     #[test]
     fn second_finish_after_reset_returns_zero_without_input() {
-        let mut resampler = ChunkAdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = AdapterResampler::new(mono_config(44_100, 48_000)).unwrap();
 
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
         assert_eq!(finalize_samples_chunk(&mut resampler, &mut output).unwrap(), 0);

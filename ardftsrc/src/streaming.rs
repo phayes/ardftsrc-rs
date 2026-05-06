@@ -4,7 +4,7 @@ use audio_core::Sample;
 use num_traits::Float;
 use realfft::FftNum;
 
-use crate::{ChunkInterleavedResampler, Config, Error};
+use crate::{InterleavedResampler, Config, Error};
 
 pub struct StreamingResampler<T = f64>
 where
@@ -17,7 +17,7 @@ struct StreamingSpan<T = f64>
 where
     T: Float + FftNum + Sample,
 {
-    inner: ChunkInterleavedResampler<T>,
+    inner: InterleavedResampler<T>,
     samples_pending_input: VecDeque<T>,
     samples_pending_output: VecDeque<T>,
     samples_input_chunk_buffer: Vec<T>,
@@ -190,7 +190,7 @@ where
     T: Float + FftNum + Sample,
 {
     fn new(config: Config) -> Result<Self, Error> {
-        let inner = ChunkInterleavedResampler::new(config)?;
+        let inner = InterleavedResampler::new(config)?;
         let input_chunk_size = inner.input_chunk_size();
         let output_chunk_size = inner.output_chunk_size();
 
@@ -348,14 +348,14 @@ mod tests {
         resampler.input_chunk_size() / resampler.config().channels
     }
 
-    fn process_all_samples(resampler: &mut ChunkInterleavedResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
+    fn process_all_samples(resampler: &mut InterleavedResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
         let output = resampler.process_all(input)?.interleave();
         assert_no_nans(&output, "streaming::process_all_samples output");
         Ok(output)
     }
 
     fn process_chunk_samples(
-        resampler: &mut ChunkInterleavedResampler<f32>,
+        resampler: &mut InterleavedResampler<f32>,
         input: &[f32],
         output: &mut [f32],
     ) -> Result<usize, Error> {
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn reads_drain_old_span_before_new_span() {
         let first_config = mono_config(44_100, 48_000);
-        let mut first_offline = ChunkInterleavedResampler::new(first_config.clone()).unwrap();
+        let mut first_offline = InterleavedResampler::new(first_config.clone()).unwrap();
         let first_len = first_offline.input_chunk_size() + 7;
         let first_input: Vec<f32> = (0..first_len)
             .map(|frame| (frame as f32 * 0.019).sin() * 0.25)
@@ -495,7 +495,7 @@ mod tests {
             input_sample_rate: 32_000,
             ..first_config.clone()
         };
-        let mut second_offline = ChunkInterleavedResampler::new(second_config).unwrap();
+        let mut second_offline = InterleavedResampler::new(second_config).unwrap();
         let second_len = second_offline.input_chunk_size() + 5;
         let second_input: Vec<f32> = (0..second_len)
             .map(|frame| (frame as f32 * 0.023).cos() * 0.2)
@@ -526,14 +526,14 @@ mod tests {
     #[test]
     fn samples_left_in_span_tracks_channel_change_boundary() {
         let first_config = mono_config(44_100, 48_000);
-        let mut first_offline = ChunkInterleavedResampler::new(first_config.clone()).unwrap();
+        let mut first_offline = InterleavedResampler::new(first_config.clone()).unwrap();
         let first_input: Vec<f32> = (0..(first_offline.input_chunk_size() + 3))
             .map(|frame| (frame as f32 * 0.011).sin() * 0.3)
             .collect();
         let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
 
         let second_config = stereo_config(44_100, 48_000);
-        let mut second_offline = ChunkInterleavedResampler::new(second_config).unwrap();
+        let mut second_offline = InterleavedResampler::new(second_config).unwrap();
         let second_frames = second_offline.input_chunk_size() / 2 + 3;
         let mut second_input = Vec::with_capacity(second_frames * 2);
         for frame in 0..second_frames {
@@ -585,7 +585,7 @@ mod tests {
     #[test]
     fn write_samples_and_read_samples_match_chunk_output() {
         let config = mono_config(44_100, 48_000);
-        let mut chunk_resampler = ChunkInterleavedResampler::new(config.clone()).unwrap();
+        let mut chunk_resampler = InterleavedResampler::new(config.clone()).unwrap();
         let mut sample_resampler = StreamingResampler::new(config).unwrap();
         let input: Vec<f32> = (0..chunk_resampler.input_chunk_size())
             .map(|frame| (frame as f32 * 0.013).sin() * 0.3)
@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn sample_api_finalize_matches_process_all_total_output() {
         let config = mono_config(44_100, 48_000);
-        let mut offline = ChunkInterleavedResampler::new(config.clone()).unwrap();
+        let mut offline = InterleavedResampler::new(config.clone()).unwrap();
         let driver = StreamingResampler::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&driver) * 2 + input_chunk_frames(&driver) / 3;
         let input: Vec<f32> = (0..input_frames)
@@ -632,7 +632,7 @@ mod tests {
     #[test]
     fn sample_api_stereo_matches_process_all_total_output() {
         let config = stereo_config(44_100, 48_000);
-        let mut offline = ChunkInterleavedResampler::new(config.clone()).unwrap();
+        let mut offline = InterleavedResampler::new(config.clone()).unwrap();
         let driver = StreamingResampler::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&driver) * 2 + 17;
         let mut input = Vec::with_capacity(input_frames * 2);
@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn finalize_samples_read_until_zero_drains_stream() {
         let config = mono_config(44_100, 48_000);
-        let mut offline = ChunkInterleavedResampler::new(config.clone()).unwrap();
+        let mut offline = InterleavedResampler::new(config.clone()).unwrap();
         let mut stream = StreamingResampler::new(config).unwrap();
         let input_frames = input_chunk_frames(&stream) + input_chunk_frames(&stream) / 4;
         let input: Vec<f32> = (0..input_frames)

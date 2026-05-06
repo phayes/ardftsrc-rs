@@ -9,7 +9,7 @@
 //! ardftsrc = { path = "../ardftsrc", features = ["rayon"] }
 //! ```
 
-use ardftsrc::{ChunkInterleavedResampler, Config, PlanarVecs, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+use ardftsrc::{InterleavedResampler, Config, PlanarVecs, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -161,7 +161,7 @@ fn generate_hashes(
             .with_input_rate(input_rate)
             .with_output_rate(target_rate)
             .with_channels(channels);
-        let driver = ChunkInterleavedResampler::<f32>::new(config)?;
+        let driver = InterleavedResampler::<f32>::new(config)?;
         let inputs = indices
             .iter()
             .map(|&i| wavs[i].samples.as_slice())
@@ -194,7 +194,7 @@ fn generate_hashes_f64_from_f32(
             .with_input_rate(input_rate)
             .with_output_rate(target_rate)
             .with_channels(channels);
-        let driver = ChunkInterleavedResampler::<f64>::new(config)?;
+        let driver = InterleavedResampler::<f64>::new(config)?;
 
         let inputs = indices
             .iter()

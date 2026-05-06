@@ -7,7 +7,7 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use ardftsrc::{ChunkInterleavedResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+use ardftsrc::{InterleavedResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use num_traits::Float;
@@ -115,7 +115,7 @@ fn benchmark_sample_type<T>(
         .with_input_rate(fixture.sample_rate_hz)
         .with_output_rate(output_sample_rate_hz)
         .with_channels(fixture.channels);
-    let mut resampler = ChunkInterleavedResampler::<T>::new(config).unwrap();
+    let mut resampler = InterleavedResampler::<T>::new(config).unwrap();
     let input_frames = samples.len() / fixture.channels;
     let output_frames = resampler.expected_output_size(input_frames);
     let output_samples = output_frames * fixture.channels;
