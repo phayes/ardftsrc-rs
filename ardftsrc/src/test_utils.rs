@@ -3,7 +3,7 @@ use audioadapter_buffers::direct::InterleavedSlice;
 use num_traits::Float;
 use realfft::FftNum;
 
-use crate::{ChunkResampler, Error};
+use crate::{ChunkAdapterResampler, Error};
 
 pub(crate) fn assert_no_nans<T>(samples: &[T], label: &str)
 where
@@ -14,7 +14,7 @@ where
     }
 }
 
-pub(crate) fn process_all_samples<T>(resampler: &mut ChunkResampler<T>, input: &[T]) -> Result<Vec<T>, Error>
+pub(crate) fn process_all_samples<T>(resampler: &mut ChunkAdapterResampler<T>, input: &[T]) -> Result<Vec<T>, Error>
 where
     T: Float + FftNum + Sample + Send + Sync,
 {

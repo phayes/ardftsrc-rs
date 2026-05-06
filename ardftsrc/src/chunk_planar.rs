@@ -4,27 +4,19 @@ use rayon::prelude::*;
 use realfft::FftNum;
 
 use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
-use audio_core::Sample;
-use audioadapter::{Adapter, AdapterMut};
 
-pub struct ChunkResampler<T = f64>
+pub struct ChunkPlanarResampler<T = f64>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     config: Config,
     derived: DerivedConfig<T>,
     pub(crate) cores: Vec<ArdftsrcCore<T>>,
-
-    // Staging area for non-planar input. Non-planar incomming inputs are staged into planar before calling Core::process_chunk
-    input_staging: Vec<Vec<T>>,
-
-    // Staging area for non-planar output. Non-planar outgoing outputs are staged into planar before calling AdapterMut::copy_from_slice_to_channel
-    output_staging: Vec<Vec<T>>,
 }
 
-impl<T> ChunkResampler<T>
+impl<T> ChunkPlanarResampler<T>
 where
-    T: Float + FftNum + Sample,
+    T: Float + FftNum,
 {
     /// Constructs a resampler from `config`.
     ///
@@ -36,16 +28,7 @@ where
             .map(|_| ArdftsrcCore::new(derived.clone()))
             .collect();
 
-        let input_staging = vec![vec![T::zero(); derived.input_chunk_frames]; config.channels];
-        let output_staging = vec![vec![T::zero(); derived.output_chunk_frames]; config.channels];
-
-        Ok(Self {
-            config,
-            derived,
-            cores,
-            input_staging,
-            output_staging,
-        })
+        Ok(Self { config, derived, cores })
     }
 
     /// Returns the configuration this instance was built with.
@@ -111,49 +94,7 @@ where
     /// This is a convenience wrapper around the streaming API.
     ///
     /// When the `rayon` feature is enabled, each channel is processed in parallel.
-    pub fn process_all<'a>(&mut self, input: &dyn Adapter<'a, T>) -> Result<PlanarVecs<T>, Error>
-    where
-        T: Send + Sync,
-    {
-        // Deinterleave the input
-        let mut planar_input: Vec<Vec<T>> = Vec::with_capacity(self.config.channels);
-        for channel_idx in 0..self.config.channels {
-            let mut channel = vec![T::zero(); input.frames()];
-            input.copy_from_channel_to_slice(channel_idx, 0, &mut channel);
-            planar_input.push(channel);
-        }
-
-        // If it's passthrough, just return the input
-        if self.is_passthrough() {
-            return Ok(PlanarVecs::new(planar_input)?);
-        }
-
-        #[cfg(feature = "rayon")]
-        let output: Vec<Vec<T>> = self
-            .cores
-            .par_iter_mut()
-            .zip(planar_input.par_iter())
-            .map(|(core, channel)| core.process_all(channel))
-            .collect::<Result<_, _>>()?;
-
-        #[cfg(not(feature = "rayon"))]
-        let output: Vec<Vec<T>> = {
-            let mut output = Vec::with_capacity(self.config.channels);
-            for (core, channel) in self.cores.iter_mut().zip(planar_input.iter()) {
-                output.push(core.process_all(channel)?);
-            }
-            output
-        };
-
-        PlanarVecs::new(output)
-    }
-
-    /// Resamples a complete interleaved input buffer and returns all output samples.
-    ///
-    /// This is a convenience wrapper around the streaming API.
-    ///
-    /// When the `rayon` feature is enabled, each channel is processed in parallel.
-    pub fn process_all_planar<'a>(&mut self, input: &[&[T]]) -> Result<PlanarVecs<T>, Error>
+    pub fn process_all<'a>(&mut self, input: &[&[T]]) -> Result<PlanarVecs<T>, Error>
     where
         T: Send + Sync,
     {
@@ -183,48 +124,6 @@ where
         PlanarVecs::new(output)
     }
 
-    /// Resamples a complete interleaved input buffer and returns all output samples.
-    ///
-    /// This is a convenience wrapper around the streaming API.
-    ///
-    /// When the `rayon` feature is enabled, each channel is processed in parallel.
-    pub fn process_all_interleaved<'a>(&mut self, input: &[T]) -> Result<PlanarVecs<T>, Error>
-    where
-        T: Send + Sync,
-    {
-        // If it's passthrough, just return the input
-        if self.is_passthrough() {
-            // translate input to planar
-            let input_planar: Vec<Vec<T>> = (0..self.config.channels)
-                .map(|channel| input[channel..].iter().step_by(self.config.channels).copied().collect())
-                .collect();
-            return Ok(PlanarVecs::new(input_planar)?);
-        }
-
-        let input_planar: Vec<Vec<T>> = (0..self.config.channels)
-            .map(|channel| input[channel..].iter().step_by(self.config.channels).copied().collect())
-            .collect();
-
-        #[cfg(feature = "rayon")]
-        let output: Vec<Vec<T>> = self
-            .cores
-            .par_iter_mut()
-            .zip(input_planar.par_iter())
-            .map(|(core, channel)| core.process_all(channel))
-            .collect::<Result<_, _>>()?;
-
-        #[cfg(not(feature = "rayon"))]
-        let output: Vec<Vec<T>> = {
-            let mut output = Vec::with_capacity(self.config.channels);
-            for (core, channel) in self.cores.iter_mut().zip(input_planar.iter()) {
-                output.push(core.process_all(channel)?);
-            }
-            output
-        };
-
-        PlanarVecs::new(output)
-    }
-
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
     ///
     /// Call this between unrelated audio inputs (for example, between files) when reusing the
@@ -235,7 +134,7 @@ where
         }
     }
 
-    /// Processes a streaming chunk. Channels are interleaved in the input buffer.
+    /// Processes an interleaved chunk.
     ///
     /// `input` must contain exactly `input_buffer_size()` samples (all channels, interleaved),
     /// and `output` should provide at least `output_buffer_size()` capacity.
@@ -244,37 +143,20 @@ where
     /// (for example while startup delay is being trimmed).
     ///
     /// Returns the number of samples written to the output buffer.
-    pub fn process_chunk<'a>(
-        &mut self,
-        input: &dyn Adapter<'a, T>,
-        output: &mut dyn AdapterMut<'a, T>,
-    ) -> Result<usize, Error> {
+    pub fn process_chunk<'a>(&mut self, input: &[&[T]], output: &mut [&mut [T]]) -> Result<usize, Error> {
         // Output buffer must be at least the size of the output chunk (but can be larger).
-        self.ensure_output_buffer_size(output)?;
-        self.ensure_input_buffer_size(input, false)?;
+        self.ensure_input_buffer_shape(input, false)?;
+        self.ensure_output_buffer_shape(output)?;
 
-        // Deinterleave the input into the input_staging
-        for channel in &mut self.input_staging {
-            if channel.len() != self.derived.input_chunk_frames {
-                channel.resize(self.derived.input_chunk_frames, T::zero());
+        if self.is_passthrough() {
+            for (channel_input, channel_output) in input.iter().zip(output.iter_mut()) {
+                channel_output[..channel_input.len()].copy_from_slice(channel_input);
             }
+            return Ok(input[0].len());
         }
-        for channel_idx in 0..self.config.channels {
-            input.copy_from_channel_to_slice(channel_idx, 0, &mut self.input_staging[channel_idx]);
-        }
-
-        // Destructure self to allow multability of different fields at the same time.
-        let (cores, input_staging, output_staging) =
-            (&mut self.cores, &mut self.input_staging, &mut self.output_staging);
 
         // Process the chunk.
-        let total_written = Self::process_chunk_inner(cores, input_staging, output_staging, false)?;
-
-        // Copy the output from the output_staging to the output
-        let total_written_per_channel = total_written / self.config.channels;
-        for (channel_idx, channel_output) in self.output_staging.iter().enumerate() {
-            output.copy_from_slice_to_channel(channel_idx, 0, &channel_output[..total_written_per_channel]);
-        }
+        let total_written = Self::process_chunk_inner(&mut self.cores, input, output, false)?;
 
         Ok(total_written)
     }
@@ -287,61 +169,40 @@ where
     /// Size `output` to at least `output_buffer_size()`.
     ///
     /// Returns the number of samples written to the output buffer.
-    pub fn process_chunk_final<'a>(
-        &mut self,
-        input: &dyn Adapter<'a, T>,
-        output: &mut dyn AdapterMut<'a, T>,
-    ) -> Result<usize, Error> {
+    pub fn process_chunk_final<'a>(&mut self, input: &[&[T]], output: &mut [&mut [T]]) -> Result<usize, Error> {
         // Output buffer must be at least the size of the output chunk (but can be larger).
-        self.ensure_output_buffer_size(output)?;
-        self.ensure_input_buffer_size(input, true)?;
+        self.ensure_input_buffer_shape(input, true)?;
+        self.ensure_output_buffer_shape(output)?;
 
-        // Deinterleave the input into the input_staging
-        for channel in &mut self.input_staging {
-            channel.resize(input.frames(), T::zero());
+        if self.is_passthrough() {
+            for (channel_input, channel_output) in input.iter().zip(output.iter_mut()) {
+                channel_output[..channel_input.len()].copy_from_slice(channel_input);
+            }
+            return Ok(input[0].len());
         }
-        for channel_idx in 0..self.config.channels {
-            input.copy_from_channel_to_slice(channel_idx, 0, &mut self.input_staging[channel_idx]);
-        }
-
-        // Destructure self to allow multability of different fields at the same time.
-        let (cores, input_staging, output_staging) =
-            (&mut self.cores, &mut self.input_staging, &mut self.output_staging);
 
         // Process the chunk.
-        let total_written = Self::process_chunk_inner(cores, input_staging, output_staging, true)?;
-
-        // Copy the output from the output_staging to the output
-        let total_written_per_channel = total_written / self.config.channels;
-        for (channel_idx, channel_output) in self.output_staging.iter().enumerate() {
-            output.copy_from_slice_to_channel(channel_idx, 0, &channel_output[..total_written_per_channel]);
-        }
+        let total_written = Self::process_chunk_inner(&mut self.cores, input, output, true)?;
 
         Ok(total_written)
     }
 
     #[inline]
-    fn process_chunk_inner<I, C, O, D>(
+    fn process_chunk_inner(
         cores: &mut [ArdftsrcCore<T>],
-        input: I,
-        output: O,
+        input: &[&[T]],
+        output: &mut [&mut [T]],
         is_final: bool,
-    ) -> Result<usize, Error>
-    where
-        I: IntoIterator<Item = C>,
-        C: AsRef<[T]>,
-        O: IntoIterator<Item = D>,
-        D: AsMut<[T]>,
-    {
+    ) -> Result<usize, Error> {
         let mut total_written = 0;
 
-        // For each channel, process the chunk in the core.
-        for (channel_idx, (channel_input, mut channel_output)) in input.into_iter().zip(output).enumerate() {
-            let channel_output = channel_output.as_mut();
+        for (channel_idx, (channel_input, channel_output)) in input.iter().zip(output.iter_mut()).enumerate() {
             let core_output = cores[channel_idx].process_chunk(channel_input.as_ref(), is_final)?;
 
             debug_assert!(channel_output.len() >= core_output.len());
+
             channel_output[..core_output.len()].copy_from_slice(&core_output);
+
             total_written += core_output.len();
         }
 
@@ -355,21 +216,23 @@ where
     /// stream. If `process_chunk_final()` was not called, this treats the last accepted full chunk
     /// as terminal input.
     ///
-    /// Returns the number of samples written to the output buffer.
-    pub fn finalize<'a>(&mut self, output: &mut dyn AdapterMut<'a, T>) -> Result<usize, Error> {
+    /// Returns the number of samples written to the output buffer. Divide by the channel count to get the number of samples written per channel.
+    pub fn finalize<'a>(&mut self, output: &mut [&mut [T]]) -> Result<usize, Error> {
         // Ensure the output buffer is large enough.
-        self.ensure_output_buffer_size(output)?;
+        self.ensure_output_buffer_shape(output)?;
 
-        let mut total_written = 0;
-
-        // For each channel, process the chunk in the core.
-        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
-            let core_output = core.finalize()?;
-            let (out_written, _) = output.copy_from_slice_to_channel(channel_idx, 0, core_output);
-            total_written += out_written;
+        if self.is_passthrough() {
+            return Ok(0);
         }
 
-        // Return total written
+        // For each channel, process the chunk in the core.
+        let mut total_written = 0;
+        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
+            let core_output = core.finalize()?;
+            output[channel_idx][..core_output.len()].copy_from_slice(&core_output);
+            total_written += core_output.len();
+        }
+
         Ok(total_written)
     }
 
@@ -378,20 +241,31 @@ where
     /// Non-final calls must provide exactly `input_buffer_size()` samples. Final calls may provide
     /// fewer samples but never more than `input_buffer_size()`.
     #[inline]
-    fn ensure_input_buffer_size<'a>(&self, input: &dyn Adapter<'a, T>, is_final: bool) -> Result<(), Error> {
-        if self.config.channels != input.channels() {
+    fn ensure_input_buffer_shape<'a>(&self, input: &[&[T]], is_final: bool) -> Result<(), Error> {
+        if input.len() != self.config.channels {
             return Err(Error::WrongChannelCount {
                 expected: self.config.channels,
-                actual: input.channels(),
+                actual: input.len(),
             });
         }
 
-        if (!is_final && input.frames() != self.derived.input_chunk_frames)
-            || (is_final && input.frames() > self.derived.input_chunk_frames)
+        if !is_final {
+            if let Some(channel) = input
+                .iter()
+                .find(|channel| channel.len() != self.derived.input_chunk_frames)
+            {
+                return Err(Error::WrongFrameCount {
+                    expected: self.derived.input_chunk_frames,
+                    actual: channel.len(),
+                });
+            }
+        } else if let Some(channel) = input
+            .iter()
+            .find(|channel| channel.len() > self.derived.input_chunk_frames)
         {
             return Err(Error::WrongFrameCount {
                 expected: self.derived.input_chunk_frames,
-                actual: input.frames(),
+                actual: channel.len(),
             });
         }
 
@@ -402,14 +276,24 @@ where
     ///
     /// Callers should allocate at least `output_buffer_size()` samples before processing.
     #[inline]
-    fn ensure_output_buffer_size<'a>(&self, output: &dyn AdapterMut<'a, T>) -> Result<(), Error> {
-        let expected = self.output_chunk_size();
-        if output.channels() * output.frames() < expected {
-            return Err(Error::InsufficientOutputBuffer {
-                expected,
-                actual: output.channels() * output.frames(),
+    fn ensure_output_buffer_shape<'a>(&self, output: &[&mut [T]]) -> Result<(), Error> {
+        if output.len() != self.config.channels {
+            return Err(Error::WrongChannelCount {
+                expected: self.config.channels,
+                actual: output.len(),
             });
         }
+
+        if let Some(channel) = output
+            .iter()
+            .find(|channel| channel.len() < self.derived.output_chunk_frames)
+        {
+            return Err(Error::InsufficientOutputBuffer {
+                expected: self.derived.output_chunk_frames,
+                actual: channel.len(),
+            });
+        }
+
         Ok(())
     }
 
@@ -432,25 +316,20 @@ where
     /// - Query chunk size with `input_buffer_size()`.
     ///
     /// Shorter buffers are still valid: any missing start context falls back to LPC
-    /// extrapolation.
-    pub fn pre<'a>(&mut self, pre: &dyn Adapter<'a, T>) -> Result<(), Error> {
-        if pre.channels() != self.config.channels {
+    /// extrapolation. Longer buffers are truncated to fit.
+    pub fn pre<'a>(&mut self, pre: Vec<Vec<T>>) -> Result<(), Error> {
+        if pre.len() != self.config.channels {
             return Err(Error::WrongChannelCount {
                 expected: self.config.channels,
-                actual: pre.channels(),
+                actual: pre.len(),
             });
         }
 
-        if pre.frames() == 0 {
-            for core in &mut self.cores {
-                core.pre(Vec::new());
+        for (core, samples) in self.cores.iter_mut().zip(pre.into_iter()) {
+            let mut samples = samples;
+            if samples.len() > self.derived.input_chunk_frames {
+                samples = samples.split_off(samples.len() - self.derived.input_chunk_frames);
             }
-            return Ok(());
-        }
-
-        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
-            let mut samples = vec![T::zero(); pre.frames()];
-            pre.copy_from_channel_to_slice(channel_idx, 0, &mut samples);
             core.pre(samples);
         }
         Ok(())
@@ -477,24 +356,19 @@ where
     ///
     /// Shorter buffers are still valid: any missing stop context falls back to LPC
     /// extrapolation.
-    pub fn post<'a>(&mut self, post: &dyn Adapter<'a, T>) -> Result<(), Error> {
-        if post.channels() != self.config.channels {
+    pub fn post<'a>(&mut self, post: Vec<Vec<T>>) -> Result<(), Error> {
+        if post.len() != self.config.channels {
             return Err(Error::WrongChannelCount {
                 expected: self.config.channels,
-                actual: post.channels(),
+                actual: post.len(),
             });
         }
 
-        if post.frames() == 0 {
-            for core in &mut self.cores {
-                core.post(Vec::new());
+        for (core, samples) in self.cores.iter_mut().zip(post.into_iter()) {
+            let mut samples = samples;
+            if samples.len() > self.derived.input_chunk_frames {
+                samples.truncate(self.derived.input_chunk_frames);
             }
-            return Ok(());
-        }
-
-        for (channel_idx, core) in self.cores.iter_mut().enumerate() {
-            let mut samples = vec![T::zero(); post.frames()];
-            post.copy_from_channel_to_slice(channel_idx, 0, &mut samples);
             core.post(samples);
         }
         Ok(())
@@ -504,80 +378,93 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        TaperType,
-        core::ArdftsrcCore,
-        test_utils::{assert_no_nans, process_all_samples},
-    };
-    use audioadapter_buffers::direct::InterleavedSlice;
+    use crate::{TaperType, core::ArdftsrcCore, test_utils::assert_no_nans};
     use dasp_signal::Signal;
 
-    fn input_chunk_frames(resampler: &ChunkResampler<f32>) -> usize {
+    fn input_chunk_frames(resampler: &ChunkPlanarResampler<f32>) -> usize {
         resampler.input_chunk_size() / resampler.config().channels
     }
 
-    fn output_chunk_frames(resampler: &ChunkResampler<f32>) -> usize {
+    fn output_chunk_frames(resampler: &ChunkPlanarResampler<f32>) -> usize {
         resampler.output_chunk_size() / resampler.config().channels
     }
 
+    fn deinterleave_samples(samples: &[f32], channels: usize) -> Result<Vec<Vec<f32>>, Error> {
+        if !samples.len().is_multiple_of(channels) {
+            return Err(Error::MalformedInputLength {
+                channels,
+                samples: samples.len(),
+            });
+        }
+
+        let frames = samples.len() / channels;
+        let mut planar = vec![Vec::with_capacity(frames); channels];
+        for frame in samples.chunks_exact(channels) {
+            for (channel_idx, sample) in frame.iter().enumerate() {
+                planar[channel_idx].push(*sample);
+            }
+        }
+
+        Ok(planar)
+    }
+
+    fn interleave_written(planar: &[Vec<f32>], written: usize, channels: usize, output: &mut [f32]) {
+        assert_eq!(written % channels, 0);
+        let written_frames = written / channels;
+        for frame_idx in 0..written_frames {
+            for channel_idx in 0..channels {
+                output[frame_idx * channels + channel_idx] = planar[channel_idx][frame_idx];
+            }
+        }
+    }
+
+    fn process_all_samples(resampler: &mut ChunkPlanarResampler<f32>, input: &[f32]) -> Result<Vec<f32>, Error> {
+        let channels = resampler.config().channels;
+        let input_planar = deinterleave_samples(input, channels)?;
+        let input_refs: Vec<_> = input_planar.iter().map(Vec::as_slice).collect();
+        let output = resampler.process_all(&input_refs)?.interleave();
+        assert_no_nans(&output, "chunk::process_all_samples output");
+        Ok(output)
+    }
+
     fn process_chunk_samples(
-        resampler: &mut ChunkResampler<f32>,
+        resampler: &mut ChunkPlanarResampler<f32>,
         input: &[f32],
         output: &mut [f32],
     ) -> Result<usize, Error> {
         let channels = resampler.config().channels;
-        let output_len = output.len();
-        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
-            Error::MalformedInputLength {
-                channels,
-                samples: input.len(),
-            }
-        })?;
-        let mut output_adapter = InterleavedSlice::new_mut(output, channels, output_len / channels).map_err(|_| {
-            Error::MalformedInputLength {
-                channels,
-                samples: output_len,
-            }
-        })?;
-        let written = resampler.process_chunk(&input_adapter, &mut output_adapter)?;
+        let input_planar = deinterleave_samples(input, channels)?;
+        let mut output_planar = deinterleave_samples(output, channels)?;
+        let input_refs: Vec<_> = input_planar.iter().map(Vec::as_slice).collect();
+        let mut output_refs: Vec<_> = output_planar.iter_mut().map(Vec::as_mut_slice).collect();
+        let written = resampler.process_chunk(&input_refs, &mut output_refs)?;
+        interleave_written(&output_planar, written, channels, output);
         assert_no_nans(&output[..written], "chunk::process_chunk_samples output");
         Ok(written)
     }
 
     fn process_chunk_final_samples(
-        resampler: &mut ChunkResampler<f32>,
+        resampler: &mut ChunkPlanarResampler<f32>,
         input: &[f32],
         output: &mut [f32],
     ) -> Result<usize, Error> {
         let channels = resampler.config().channels;
-        let output_len = output.len();
-        let input_adapter = InterleavedSlice::new(input, channels, input.len() / channels).map_err(|_| {
-            Error::MalformedInputLength {
-                channels,
-                samples: input.len(),
-            }
-        })?;
-        let mut output_adapter = InterleavedSlice::new_mut(output, channels, output_len / channels).map_err(|_| {
-            Error::MalformedInputLength {
-                channels,
-                samples: output_len,
-            }
-        })?;
-        let written = resampler.process_chunk_final(&input_adapter, &mut output_adapter)?;
+        let input_planar = deinterleave_samples(input, channels)?;
+        let mut output_planar = deinterleave_samples(output, channels)?;
+        let input_refs: Vec<_> = input_planar.iter().map(Vec::as_slice).collect();
+        let mut output_refs: Vec<_> = output_planar.iter_mut().map(Vec::as_mut_slice).collect();
+        let written = resampler.process_chunk_final(&input_refs, &mut output_refs)?;
+        interleave_written(&output_planar, written, channels, output);
         assert_no_nans(&output[..written], "chunk::process_chunk_final_samples output");
         Ok(written)
     }
 
-    fn finalize_samples_chunk(resampler: &mut ChunkResampler<f32>, output: &mut [f32]) -> Result<usize, Error> {
+    fn finalize_samples_chunk(resampler: &mut ChunkPlanarResampler<f32>, output: &mut [f32]) -> Result<usize, Error> {
         let channels = resampler.config().channels;
-        let output_len = output.len();
-        let mut output_adapter = InterleavedSlice::new_mut(output, channels, output_len / channels).map_err(|_| {
-            Error::MalformedInputLength {
-                channels,
-                samples: output_len,
-            }
-        })?;
-        let written = resampler.finalize(&mut output_adapter)?;
+        let mut output_planar = deinterleave_samples(output, channels)?;
+        let mut output_refs: Vec<_> = output_planar.iter_mut().map(Vec::as_mut_slice).collect();
+        let written = resampler.finalize(&mut output_refs)?;
+        interleave_written(&output_planar, written, channels, output);
         assert_no_nans(&output[..written], "chunk::finalize_samples_chunk output");
         Ok(written)
     }
@@ -606,15 +493,13 @@ mod tests {
         pre: Option<&[f32]>,
         post: Option<&[f32]>,
     ) -> Vec<f32> {
-        let mut resampler = ChunkResampler::new(config).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(config).unwrap();
         let channels = resampler.config().channels;
         if let Some(pre) = pre {
-            let pre_adapter = InterleavedSlice::new(pre, channels, pre.len() / channels).unwrap();
-            resampler.pre(&pre_adapter).unwrap();
+            resampler.pre(deinterleave_samples(pre, channels).unwrap()).unwrap();
         }
         if let Some(post) = post {
-            let post_adapter = InterleavedSlice::new(post, channels, post.len() / channels).unwrap();
-            resampler.post(&post_adapter).unwrap();
+            resampler.post(deinterleave_samples(post, channels).unwrap()).unwrap();
         }
 
         let input_buffer_size = resampler.input_chunk_size();
@@ -681,7 +566,7 @@ mod tests {
 
     #[test]
     fn silence_stays_silent() {
-        let mut resampler = ChunkResampler::new(mono_config(48_000, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(48_000, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
 
         let output = process_all_samples(&mut resampler, &input).unwrap();
@@ -691,7 +576,7 @@ mod tests {
 
     #[test]
     fn same_rate_passthrough_preserves_samples() {
-        let mut resampler = ChunkResampler::new(mono_config(48_000, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(48_000, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&resampler) * 2 + 7)
             .map(|frame| (frame as f32 * 0.013).cos())
             .collect();
@@ -704,7 +589,7 @@ mod tests {
 
     #[test]
     fn impulse_output_is_finite() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let mut input = vec![0.0; input_chunk_frames(&resampler)];
         input[0] = 1.0;
 
@@ -716,7 +601,7 @@ mod tests {
 
     #[test]
     fn first_chunk_lpc_start_edge_is_finite() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&resampler))
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
@@ -734,7 +619,7 @@ mod tests {
 
     #[test]
     fn short_final_chunk_lpc_stop_edge_is_finite_and_bounded() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input_frames = input_chunk_frames(&resampler) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.02).sin() * 0.1)
@@ -749,7 +634,7 @@ mod tests {
 
     #[test]
     fn expected_output_size_matches_frame_count_conversion() {
-        let resampler = ChunkResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let resampler = ChunkPlanarResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
         let input_samples = resampler.input_chunk_size() * 2 + 14;
         let input_frames = input_samples / resampler.config().channels;
 
@@ -760,7 +645,7 @@ mod tests {
 
     #[test]
     fn expected_output_size_accepts_non_interleaved_length() {
-        let resampler = ChunkResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let resampler = ChunkPlanarResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
         let expected = (3usize * 48_000).div_ceil(44_100);
         assert_eq!(resampler.expected_output_size(3), expected);
     }
@@ -768,7 +653,7 @@ mod tests {
     #[test]
     fn stereo_wrapper_matches_channel_core_outputs() {
         let config = stereo_config(44_100, 48_000);
-        let mut wrapper = ChunkResampler::<f32>::new(config.clone()).unwrap();
+        let mut wrapper = ChunkPlanarResampler::<f32>::new(config.clone()).unwrap();
         let input_frames = input_chunk_frames(&wrapper) * 2 + 37;
         let input: Vec<f32> = (0..input_frames)
             .flat_map(|frame| {
@@ -791,10 +676,8 @@ mod tests {
             })
             .collect();
 
-        let pre_adapter = InterleavedSlice::new(&pre, 2, pre.len() / 2).unwrap();
-        let post_adapter = InterleavedSlice::new(&post, 2, post.len() / 2).unwrap();
-        wrapper.pre(&pre_adapter).unwrap();
-        wrapper.post(&post_adapter).unwrap();
+        wrapper.pre(deinterleave_samples(&pre, 2).unwrap()).unwrap();
+        wrapper.post(deinterleave_samples(&post, 2).unwrap()).unwrap();
         let wrapped_output = process_all_samples(&mut wrapper, &input).unwrap();
 
         let mono_config = Config {
@@ -826,24 +709,23 @@ mod tests {
 
     #[test]
     fn pre_and_post_reject_wrong_channel_count() {
-        let mut resampler = ChunkResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
         let mono_context = [0.0f32; 8];
-        let context_adapter = InterleavedSlice::new(&mono_context, 1, mono_context.len()).unwrap();
 
         assert!(matches!(
-            resampler.pre(&context_adapter),
+            resampler.pre(vec![mono_context.to_vec()]),
             Err(Error::WrongChannelCount { expected: 2, actual: 1 })
         ));
         assert!(matches!(
-            resampler.post(&context_adapter),
+            resampler.post(vec![mono_context.to_vec()]),
             Err(Error::WrongChannelCount { expected: 2, actual: 1 })
         ));
     }
 
     #[test]
     fn pre_context_changes_first_chunk_output() {
-        let mut with_zero_pre = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
-        let mut with_one_pre = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_zero_pre = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_one_pre = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&with_zero_pre))
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
             .collect();
@@ -851,10 +733,8 @@ mod tests {
         let mut out_one = vec![0.0; output_chunk_frames(&with_one_pre)];
         let pre_zero = vec![0.0; input_chunk_frames(&with_zero_pre)];
         let pre_one = vec![1.0; input_chunk_frames(&with_one_pre)];
-        let pre_zero_adapter = InterleavedSlice::new(&pre_zero, 1, pre_zero.len()).unwrap();
-        let pre_one_adapter = InterleavedSlice::new(&pre_one, 1, pre_one.len()).unwrap();
-        with_zero_pre.pre(&pre_zero_adapter).unwrap();
-        with_one_pre.pre(&pre_one_adapter).unwrap();
+        with_zero_pre.pre(vec![pre_zero]).unwrap();
+        with_one_pre.pre(vec![pre_one]).unwrap();
 
         let written_zero = process_chunk_samples(&mut with_zero_pre, &input, &mut out_zero).unwrap();
         let written_one = process_chunk_samples(&mut with_one_pre, &input, &mut out_one).unwrap();
@@ -870,8 +750,8 @@ mod tests {
 
     #[test]
     fn post_context_changes_flush_output() {
-        let mut with_zero_post = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
-        let mut with_one_post = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_zero_post = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_one_post = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&with_zero_post))
             .map(|frame| (frame as f32 * 0.015).cos() * 0.125)
             .collect();
@@ -880,10 +760,8 @@ mod tests {
         let mut flush_one = vec![0.0; output_chunk_frames(&with_one_post)];
         let post_zero = vec![0.0; input_chunk_frames(&with_zero_post)];
         let post_one = vec![1.0; input_chunk_frames(&with_one_post)];
-        let post_zero_adapter = InterleavedSlice::new(&post_zero, 1, post_zero.len()).unwrap();
-        let post_one_adapter = InterleavedSlice::new(&post_one, 1, post_one.len()).unwrap();
-        with_zero_post.post(&post_zero_adapter).unwrap();
-        with_one_post.post(&post_one_adapter).unwrap();
+        with_zero_post.post(vec![post_zero]).unwrap();
+        with_one_post.post(vec![post_one]).unwrap();
 
         process_chunk_samples(&mut with_zero_post, &input, &mut chunk_out).unwrap();
         process_chunk_samples(&mut with_one_post, &input, &mut chunk_out).unwrap();
@@ -901,7 +779,7 @@ mod tests {
 
     #[test]
     fn flush_after_full_chunk_uses_lpc_tail_edge() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input: Vec<f32> = (0..input_chunk_frames(&resampler))
             .map(|frame| (frame as f32 * 0.015).cos() * 0.125)
             .collect();
@@ -917,8 +795,8 @@ mod tests {
     #[test]
     fn streaming_and_offline_paths_match() {
         let config = mono_config(44_100, 48_000);
-        let mut offline = ChunkResampler::new(config.clone()).unwrap();
-        let mut streaming = ChunkResampler::new(config).unwrap();
+        let mut offline = ChunkPlanarResampler::new(config.clone()).unwrap();
+        let mut streaming = ChunkPlanarResampler::new(config).unwrap();
         let input_frames = input_chunk_frames(&streaming) * 2 + input_chunk_frames(&streaming) / 3;
         let input: Vec<f32> = (0..input_frames)
             .map(|frame| (frame as f32 * 0.01).sin() * 0.25)
@@ -958,7 +836,7 @@ mod tests {
     fn split_resampling_with_pre_post_matches_full_stream() {
         let mut config = mono_config(44_100, 48_000);
         config.taper_type = TaperType::Cosine(1.55);
-        let mut full_resampler = ChunkResampler::new(config.clone()).unwrap();
+        let mut full_resampler = ChunkPlanarResampler::new(config.clone()).unwrap();
         let context_len = full_resampler.input_chunk_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
@@ -1012,7 +890,7 @@ mod tests {
     #[test]
     fn split_resampling_is_worse_without_pre_post() {
         let config = mono_config(44_100, 48_000);
-        let mut full_resampler = ChunkResampler::new(config.clone()).unwrap();
+        let mut full_resampler = ChunkPlanarResampler::new(config.clone()).unwrap();
         let context_len = full_resampler.input_chunk_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
@@ -1078,8 +956,8 @@ mod tests {
     #[test]
     fn process_all_resets_state_between_calls() {
         let config = mono_config(44_100, 48_000);
-        let mut reused = ChunkResampler::new(config.clone()).unwrap();
-        let mut reference = ChunkResampler::new(config).unwrap();
+        let mut reused = ChunkPlanarResampler::new(config.clone()).unwrap();
+        let mut reference = ChunkPlanarResampler::new(config).unwrap();
         let first_input: Vec<f32> = (0..(input_chunk_frames(&reused) * 2 + 11))
             .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
             .collect();
@@ -1104,7 +982,7 @@ mod tests {
 
     #[test]
     fn stereo_channels_are_processed_independently() {
-        let mut resampler = ChunkResampler::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(stereo_config(44_100, 48_000)).unwrap();
         let mut input = vec![0.0; resampler.input_chunk_size()];
         input[0] = 1.0;
 
@@ -1122,8 +1000,8 @@ mod tests {
     #[test]
     fn stereo_streaming_and_offline_paths_match() {
         let config = stereo_config(44_100, 48_000);
-        let mut offline = ChunkResampler::new(config.clone()).unwrap();
-        let mut streaming = ChunkResampler::new(config).unwrap();
+        let mut offline = ChunkPlanarResampler::new(config.clone()).unwrap();
+        let mut streaming = ChunkPlanarResampler::new(config).unwrap();
         let input_frames = input_chunk_frames(&streaming) * 2 + input_chunk_frames(&streaming) / 3;
         let mut input = Vec::with_capacity(input_frames * 2);
         for frame in 0..input_frames {
@@ -1163,7 +1041,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_streaming_chunk_size() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler) - 1];
 
         assert!(process_chunk_samples(&mut resampler, &input, &mut []).is_err());
@@ -1171,7 +1049,7 @@ mod tests {
 
     #[test]
     fn too_small_output_does_not_advance_stream_state() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut too_small = vec![0.0; output_chunk_frames(&resampler) - 1];
 
@@ -1192,7 +1070,7 @@ mod tests {
 
     #[test]
     fn input_sample_count_tracks_full_and_partial_stream_input() {
-        let mut resampler = ChunkResampler::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(stereo_config(44_100, 48_000)).unwrap();
         let mut output = vec![0.0; resampler.output_chunk_size()];
         let full = vec![0.0; resampler.input_chunk_size()];
         let partial = vec![0.0; 10];
@@ -1206,7 +1084,7 @@ mod tests {
 
     #[test]
     fn too_small_finish_output_does_not_mark_flushed() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut first_output = vec![0.0; output_chunk_frames(&resampler)];
         process_chunk_samples(&mut resampler, &input, &mut first_output).unwrap();
@@ -1227,7 +1105,7 @@ mod tests {
 
     #[test]
     fn first_chunk_is_delay_trimmed_and_flushes_tail() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
@@ -1244,7 +1122,7 @@ mod tests {
 
     #[test]
     fn finalize_without_explicit_final_chunk_caps_to_expected_total() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let input_samples = input.len() * 2;
         let expected_total = resampler.expected_output_size(input_samples);
@@ -1259,7 +1137,7 @@ mod tests {
 
     #[test]
     fn empty_finish_does_not_emit_extra_block() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let input = vec![0.0; input_chunk_frames(&resampler)];
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
@@ -1276,7 +1154,7 @@ mod tests {
 
     #[test]
     fn empty_stream_flushes_no_samples() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
 
         assert_eq!(
@@ -1288,7 +1166,7 @@ mod tests {
 
     #[test]
     fn second_finish_after_reset_returns_zero_without_input() {
-        let mut resampler = ChunkResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut resampler = ChunkPlanarResampler::new(mono_config(44_100, 48_000)).unwrap();
 
         let mut output = vec![0.0; output_chunk_frames(&resampler)];
         assert_eq!(finalize_samples_chunk(&mut resampler, &mut output).unwrap(), 0);

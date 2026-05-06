@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{ChunkResampler, Config, Error, PlanarVecs};
+use crate::{ChunkAdapterResampler, Config, Error, PlanarVecs};
 use audio_core::Sample;
 use audioadapter::Adapter;
 
@@ -11,7 +11,7 @@ pub struct BatchResampler<T = f64>
 where
     T: Float + FftNum + Sample,
 {
-    inner: ChunkResampler<T>,
+    inner: ChunkAdapterResampler<T>,
 }
 
 impl<T> BatchResampler<T>
@@ -21,7 +21,7 @@ where
     /// Constructs a batch resampler from `config`.
     pub fn new(config: Config) -> Result<Self, Error> {
         Ok(Self {
-            inner: ChunkResampler::new(config)?,
+            inner: ChunkAdapterResampler::new(config)?,
         })
     }
 
@@ -187,7 +187,7 @@ where
     {
         Self::validate_track(&config, channel_inputs)?;
 
-        let mut resampler = ChunkResampler::new(config)?;
+        let mut resampler = ChunkAdapterResampler::new(config)?;
 
         if let Some(pre) = pre {
             for (core, channel_pre) in resampler.cores.iter_mut().zip(pre) {
@@ -243,7 +243,7 @@ where
         Ok(())
     }
 
-    fn process_cores(resampler: &mut ChunkResampler<T>, channel_inputs: &[Vec<T>]) -> Result<Vec<Vec<T>>, Error>
+    fn process_cores(resampler: &mut ChunkAdapterResampler<T>, channel_inputs: &[Vec<T>]) -> Result<Vec<Vec<T>>, Error>
     where
         T: Send + Sync,
     {
@@ -332,7 +332,9 @@ mod tests {
     fn batch_planar_gapless_matches_manual_pre_post() {
         let config = mono_config(44_100, 48_000);
         let batch = BatchResampler::new(config.clone()).unwrap();
-        let context_chunk_size = ChunkResampler::<f32>::new(config.clone()).unwrap().input_chunk_size();
+        let context_chunk_size = ChunkAdapterResampler::<f32>::new(config.clone())
+            .unwrap()
+            .input_chunk_size();
         let track_frames = context_chunk_size * 2 + 17;
 
         let tracks: Vec<PlanarVecs<f32>> = (0..3)
@@ -350,7 +352,7 @@ mod tests {
         let outputs = batch.batch_planar_gapless(tracks.clone()).unwrap();
 
         for (track_idx, (input, output)) in tracks.iter().zip(outputs.iter()).enumerate() {
-            let mut resampler = ChunkResampler::new(config.clone()).unwrap();
+            let mut resampler = ChunkAdapterResampler::new(config.clone()).unwrap();
             if let Some(previous) = track_idx.checked_sub(1).map(|idx| tracks[idx].get_channel(0).unwrap()) {
                 let pre_context = &previous[previous.len().saturating_sub(context_chunk_size)..];
                 let pre_channels = [pre_context];
@@ -434,7 +436,7 @@ mod tests {
         let expected: Vec<Vec<f32>> = tracks
             .iter()
             .map(|track| {
-                let mut resampler = ChunkResampler::new(config.clone()).unwrap();
+                let mut resampler = ChunkAdapterResampler::new(config.clone()).unwrap();
                 let input_adapter = InterleavedSlice::new(track, 1, track.len()).unwrap();
                 resampler.process_all(&input_adapter).unwrap().interleave()
             })

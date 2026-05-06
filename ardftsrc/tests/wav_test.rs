@@ -1,4 +1,4 @@
-use ardftsrc::{ChunkResampler, Config};
+use ardftsrc::{ChunkAdapterResampler, Config};
 use audioadapter_buffers::direct::InterleavedSlice;
 use std::ffi::OsStr;
 use std::fs;
@@ -56,7 +56,7 @@ fn resample_all(input: &[f32], input_rate: usize, output_rate: usize, channels: 
         bandwidth: 0.95,
         ..Config::default()
     };
-    let mut resampler = ChunkResampler::<f32>::new(config).unwrap_or_else(|err| {
+    let mut resampler = ChunkAdapterResampler::<f32>::new(config).unwrap_or_else(|err| {
         panic!(
             "failed to initialize f32 resampler for {} -> {} Hz: {err}",
             input_rate, output_rate
@@ -200,7 +200,7 @@ fn test_wavs_f32_2048_bw095_outputs_are_finite() {
             bandwidth: 0.95,
             ..Config::default()
         };
-        let mut resampler = ChunkResampler::<f32>::new(config).unwrap_or_else(|err| {
+        let mut resampler = ChunkAdapterResampler::<f32>::new(config).unwrap_or_else(|err| {
             panic!(
                 "failed to initialize f32 resampler for '{}': {err}",
                 input_path.display()
