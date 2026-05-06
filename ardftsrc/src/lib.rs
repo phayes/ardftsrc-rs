@@ -6,7 +6,7 @@ mod config;
 mod core;
 mod error;
 mod lpc;
-//mod chunk_interleaved;
+mod chunk_interleaved;
 mod chunk_planar;
 mod streaming;
 #[cfg(test)]
@@ -15,7 +15,7 @@ mod vec_of_vecs;
 
 pub use batch::BatchResampler;
 pub use chunk_adapter::ChunkAdapterResampler;
-//pub use chunk_interleaved::ChunkInterleavedResampler;
+pub use chunk_interleaved::ChunkInterleavedResampler;
 pub use chunk_planar::ChunkPlanarResampler;
 pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
 pub use error::Error;
