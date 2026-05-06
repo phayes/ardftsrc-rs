@@ -26,43 +26,11 @@ wavers.workspace = true
 mimalloc.workspace = true
 
 [[bench]]
-name = "ardftsrc_fast_f32"
-harness = false
-
-[[bench]]
-name = "ardftsrc_fast_f64"
-harness = false
-
-[[bench]]
-name = "ardftsrc_good_f32"
-harness = false
-
-[[bench]]
-name = "ardftsrc_good_f64"
-harness = false
-
-[[bench]]
-name = "ardftsrc_high_f32"
-harness = false
-
-[[bench]]
-name = "ardftsrc_high_f64"
-harness = false
-
-[[bench]]
-name = "ardftsrc_extreme_f32"
-harness = false
-
-[[bench]]
-name = "ardftsrc_extreme_f64"
+name = "ardftsrc_all"
 harness = false
 
 [[bench]]
 name = "rubato_sync"
-harness = false
-
-[[bench]]
-name = "rubato_sync_f64"
 harness = false
 
 [features]
