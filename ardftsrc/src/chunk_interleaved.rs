@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{config::DerivedConfig, core::ArdftsrcCore, Config, Error, PlanarVecs};
+use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
 use audio_core::Sample;
 
 pub struct ChunkInterleavedResampler<T = f64>
@@ -423,8 +423,6 @@ where
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,7 +463,10 @@ mod tests {
         Ok(written)
     }
 
-    fn finalize_samples_chunk(resampler: &mut ChunkInterleavedResampler<f32>, output: &mut [f32]) -> Result<usize, Error> {
+    fn finalize_samples_chunk(
+        resampler: &mut ChunkInterleavedResampler<f32>,
+        output: &mut [f32],
+    ) -> Result<usize, Error> {
         let written = resampler.finalize(output)?;
         assert_no_nans(&output[..written], "chunk::finalize_samples_chunk output");
         Ok(written)

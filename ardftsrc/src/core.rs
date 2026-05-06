@@ -412,13 +412,7 @@ where
         let dst = &mut self.scratch.rdft_in[self.derived.input_offset..self.derived.input_offset + input_samples];
         dst.copy_from_slice(&input[..input_samples]);
     }
-
-    // Get a mutable reference to the input buffer.
-    #[inline]
-    pub(crate) fn mut_input_ref<'a>(&'a mut self) -> &'a mut [T] {
-        self.scratch.rdft_in.as_mut_slice()
-    }
-
+    
     /// Copies up to `dst.len()` trailing samples from `pre` into `dst`'s tail.
     fn copy_pre_tail(&self, dst: &mut [T]) -> usize {
         let Some(pre) = &self.pre else {
