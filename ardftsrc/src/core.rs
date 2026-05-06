@@ -412,7 +412,7 @@ where
         let dst = &mut self.scratch.rdft_in[self.derived.input_offset..self.derived.input_offset + input_samples];
         dst.copy_from_slice(&input[..input_samples]);
     }
-    
+
     /// Copies up to `dst.len()` trailing samples from `pre` into `dst`'s tail.
     fn copy_pre_tail(&self, dst: &mut [T]) -> usize {
         let Some(pre) = &self.pre else {
