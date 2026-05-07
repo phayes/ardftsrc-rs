@@ -253,7 +253,7 @@ let config = ardftsrc::PRESET_GOOD
 | ---------------- | -------------------------------------: | -----------------------------------------------------------| ---------------- |
 | `PRESET_FAST`    | `quality=512` `bandwidth=0.832`        | Fast preset for realtime workloads.                        | [f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0)|
 | `PRESET_GOOD`    | `quality=1878` `bandwidth=0.911`       | Balanced preset for realtime quality.                      | [f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0)             |
-| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.987`      | High quality for offline or quality-focused realtime use.  | [f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)             |
+| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.987`      | High quality for offline use. | [f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)             |
 | `PRESET_EXTREME` | `quality=524514` `bandwidth=0.995`     | Maximum quality, intended for offline use.                 | [f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)             |
 
 
@@ -326,6 +326,4 @@ AI use is allowed for the following:
 1. Add support for `phase` config.
 2. Add `tanh` taper.
 3. Add bindings to other languages, python, ts (wasm) etc.
-4. Right now `StreamingResampler` does all it's processing on the main audio thread. This needs to be moved off-thread.
-5. Investigate why the optional audioadapter interface appears to be much slower than other paths.
-6. Investigate an alternative `ArdftsrcCore` that usees Constant-Q Sliding DFT (https://github.com/jurihock/qdft). This may allow the `StreamingResampler` to avoid bursty FFT compute and allow realtime resampling on the audio thread.
+4. Investigate why the optional audioadapter interface appears to be much slower than other paths.
