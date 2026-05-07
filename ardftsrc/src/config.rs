@@ -34,8 +34,8 @@ pub const PRESET_GOOD: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 1879,
-    bandwidth: 0.9114559,
+    quality: 1878,
+    bandwidth: 0.9114534,
     taper_type: TaperType::Cosine(3.4375),
 };
 
@@ -70,8 +70,8 @@ pub const PRESET_EXTREME: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 523645,
-    bandwidth: 0.99311,
+    quality: 524514,
+    bandwidth: 0.9952346,
     taper_type: TaperType::Cosine(3.4375),
 };
 
