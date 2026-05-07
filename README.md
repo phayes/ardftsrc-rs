@@ -6,7 +6,7 @@ A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Ra
 
 Generally `ardftsrc` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
-It is more compute and memory intensive than other resamplers, so consider [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
+It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. See [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md) for a detailed speed and quality comparison vs rubato.
 
 ## Quick Start
 
@@ -37,9 +37,18 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 
 Use chunk resampling when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API and is preferred when you are not doing live resampling.
 
-1. `process_chunk(...)` for each chunk, input and output slice sizes should match `input_chunk_size()` and `output_chunk_size()`
-2. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
-3. `finalize(...)` must be called once per stream to emit delayed tail samples and reset stream state.
+There are two chunked resamplers depending on the shape of your audio:
+
+1. `InterleavedResampler` - for interleaved audio
+2. `PlanarResampler` - for planar audio. 
+
+Internally ardftsrc uses planar representation, so `PlanarResampler` is more efficient, but if you're already working with interleaved audio, prefer `InterleavedResampler` since it has an optimized de-interleave / re-interleave path. Working with all chunked resamplers is the same:
+
+1. Create the resampler with `let resampler = Resampler::new(config)`
+2. Query the required input buffer size and output buffer size with `resampler.input_buffer_size()` and `resampler.output_buffer_size()`
+3. Call  `process_chunk(...)` for each chunk, using the appropriate buffer sizes.
+4. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
+5. Finally, call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
 
 To end the stream early, you can always just stop and call `reset()` on the stream.
 
@@ -224,7 +233,7 @@ fn resample_tracks(
 
 ## Quality Tuning and Presets
 
-ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `InterleavedResampler<f64>` or `PlanarResampler<f64>`, then convert back to `f32`. Presets above `PRESET_FAST` should only use f64.
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `InterleavedResampler<f64>` or `PlanarResampler<f64>`, then convert back to `f32`.
 
 If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
@@ -240,9 +249,9 @@ let config = ardftsrc::PRESET_GOOD
 | Preset           |                             Parameters | Recommended use                                            | Quality Metrics  |
 | ---------------- | -------------------------------------: | -----------------------------------------------------------| ---------------- |
 | `PRESET_FAST`    | `quality=512` `bandwidth=0.832`        | Fast preset for realtime workloads.                        | [f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0)|
-| `PRESET_GOOD`    | `quality=1878` `bandwidth=0.911`       | Balanced preset for realtime quality.                      | TODO             |
-| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.987`      | High quality for offline or quality-focused realtime use.  | TODO             |
-| `PRESET_EXTREME` | `quality=524514` `bandwidth=0.995`     | Maximum quality, intended for offline use.                 | TODO             |
+| `PRESET_GOOD`    | `quality=1878` `bandwidth=0.911`       | Balanced preset for realtime quality.                      | [f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0)             |
+| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.987`      | High quality for offline or quality-focused realtime use.  | [f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)             |
+| `PRESET_EXTREME` | `quality=524514` `bandwidth=0.995`     | Maximum quality, intended for offline use.                 | [f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)             |
 
 
 ## Feature Flags

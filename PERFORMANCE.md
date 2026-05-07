@@ -3,6 +3,8 @@
 This doc compares ardftsrc-rs against the best-in-class sinc resampler rubato. 
 It's meant to help gauge where ardftsrc-rs might fit in the rust-audio ecosystem.
 
+We use the HydrogenAudio SRC Test Suite as our "quality" proxy.
+
 ## Summary
 
 1. Rubato is faster than ardftsrc in all instances, even when rubato is running at "high quality sync"
@@ -10,21 +12,24 @@ It's meant to help gauge where ardftsrc-rs might fit in the rust-audio ecosystem
 3. Pre-ringing is an issue for ardftsrc. This can be ameliorated by introducing a "phase" param (not done yet)
 4. They both use about the same amount of memory. 
 5. Rubato f64 performs significantly better than rubato f32. We should investigate using rubato with f64 even in f32 pipelines (f32 -> f64 -> rubato::<f64> -> f64 -> f32). 
-6. Rubato could benefit from a fast-path no-op for matching sample rates.
-7. Rubato could benefit from synthetic pre/post samples.
 
 ## Conclusion
 
-ardftsrc works best as an offline resampler, or as a realtime resampler that prioritizes quality over speed. 
+When occupying aproximately the same "samples per second" space, the two are competitive: rubato generally retains a throughput advantage, while ardftsrc tends to edge ahead on several quality metrics.
 
-ardftsrc is not competitive against rubato in terms of raw speed, but beats it out in quality (with the exception of pre-ringing) when running at higher quality levels. A lower quality settings, ardftsrc might benefit from a low-pass filter. 
+When higher quality resampling is desired, ardftsrc has the advantage. This higher quality comes at the cost of more compute, although still easily within realtime limits.
+The "good" preset sits in the goldilocks zone for realtime high-quality resampling for ardftsrc.
 
-## Test 1: Fast
+## Test 1: Fast (vs rubato)
 
+```
 ardftsrc: --preset=fast, quality=512, bandwidth=0.8323
 rubato:   FixedSync, chunk-size=512, sub-chunks=1, FixedSync::Both
+```
 
-### Quality
+### HydrogenAudio Scores
+
+**ardftsrc vs rubato:**
 
 f32: https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=3e45fdeb-152f-4abd-97d6-1848b86243c8
 f64: https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=6b05a1f8-87db-4e3e-8aa0-aefacfda7a3e
@@ -39,7 +44,7 @@ f64: https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44
 2. ardftsrc wins Aliasing, Intermodulation Harmonic Distortion, Impulse Frequency, Impulse Response, Gapless Sine
 3. rubato wins Nyquist Filter (but only above 20Khz - audible frequencies they are equivalent)
 
-Overall, if the goal is speed over quality, rubato wins. But at a cost of only 22% more computing cost, ardftsrc edges it out, especially once we move to f64. 
+Overall, if the goal is speed over quality, rubato wins. But at a cost of more computing cost, ardftsrc edges it out, especially once we move to f64. 
 
 ### Bench
 
@@ -64,7 +69,6 @@ Overall, if the goal is speed over quality, rubato wins. But at a cost of only 2
 | 96k → 96k       | f32  |                2,159,300 |                202,340 |               0.0044% |             0.0475% | ardftsrc (+967%)  |
 | 96k → 96k       | f64  |                2,141,700 |                130,100 |               0.0045% |             0.0738% | ardftsrc (+1546%) |
 
-
 overhead = input-rate / throughput
 
 ### Bench Memory Usage (f32)
@@ -76,67 +80,70 @@ overhead = input-rate / throughput
 
 ## Test 2: Good
 
-ardftsrc: f64, preset=good, quality=2048, bandwidth=0.95
+```
+ardftsrc: f64, preset=good, quality=1878, bandwidth=0.911
+```
 
-### Quality
+### HydrogenAudio Scores 
 
-https://src.hydrogenaudio.org/compareresults?id1=b587413c-4311-4018-ad05-266dab2daaf5&id2=6b05a1f8-87db-4e3e-8aa0-aefacfda7a3e
-
-ardftsrc beats rubato in all scores (with the exception of pre-ringing).
+**ardftsrc vs ideal:**
+https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0
 
 ### Bench
 
+Overhead is appropriate for realtime use, although the bursty nature of chunk processing may require off-thread resampling.
+
 | Scenario        | Type | ardftsrc (kilosamples/s) | ardftsrc overhead (%) |
 | --------------- | ---- | -----------------------: | --------------------: |
-| 44.1k → 22.05k  | f64  |                   35,411 |               0.1245% |
-| 44.1k → 48k     | f64  |                   52,587 |               0.0839% |
-| 44.1k → 96k     | f64  |                   73,865 |               0.0597% |
-| 22.05k → 22.05k | f64  |                2,078,600 |               0.0011% |
-| 22.05k → 48k    | f64  |                   63,934 |               0.0345% |
-| 22.05k → 96k    | f64  |                   79,647 |               0.0277% |
-| 96k → 22.05k    | f64  |                   11,809 |               0.8130% |
-| 96k → 48k       | f64  |                   43,299 |               0.2217% |
-| 96k → 96k       | f64  |                2,108,500 |               0.0046% |
+| 44.1k → 22.05k  | f64  |                   15,154 |               0.2910% |
+| 44.1k → 48k     | f64  |                   51,471 |               0.0857% |
+| 44.1k → 96k     | f64  |                   73,150 |               0.0603% |
+| 22.05k → 22.05k | f64  |                2,027,900 |               0.0011% |
+| 22.05k → 48k    | f64  |                   62,787 |               0.0351% |
+| 22.05k → 96k    | f64  |                   79,562 |               0.0277% |
+| 96k → 22.05k    | f64  |                   11,699 |               0.8206% |
+| 96k → 48k       | f64  |                   16,311 |               0.5886% |
+| 96k → 96k       | f64  |                2,115,400 |               0.0045% |
 
 overhead = input-rate / throughput
 
-
 ## Test 3: High
 
-ardftsrc: f64, preset=high, quality=65536, bandwidth=0.97
+```
+ardftsrc: f64, preset=high, quality=73622, bandwidth=0.987
+```
 
-### Quality
+### HydrogenAudio Scores
 
-https://src.hydrogenaudio.org/compareresults?id1=81504c6e-19ba-4d3e-b081-5f283b9ceaab&id2=0
-
-Excellent quality. Link compares to a theoretical "perfect" result.
+**ardftsrc vs ideal:**
+https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0
 
 ### Bench
 
-These parameters, despite producing excellent quality results (still issue with pre-ringing)
-are not appropriate for realtime and should only be used in an offline workflow.
+Still appropriate for realtime on systems with ample compute as long as we can move the resampling off-thread.
 
 | Scenario        | Type | ardftsrc (kilosamples/s) | ardftsrc overhead (%) |
 | --------------- | ---- | -----------------------: | --------------------: |
-| 44.1k → 22.05k  | f64  |                    2,106 |               2.0948% |
-| 44.1k → 48k     | f64  |                    6,377 |               0.6913% |
-| 44.1k → 96k     | f64  |                   10,685 |               0.4127% |
-| 22.05k → 22.05k | f64  |                  764,040 |               0.0029% |
-| 22.05k → 48k    | f64  |                    5,600 |               0.3937% |
-| 22.05k → 96k    | f64  |                    8,931 |               0.2469% |
-| 96k → 22.05k    | f64  |                      729 |              13.1687% |
-| 96k → 48k       | f64  |                    3,735 |               2.5703% |
-| 96k → 96k       | f64  |                1,694,100 |               0.0057% |
+| 44.1k → 22.05k  | f64  |                    1,450 |               3.0405% |
+| 44.1k → 48k     | f64  |                    4,923 |               0.8958% |
+| 44.1k → 96k     | f64  |                    7,829 |               0.5633% |
+| 22.05k → 22.05k | f64  |                  832,910 |               0.0026% |
+| 22.05k → 48k    | f64  |                    4,288 |               0.5142% |
+| 22.05k → 96k    | f64  |                    6,656 |               0.3313% |
+| 96k → 22.05k    | f64  |                      609 |              15.7757% |
+| 96k → 48k       | f64  |                    2,285 |               4.2008% |
+| 96k → 96k       | f64  |                1,687,100 |               0.0057% |
 
 ## Test 4: Extreme
 
-ardftsrc: f64, preset=extreme, quality=524288, bandwidth=0.932
+```
+ardftsrc: f64, preset=extreme, quality=524514, bandwidth=0.995
+```
 
-### Quality
+### HydrogenAudio Scores
 
-https://src.hydrogenaudio.org/compareresults?id1=81504c6e-19ba-4d3e-b081-5f283b9ceaab&id2=0
-
-Nearly perfect quality. Link compares to a theoretical "perfect" result.
+**ardftsrc vs ideal:**
+https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0
 
 ### Bench
 
@@ -144,47 +151,31 @@ These parameters, despite producing excellent quality results are not appropriat
 
 | Scenario        | Type | ardftsrc (kilosamples/s) | ardftsrc overhead (%) |
 | --------------- | ---- | -----------------------: | --------------------: |
-| 44.1k → 22.05k  | f64  |                      370 |              11.9090% |
-| 44.1k → 48k     | f64  |                    1,169 |               3.7725% |
-| 44.1k → 96k     | f64  |                    2,080 |               2.1202% |
-| 22.05k → 22.05k | f64  |                  116,980 |               0.0188% |
-| 22.05k → 48k    | f64  |                      977 |               2.2569% |
-| 22.05k → 96k    | f64  |                    1,556 |               1.4165% |
-| 96k → 22.05k    | f64  |                      130 |              73.7255% |
-| 96k → 48k       | f64  |                      579 |              16.5803% |
-| 96k → 96k       | f64  |                  534,050 |               0.0180% |
+| 44.1k → 22.05k  | f64  |                      297 |              14.8260% |
+| 44.1k → 48k     | f64  |                    1,281 |               3.4434% |
+| 44.1k → 96k     | f64  |                    2,377 |               1.8556% |
+| 22.05k → 22.05k | f64  |                  147,490 |               0.0150% |
+| 22.05k → 48k    | f64  |                    1,126 |               1.9590% |
+| 22.05k → 96k    | f64  |                    1,903 |               1.1589% |
+| 96k → 22.05k    | f64  |                      140 |              68.7531% |
+| 96k → 48k       | f64  |                      487 |              19.7190% |
+| 96k → 96k       | f64  |                  435,520 |               0.0220% |
 
 # Test 5: Goodhart's Law
 
-“When a measure becomes a target, it ceases to be a good measure.”
+*“When a measure becomes a target, it ceases to be a good measure.”*
 
+```
 ardftsrc: f64 --quality=61656210 --bandwidth=0.9951796875           
+```
 
 https://src.hydrogenaudio.org/compareresults?id1=f5d9a9c0-0019-43d4-8b39-6dba547fed98&id2=0
 
-This was not benchmarked, it's stupidly slow, but it looks pretty!
+This was not benchmarked. It's stupidly slow, but it looks pretty!
 
-###  MISC NOTES
+# Misc Observations to follow up on:
 
-
-# Top planck score
-cargo run --release -p ardftsrc_src_test -- --workdir=./workspace --f64 --local --quality=61656210 --bandwidth=0.99 --taper-type=planck
-
-# Top alpha score cluster:
-
-  score    quality    bandwidth     alpha
---------  ---------  -----------  --------
-99.73475   61656210    0.9951797       3.5
-
-99.73313   61656159    0.9951377  3.487196
-
-99.72821   61647053    0.9961132  3.484811
-
-
-OPTIMUM 512 / fast:
-
-  "params": {
-    "alpha": 2.6486085116993427,
-    "bandwidth": 0.8719081527878331
-  },
-  "score": 69.19481931034483
+1. Rubato could benefit from a fast-path no-op for matching sample rates.
+2. Rubato could benefit from synthetic pre/post samples.
+3. For proper live resampling, ardftsrc needs an "off-thread" version of it's `StreamingResampler` struct.
+4. Expanding this analysis with other test suites other than HydrogenAudio SRC would be a good idea. 
