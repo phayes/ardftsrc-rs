@@ -1,5 +1,8 @@
 # ARDFTSRC
 
+[![Crates.io](https://img.shields.io/crates/v/ardftsrc.svg)](https://crates.io/crates/ardftsrc)
+[![Docs.rs](https://docs.rs/ardftsrc/badge.svg)](https://docs.rs/ardftsrc)
+
 A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Rate Converter (ARDFTSRC) algorithm.
 
 `ardftsrc` is a streaming audio sample-rate converter for interleaved audio streams, and is appropriate for both realtime and offline resampling. 
