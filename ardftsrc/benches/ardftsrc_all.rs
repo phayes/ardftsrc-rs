@@ -115,7 +115,11 @@ fn benchmark_sample_type<T>(
         .with_input_rate(fixture.sample_rate_hz)
         .with_output_rate(output_sample_rate_hz)
         .with_channels(fixture.channels);
-    let mut resampler = InterleavedResampler::<T>::new(config).unwrap();
+    let resampler = InterleavedResampler::<T>::new(config);
+    if resampler.is_err() {
+        return;
+    }
+    let mut resampler = resampler.expect("resampler construction checked above");
     let input_frames = samples.len() / fixture.channels;
     let output_frames = resampler.expected_output_size(input_frames);
     let output_samples = output_frames * fixture.channels;

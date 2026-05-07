@@ -260,8 +260,8 @@ impl Default for Config {
             input_sample_rate: 44_100,
             output_sample_rate: 44_100,
             channels: 2,
-            quality: 2048,
-            bandwidth: 0.95,
+            quality: 1878,
+            bandwidth: 0.9114534,
             taper_type: TaperType::default(),
         }
     }
