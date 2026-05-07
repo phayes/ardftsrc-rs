@@ -325,7 +325,6 @@ AI use is allowed for the following:
 
 1. Add support for `phase` config.
 2. Add `tanh` taper.
-3. Calc performance metrics and post links
-4. Add bindings to other languages, python, ts (wasm) etc.
-5. Right now `StreamingResampler` does all it's processing on the main audio thread, investigate if this should be moved off-thread. Probably, we are allocating...
-6. Investigate why the optional audioadapter interface appears to be much slower than other paths. 
+3. Add bindings to other languages, python, ts (wasm) etc.
+4. Right now `StreamingResampler` does all it's processing on the main audio thread. This needs to be moved off-thread.
+5. Investigate why the optional audioadapter interface appears to be much slower than other paths. 
