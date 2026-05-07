@@ -12,6 +12,10 @@ pub enum Error {
     #[error("quality must be greater than zero, got {0}")]
     InvalidQuality(usize),
 
+    /// `f32` samples cannot use arbitrarily large FFT geometries derived from quality.
+    #[error("quality greater than 8192 is not supported for f32. Use f64 instead.")]
+    QualityTooHighForF32,
+
     /// Bandwidth is outside the valid normalized range `[0.0, 1.0]`.
     #[error("bandwidth must be in the range 0.0..=1.0, got {0}")]
     InvalidBandwidth(f32),

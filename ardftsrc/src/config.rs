@@ -34,8 +34,8 @@ pub const PRESET_GOOD: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 2048,
-    bandwidth: 0.95,
+    quality: 1879,
+    bandwidth: 0.9114559,
     taper_type: TaperType::Cosine(3.4375),
 };
 
@@ -52,8 +52,8 @@ pub const PRESET_HIGH: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 65536,
-    bandwidth: 0.97,
+    quality: 73622,
+    bandwidth: 0.9873534,
     taper_type: TaperType::Cosine(3.4375),
 };
 
@@ -70,8 +70,8 @@ pub const PRESET_EXTREME: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 524288,
-    bandwidth: 0.9932,
+    quality: 523645,
+    bandwidth: 0.99311,
     taper_type: TaperType::Cosine(3.4375),
 };
 
@@ -242,6 +242,14 @@ impl Config {
         T: Float,
     {
         self.validate()?;
+
+        // Detect `T == f32` without specialization: only `f32` shares IEEE single max with `f32::MAX`.
+        if let Some(f32_max) = num_traits::NumCast::from(f32::MAX) {
+            if <T as Float>::max_value() == f32_max && self.quality > 8192 {
+                return Err(Error::QualityTooHighForF32);
+            }
+        }
+
         Ok(DerivedConfig::from_config(self))
     }
 }
@@ -628,6 +636,36 @@ mod tests {
             non_finite_alpha.validate(),
             Err(Error::InvalidAlpha(alpha)) if alpha.is_nan()
         ));
+    }
+
+    #[test]
+    fn rejects_quality_above_8192_for_f32_derived_config() {
+        let config = Config {
+            quality: 8193,
+            ..Config::default()
+        };
+        assert!(matches!(
+            config.derive_config::<f32>(),
+            Err(Error::QualityTooHighForF32)
+        ));
+    }
+
+    #[test]
+    fn allows_quality_8192_for_f32_derived_config() {
+        let config = Config {
+            quality: 8192,
+            ..Config::default()
+        };
+        assert!(config.derive_config::<f32>().is_ok());
+    }
+
+    #[test]
+    fn allows_high_quality_for_f64_derived_config() {
+        let config = Config {
+            quality: 65_536,
+            ..Config::default()
+        };
+        assert!(config.derive_config::<f64>().is_ok());
     }
 
     #[test]

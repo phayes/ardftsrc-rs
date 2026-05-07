@@ -229,3 +229,16 @@ where
         (frames_to_read, 0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PlanarVecs;
+
+    #[test]
+    fn mono_interleave_matches_pop_channel() {
+        let mut planar = PlanarVecs::new(vec![vec![1_i32, 2, 3, 5, 8]]).unwrap();
+        let interleaved = planar.interleave();
+        let popped = planar.pop_channel().expect("mono has one channel");
+        assert_eq!(interleaved, popped);
+    }
+}

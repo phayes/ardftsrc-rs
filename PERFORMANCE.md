@@ -9,8 +9,9 @@ It's meant to help gauge where ardftsrc-rs might fit in the rust-audio ecosystem
 2. At higher quality levels (> fast) ardftsrc beats out rubato in quality
 3. Pre-ringing is an issue for ardftsrc. This can be ameliorated by introducing a "phase" param (not done yet)
 4. They both use about the same amount of memory. 
-5. Rubato f64 performs significantly better than rubato f32. We should investigate using rubato with f64 even in a f32 pipeline (f32 -> f64 -> rubato::<f64> -> f64 -> f32). 
-6. Rubato could benifit from a fast-path no-op for matching sample rates.
+5. Rubato f64 performs significantly better than rubato f32. We should investigate using rubato with f64 even in f32 pipelines (f32 -> f64 -> rubato::<f64> -> f64 -> f32). 
+6. Rubato could benefit from a fast-path no-op for matching sample rates.
+7. Rubato could benefit from synthetic pre/post samples.
 
 ## Conclusion
 
@@ -25,16 +26,20 @@ rubato:   FixedSync, chunk-size=512, sub-chunks=1, FixedSync::Both
 
 ### Quality
 
-https://src.hydrogenaudio.org/compareresults?id1=9167aa7f-92f4-4953-9642-8a472b4115e9&id2=3e45fdeb-152f-4abd-97d6-1848b86243c8
+f32: https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=3e45fdeb-152f-4abd-97d6-1848b86243c8
+f64: https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=6b05a1f8-87db-4e3e-8aa0-aefacfda7a3e
 
-1. Spectogram: both display significant aliasing, but ardftsrc-rs aliasing is mildly worse. ardftsrc-rs also produces noise at audible frequencies when resampling frequencies above 20 kHz. 
-2. Pre-ringing: rubato wins out (24% vs 19.7%)
-3. Gapless Sine: ardftsrc wins (62% vs 5%)
+*F32*:
+1. Spectogram: both display significant aliasing, but ardftsrc-rs aliasing is mildly worse.
+3. ardftsrc wins Gapless Sine (45% vs 5%)
 4. All other metrics roughly equivalent. 
 
-Note: Using f64, neither produce any noticable aliasing, however ardftsrc-rs still produces noise at high frequencies: https://src.hydrogenaudio.org/compareresults?id1=1cba453d-a6c2-4257-b4de-289a8cb363cf&id2=6b05a1f8-87db-4e3e-8aa0-aefacfda7a3e
+*F64*
+1. Spectogram: both are excellent, with rubato mildly better.
+2. ardftsrc wins Aliasing, Intermodulation Harmonic Distortion, Impulse Frequency, Impulse Response, Gapless Sine
+3. rubato wins Nyquist Filter (but only above 20Khz - audible frequencies they are equivalent)
 
-Overall, ardftsrc is not competitive with rubato at settings tuned for speed over quality.
+Overall, if the goal is speed over quality, rubato wins. But at a cost of only 22% more computing cost, ardftsrc edges it out, especially once we move to f64. 
 
 ### Bench
 
@@ -154,6 +159,8 @@ These parameters, despite producing excellent quality results are not appropriat
 “When a measure becomes a target, it ceases to be a good measure.”
 
 ardftsrc: f64 --quality=61656210 --bandwidth=0.9951796875           
+
+https://src.hydrogenaudio.org/compareresults?id1=f5d9a9c0-0019-43d4-8b39-6dba547fed98&id2=0
 
 This was not benchmarked, it's stupidly slow, but it looks pretty!
 
