@@ -173,6 +173,67 @@ https://src.hydrogenaudio.org/compareresults?id1=f5d9a9c0-0019-43d4-8b39-6dba547
 
 This was not benchmarked. It's stupidly slow, but it looks pretty!
 
+
+# Realtime Assessment
+
+FFT's are naturally bursty. This measures the amount of time required to process a full chunk.
+For live / realtime use, a resampler should ideally use less than 1% of an audiostream's inter-sample
+buget, and definitely use less than 10%. If it uses more than 10%, it should be moved off-tread to avoid stutters.
+
+Results indicate that both `fast` and `good` presets are appropriate for live / realtime on-thread resampling.
+
+ - **rt-10**: Chunk processing takes less than 10% of realtime inter-sample budget
+ - **rt-1**: Chunk processing takes less than 1% of realtime inter-sample budget
+
+| scenario               | preset | type | chunk time (µs) | rt-10 | rt-1 |
+| :--------------------- | :----- | :--- | --------------: | :---- | :--- |
+| 22.05 kHz -> 22.05 kHz | fast   | f32  |               1 | ✅    | ✅   |
+| 44.1 kHz -> 22.05 kHz  | fast   | f32  |              10 | ✅    | ✅   |
+| 96 kHz -> 22.05 kHz    | fast   | f32  |              16 | ✅    | ✅   |
+| 22.05 kHz -> 48 kHz    | fast   | f32  |               9 | ✅    | ✅   |
+| 44.1 kHz -> 48 kHz     | fast   | f32  |              12 | ✅    | ✅   |
+| 96 kHz -> 48 kHz       | fast   | f32  |               5 | ✅    | ✅   |
+| 22.05 kHz -> 96 kHz    | fast   | f32  |              16 | ✅    | ✅   |
+| 44.1 kHz -> 96 kHz     | fast   | f32  |              18 | ✅    | ✅   |
+| 96 kHz -> 96 kHz       | fast   | f32  |               1 | ✅    | ✅   |
+| 22.05 kHz -> 22.05 kHz | fast   | f64  |               1 | ✅    | ✅   |
+| 44.1 kHz -> 22.05 kHz  | fast   | f64  |              15 | ✅    | ✅   |
+| 96 kHz -> 22.05 kHz    | fast   | f64  |              23 | ✅    | ✅   |
+| 22.05 kHz -> 48 kHz    | fast   | f64  |              13 | ✅    | ✅   |
+| 44.1 kHz -> 48 kHz     | fast   | f64  |              17 | ✅    | ✅   |
+| 96 kHz -> 48 kHz       | fast   | f64  |               7 | ✅    | ✅   |
+| 22.05 kHz -> 96 kHz    | fast   | f64  |              23 | ✅    | ✅   |
+| 44.1 kHz -> 96 kHz     | fast   | f64  |              26 | ✅    | ✅   |
+| 96 kHz -> 96 kHz       | fast   | f64  |               1 | ✅    | ✅   |
+| 22.05 kHz -> 22.05 kHz | good   | f32  |               3 | ✅    | ✅   |
+| 44.1 kHz -> 22.05 kHz  | good   | f32  |             171 | ✅    | ✅   |
+| 96 kHz -> 22.05 kHz    | good   | f32  |              72 | ✅    | ✅   |
+| 22.05 kHz -> 48 kHz    | good   | f32  |              42 | ✅    | ✅   |
+| 44.1 kHz -> 48 kHz     | good   | f32  |              55 | ✅    | ✅   |
+| 96 kHz -> 48 kHz       | good   | f32  |              86 | ✅    | ✅   |
+| 22.05 kHz -> 96 kHz    | good   | f32  |              71 | ✅    | ✅   |
+| 44.1 kHz -> 96 kHz     | good   | f32  |              80 | ✅    | ✅   |
+| 96 kHz -> 96 kHz       | good   | f32  |               3 | ✅    | ✅   |
+| 22.05 kHz -> 22.05 kHz | good   | f64  |               3 | ✅    | ✅   |
+| 44.1 kHz -> 22.05 kHz  | good   | f64  |             199 | ✅    | ✅   |
+| 96 kHz -> 22.05 kHz    | good   | f64  |             102 | ✅    | ✅   |
+| 22.05 kHz -> 48 kHz    | good   | f64  |              58 | ✅    | ✅   |
+| 44.1 kHz -> 48 kHz     | good   | f64  |              73 | ✅    | ✅   |
+| 96 kHz -> 48 kHz       | good   | f64  |             102 | ✅    | ✅   |
+| 22.05 kHz -> 96 kHz    | good   | f64  |             100 | ✅    | ✅   |
+| 44.1 kHz -> 96 kHz     | good   | f64  |             111 | ✅    | ✅   |
+| 96 kHz -> 96 kHz       | good   | f64  |               3 | ✅    | ✅   |
+| 22.05 kHz -> 22.05 kHz | high   | f64  |             134 | ✅    | ✅   |
+| 44.1 kHz -> 22.05 kHz  | high   | f64  |           16084 | ✅    | ✅   |
+| 96 kHz -> 22.05 kHz    | high   | f64  |           13912 | ✅    | ✅   |
+| 22.05 kHz -> 48 kHz    | high   | f64  |            7853 | ✅    | ✅   |
+| 44.1 kHz -> 48 kHz     | high   | f64  |           10136 | ✅    | ✅   |
+| 96 kHz -> 48 kHz       | high   | f64  |            8291 | ✅    | ✅   |
+| 22.05 kHz -> 96 kHz    | high   | f64  |           13453 | ✅    | ❌   |
+| 44.1 kHz -> 96 kHz     | high   | f64  |           15541 | ✅    | ❌   |
+| 96 kHz -> 96 kHz       | high   | f64  |             135 | ✅    | ✅   |
+
+
 # Misc Observations to follow up on:
 
 1. Rubato could benefit from a fast-path no-op for matching sample rates.
