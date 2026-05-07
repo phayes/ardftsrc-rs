@@ -327,4 +327,5 @@ AI use is allowed for the following:
 2. Add `tanh` taper.
 3. Add bindings to other languages, python, ts (wasm) etc.
 4. Right now `StreamingResampler` does all it's processing on the main audio thread. This needs to be moved off-thread.
-5. Investigate why the optional audioadapter interface appears to be much slower than other paths. 
+5. Investigate why the optional audioadapter interface appears to be much slower than other paths.
+6. Investigate an alternative `ArdftsrcCore` that usees Constant-Q Sliding DFT (https://github.com/jurihock/qdft). This may allow the `StreamingResampler` to avoid bursty FFT compute and allow realtime resampling on the audio thread.
