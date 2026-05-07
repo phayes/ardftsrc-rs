@@ -239,10 +239,10 @@ let config = ardftsrc::PRESET_GOOD
 
 | Preset           |                             Parameters | Recommended use                                            | Quality Metrics  |
 | ---------------- | -------------------------------------: | -----------------------------------------------------------| ---------------- |
-| `PRESET_FAST`    | `quality=512` `bandwidth=0.8323`       | Fast preset for realtime workloads.                        | [f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0)|
-| `PRESET_GOOD`    | `quality=2048` `bandwidth=0.978813`       | Balanced preset for realtime quality.                      | TODO             |
-| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.967`      | High quality for offline or quality-focused realtime use.  | TODO             |
-| `PRESET_EXTREME` | `quality=524288` `bandwidth=0.9932`    | Maximum quality, intended for offline use.                 | [f64](https://src.hydrogenaudio.org/compareresults?id1=6fc071df-3d0e-48b1-8d30-47de48e2a2ea&id2=0)             |
+| `PRESET_FAST`    | `quality=512` `bandwidth=0.832`        | Fast preset for realtime workloads.                        | [f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0)|
+| `PRESET_GOOD`    | `quality=1878` `bandwidth=0.911`       | Balanced preset for realtime quality.                      | TODO             |
+| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.987`      | High quality for offline or quality-focused realtime use.  | TODO             |
+| `PRESET_EXTREME` | `quality=524514` `bandwidth=0.995`     | Maximum quality, intended for offline use.                 | TODO             |
 
 
 ## Feature Flags

@@ -224,7 +224,7 @@ fn resample_tracks(
 
 ## Quality Tuning and Presets
 
-ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `InterleavedResampler<f64>` or `PlanarResampler<f64>`, then convert back to `f32`.
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `InterleavedResampler<f64>` or `PlanarResampler<f64>`, then convert back to `f32`. Presets above `PRESET_FAST` should only use f64.
 
 If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
@@ -237,12 +237,12 @@ let config = ardftsrc::PRESET_GOOD
   .with_channels(2);
 ```
 
-| Preset           |                             Parameters | Recommended use                                                                                                  | Quality Metrics  |
-| ---------------- | -------------------------------------: | ---------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `PRESET_FAST`    | `quality=512` `bandwidth=0.8323`       | Fast preset for realtime workloads. Prefer a sinc resampler such as [`rubato`](https://crates.io/crates/rubato). | TODO             |
-| `PRESET_GOOD`    | `quality=2048` `bandwidth=0.95`        | Balanced preset for realtime quality.                                                                            | TODO             |
-| `PRESET_HIGH`    | `quality=65536` `bandwidth=0.97`       | High quality for offline or quality-focused realtime use.                                                        | TODO             |
-| `PRESET_EXTREME` | `quality=524288` `bandwidth=0.9932`    | Maximum quality, intended for offline use.                                                                       | TODO             |
+| Preset           |                             Parameters | Recommended use                                            | Quality Metrics  |
+| ---------------- | -------------------------------------: | -----------------------------------------------------------| ---------------- |
+| `PRESET_FAST`    | `quality=512` `bandwidth=0.832`        | Fast preset for realtime workloads.                        | [f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0)|
+| `PRESET_GOOD`    | `quality=1878` `bandwidth=0.911`       | Balanced preset for realtime quality.                      | TODO             |
+| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.987`      | High quality for offline or quality-focused realtime use.  | TODO             |
+| `PRESET_EXTREME` | `quality=524514` `bandwidth=0.995`     | Maximum quality, intended for offline use.                 | TODO             |
 
 
 ## Feature Flags
