@@ -26,7 +26,6 @@ serde.workspace = true
 serde_json.workspace = true
 wavers.workspace = true
 mimalloc.workspace = true
-rodio = { version = "0.22", default-features = false, features = ["playback"] }
 
 [features]
 default = ["avx", "neon", "sse", "wasm_simd"]
