@@ -1,8 +1,6 @@
-use std::collections::VecDeque;
-
 use num_traits::Float;
 use realfft::FftNum;
-use rtrb::{Consumer, PopError, Producer, PushError, RingBuffer};
+use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -28,6 +26,8 @@ pub(crate) struct SpanFormat {
 pub enum Packet<T: Float> {
     /// Format packet announces the current `{channels, sample_rate_hz}`.
     Format(SpanFormat),
+    /// New span pending in `n` samples
+    NewSpanPending(usize),
     /// A single sample (usually f64)
     Sample(T),
     /// End of stream packet
@@ -50,11 +50,11 @@ where
 
     out_consumer: Consumer<Packet<T>>,
 
-    // If we can't write to the input ring buffer, we need to ditch `span_format_in.channel` (channel -1 additional) number of samples to stay frame-aligned.
-    input_alignment_ditch: usize,
-
     // Flip this to true to stop the thread.
     stop_thread: Arc<AtomicBool>,
+
+    // The size of the current span in samples.
+    current_span_len: Option<usize>,
 }
 
 impl<T> Drop for StreamingResampler<T>
@@ -84,8 +84,8 @@ where
 
         // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
         let (input_buffer_size, output_buffer_size) = streaming_config.required_buffer_sizes(&config);
-        let (mut in_producer, mut in_consumer) = RingBuffer::new(input_buffer_size * 4);
-        let (mut out_producer, mut out_consumer) = RingBuffer::new(output_buffer_size * 4);
+        let (in_producer, mut in_consumer) = RingBuffer::new(input_buffer_size * 4);
+        let (mut out_producer, out_consumer) = RingBuffer::new(output_buffer_size * 4);
 
         let stop_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
         let thread_should_stop = Arc::clone(&stop_thread);
@@ -100,21 +100,35 @@ where
                 // TODO: Check if the input ring-buffer is full, if it is that means we're falling behind.
                 // Read forward in a frame-aligned way until either we hit a span boundary or we've consumed enough samples to catch up.
 
-                // TODO: Read in chunks instead of single samples to avoid thrashing the ring buffer.
-                // This will require reading in a chunl, then checking if there's a span frame, and if so pop forward unti we hit a frame boundary.
-
                 // Read a single packet from the input ring buffer and process it.
                 let did_input_work = match in_consumer.pop() {
                     Ok(packet) => {
                         match packet {
                             Packet::EndOfStream => {
                                 streaming_sampler.finalize_samples()?;
+
+                                let pending_packet =
+                                    Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
+                                // TODO: Handle this error
+                                out_producer.push(pending_packet).unwrap();
                             }
                             Packet::Format(format) => {
                                 streaming_sampler.new_span(format.sample_rate as usize, format.channels as usize)?;
+
+                                let pending_packet =
+                                    Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
+                                // TODO: Handle this error
+                                out_producer.push(pending_packet).unwrap();
                             }
                             Packet::Sample(sample) => {
                                 streaming_sampler.write_samples(&[sample])?;
+                            }
+                            Packet::NewSpanPending(_) => {
+                                // Ignore - we'll handle it on Packet::Format when the new span is actually announced.
+                                #[cfg(debug_assertions)]
+                                panic!(
+                                    "ardftsrc: NewSpanPending packet received. The input thread should not be sending this packet."
+                                );
                             }
                         }
                         true
@@ -139,7 +153,7 @@ where
                         if samples_read == 0 {
                             if streaming_sampler.is_done() {
                                 let _ = out_producer.push(Packet::EndOfStream);
-                                return Ok(())
+                                return Ok(());
                             }
                         }
 
@@ -168,18 +182,13 @@ where
                         // Grab the next span shape
                         let output_channels = streaming_sampler.output_channels();
 
-                        // We *must* write this packet, so loop and park until we can.
-                        while !out_producer.is_full() {
-                            let output_span_format = SpanFormat {
-                                sample_rate: config.output_sample_rate as u32,
-                                channels: output_channels as u8,
-                            };
+                        let output_span_format = SpanFormat {
+                            sample_rate: config.output_sample_rate as u32,
+                            channels: output_channels as u8,
+                        };
 
-                            let res = out_producer.push(Packet::Format(output_span_format));
-                            if res.is_err() {
-                                std::thread::park();
-                            }
-                        }
+                        // TODO: Handle this error
+                        out_producer.push(Packet::Format(output_span_format)).unwrap();
 
                         true
                     } else {
@@ -227,7 +236,7 @@ where
             span_format_out,
             in_producer,
             out_consumer,
-            input_alignment_ditch: 0,
+            current_span_len: None,
             stop_thread,
         }
     }
@@ -237,9 +246,19 @@ where
         if self.out_consumer.is_abandoned() {
             return match self.out_consumer.pop() {
                 Ok(Packet::EndOfStream) => None,
-                Ok(Packet::Sample(sample)) => Some(sample),
+                Ok(Packet::Sample(sample)) => {
+                    if let Some(current_span_len) = self.current_span_len.as_mut() {
+                        *current_span_len -= 1;
+                    }
+                    Some(sample)
+                }
+                Ok(Packet::NewSpanPending(n)) => {
+                    self.current_span_len = Some(n);
+                    return self.read_sample();
+                }
                 Ok(Packet::Format(format)) => {
                     self.span_format_out = format;
+                    self.current_span_len = None;
                     return self.read_sample();
                 }
                 Err(_) => None,
@@ -249,9 +268,19 @@ where
         if let Ok(packet) = self.out_consumer.pop() {
             match packet {
                 Packet::EndOfStream => None,
-                Packet::Sample(sample) => Some(sample),
+                Packet::Sample(sample) => {
+                    if let Some(current_span_len) = self.current_span_len.as_mut() {
+                        *current_span_len -= 1;
+                    }
+                    Some(sample)
+                }
+                Packet::NewSpanPending(n) => {
+                    self.current_span_len = Some(n);
+                    return self.read_sample();
+                }
                 Packet::Format(format) => {
                     self.span_format_out = format;
+                    self.current_span_len = None;
                     self.read_sample()
                 }
             }
@@ -269,11 +298,45 @@ where
         }
 
         // Wake up the thread to wake up and process the sample.
+        self.wake_up();
+    }
+
+    pub fn finalize(&mut self) {
+        // TODO: Handle this error condition
+        let _ = self.in_producer.push(Packet::EndOfStream);
+
+        // Wake up the thread to wake up and process the end of stream packet.
+        self.wake_up();
+    }
+
+    pub fn new_span(&mut self, input_sample_rate: usize, channels: usize) {
+        let span_format_in = SpanFormat {
+            sample_rate: input_sample_rate as u32,
+            channels: channels as u8,
+        };
+
+        if span_format_in == self.span_format_in {
+            return;
+        }
+
+        self.span_format_in = span_format_in.clone();
+
+        let packet = Packet::Format(span_format_in);
+
+        // TODO: Handle this error
+        self.in_producer.push(packet).unwrap();
+    }
+
+    pub fn wake_up(&self) {
         self.thread_handle
             .as_ref()
             .expect("ardftsrc: thread handle should be set")
             .thread()
             .unpark();
+    }
+
+    pub fn current_span_len(&self) -> Option<usize> {
+        self.current_span_len
     }
 
     // Shutdown the resampler worker thread.
@@ -283,7 +346,7 @@ where
 
         if let Some(thread_handle) = self.thread_handle.take() {
             // Wake the thread in case it is currently parked.
-            thread_handle.thread().unpark();
+            self.wake_up();
 
             match thread_handle.join() {
                 Ok(thread_result) => thread_result?,

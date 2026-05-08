@@ -35,38 +35,34 @@ where
         })
     }
 
-    /// Returns the configuration for the active writable span.
+    /// Returns the configuration for the input-active span (write side).
     #[must_use]
+    #[cfg(test)]
     pub fn config(&self) -> &Config {
-        self.active_span().config()
+        self.active_input_span().config()
     }
 
     #[cfg(test)]
     fn input_sample_processed(&self) -> usize {
-        self.active_span().inner.input_sample_processed()
-    }
-
-    /// Returns the active writable span's algorithmic latency to trim/flush.
-    #[must_use]
-    pub fn output_delay_frames(&self) -> usize {
-        self.active_span().output_delay_frames()
+        self.active_input_span().inner.input_sample_processed()
     }
 
     #[must_use]
     #[inline]
+    #[cfg(test)]
     pub fn input_buffer_size(&self) -> usize {
-        self.active_span().input_buffer_size()
+        self.active_input_span().input_buffer_size()
     }
 
     #[must_use]
     #[inline]
     pub fn output_buffer_size(&self) -> usize {
-        self.active_span().output_buffer_size()
+        self.active_output_span().output_buffer_size()
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
     pub fn reset(&mut self) {
-        let config = self.active_span().config().clone();
+        let config = self.active_input_span().config().clone();
         self.spans = VecDeque::from([StreamingSpan::new(config)
             .expect("ardftsrc: Existing stream config became invalid. This is a bug in the ardftsrc crate.")]);
     }
@@ -75,9 +71,9 @@ where
     ///
     /// Writes will write to the new span immediately. Reads will drain the previous span before moving to the new span.
     ///
-    /// If `input_sample_rate` and `channels` match the current writable span, this is a no-op.
+    /// If `input_sample_rate` and `channels` match the current input-active span, this is a no-op.
     pub fn new_span(&mut self, input_sample_rate: usize, channels: usize) -> Result<(), Error> {
-        let current_config = self.active_span().config();
+        let current_config = self.active_input_span().config();
         if current_config.input_sample_rate == input_sample_rate && current_config.channels == channels {
             return Ok(());
         }
@@ -86,7 +82,7 @@ where
         next_config.input_sample_rate = input_sample_rate;
         next_config.channels = channels;
 
-        let active_span = self.active_span_mut();
+        let active_span = self.active_input_span_mut();
         if !active_span.samples_finalized {
             active_span.finalize_samples()?;
         }
@@ -95,7 +91,7 @@ where
         Ok(())
     }
 
-    /// Returns samples left before reads cross into the next queued span.
+    /// Returns samples left before reads cross from the output-active span into the next queued span.
     ///
     /// `None` means there is no pending span transition. `Some(0)` means a transition is queued and
     /// the next read can enter the next span immediately.
@@ -112,23 +108,17 @@ where
 
     /// Returns the output channel count for the next samples that `read_samples()` would emit.
     ///
-    /// When `samples_left_in_span() == Some(0)`, the front span is already drained, so this
+    /// When `samples_left_in_span() == Some(0)`, the current output-active span is already drained, so this
     /// reports the queued next span's channel count.
     #[must_use]
     pub fn output_channels(&self) -> usize {
-        let output_span_index = usize::from(self.samples_left_in_span() == Some(0));
-        self.spans
-            .get(output_span_index)
-            .or_else(|| self.spans.front())
-            .expect("ardftsrc: StreamingResampler always has at least one span")
-            .config()
-            .channels
+        self.active_output_span().config().channels
     }
 
     /// Returns true when the stream has fully completed.
     ///
     /// A stream is considered done when:
-    /// - the active span has been finalized,
+    /// - the output-active span has been finalized,
     /// - there is no queued next span, and
     /// - all buffered input/output samples have been drained.
     #[must_use]
@@ -142,11 +132,11 @@ where
     /// return produced output directly; call `read_samples()` to drain available samples.
     pub fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
         // A write after sample finalization starts a new independent stream.
-        if self.active_span().samples_finalized {
+        if self.active_input_span().samples_finalized {
             self.reset();
         }
 
-        self.active_span_mut().write_samples(input)
+        self.active_input_span_mut().write_samples(input)
     }
 
     /// Reads up to `output.len()` interleaved samples from internally buffered output.
@@ -173,7 +163,7 @@ where
         total_read
     }
 
-    /// Marks the active writable span as finalized and flushes delayed output into pending samples.
+    /// Marks the input-active span as finalized and flushes delayed output into pending samples.
     ///
     /// After this call, no new input should be written for the current stream. Keep calling
     /// `read_samples()` until it returns zero to drain all finalized output.
@@ -187,18 +177,41 @@ where
     /// `write_samples()` before finalizing. If a dangling partial frame remains buffered, this
     /// method returns `Error::DanglingPartialFrame`.
     pub fn finalize_samples(&mut self) -> Result<(), Error> {
-        self.active_span_mut().finalize_samples()
+        self.active_input_span_mut().finalize_samples()
     }
 
-    fn active_span(&self) -> &StreamingSpan<T> {
+    #[must_use]
+    pub fn samples_pending_in_output_span(&self) -> usize {
+        self.active_output_span().samples_pending_output.len()
+    }
+
+    /// Returns the input-active span (write side).
+    ///
+    /// This is always the newest queued span (`back`).
+    fn active_input_span(&self) -> &StreamingSpan<T> {
         self.spans
             .back()
             .expect("ardftsrc: StreamingResampler always has at least one span")
     }
 
-    fn active_span_mut(&mut self) -> &mut StreamingSpan<T> {
+    /// Returns a mutable reference to the input-active span (write side).
+    ///
+    /// This is always the newest queued span (`back`).
+    fn active_input_span_mut(&mut self) -> &mut StreamingSpan<T> {
         self.spans
             .back_mut()
+            .expect("ardftsrc: StreamingResampler always has at least one span")
+    }
+
+    /// Returns the output-active span (read side).
+    ///
+    /// This is normally the front span. If a queued transition is ready (`Some(0)`),
+    /// reads are about to enter the next span and this reports that next span instead.
+    fn active_output_span(&self) -> &StreamingSpan<T> {
+        let output_span_index = usize::from(self.samples_left_in_span() == Some(0));
+        self.spans
+            .get(output_span_index)
+            .or_else(|| self.spans.front())
             .expect("ardftsrc: StreamingResampler always has at least one span")
     }
 
@@ -232,12 +245,6 @@ where
     #[inline]
     fn config(&self) -> &Config {
         self.inner.config()
-    }
-
-    #[must_use]
-    #[inline]
-    fn output_delay_frames(&self) -> usize {
-        self.inner.output_delay_frames()
     }
 
     #[must_use]
@@ -518,7 +525,7 @@ mod tests {
             input_sample_rate: 32_000,
             ..first_config.clone()
         };
-        let mut second_offline = InterleavedResampler::new(second_config).unwrap();
+        let mut second_offline = InterleavedResampler::<f32>::new(second_config).unwrap();
         let second_len = second_offline.input_buffer_size() + 5;
         let second_input: Vec<f32> = (0..second_len)
             .map(|frame| (frame as f32 * 0.023).cos() * 0.2)
@@ -556,7 +563,7 @@ mod tests {
         let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
 
         let second_config = stereo_config(44_100, 48_000);
-        let mut second_offline = InterleavedResampler::new(second_config).unwrap();
+        let mut second_offline = InterleavedResampler::<f32>::new(second_config).unwrap();
         let second_frames = second_offline.input_buffer_size() / 2 + 3;
         let mut second_input = Vec::with_capacity(second_frames * 2);
         for frame in 0..second_frames {
@@ -591,6 +598,78 @@ mod tests {
         for (left, right) in second_actual.iter().zip(second_expected.iter()) {
             assert!((*left - *right).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn output_buffer_size_tracks_output_active_span_across_transition() {
+        let first_config = mono_config(44_100, 48_000);
+        let mut first_offline = InterleavedResampler::new(first_config.clone()).unwrap();
+        let first_output_buffer_size = first_offline.output_buffer_size();
+        let first_input: Vec<f32> = (0..(first_offline.input_buffer_size() + 3))
+            .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
+            .collect();
+
+        let second_config = stereo_config(32_000, 48_000);
+        let second_offline = InterleavedResampler::<f32>::new(second_config).unwrap();
+        let second_output_buffer_size = second_offline.output_buffer_size();
+        let second_frames = second_offline.input_buffer_size() / 2 + 3;
+        let mut second_input = Vec::with_capacity(second_frames * 2);
+        for frame in 0..second_frames {
+            second_input.push((frame as f32 * 0.013).sin() * 0.2);
+            second_input.push((frame as f32 * 0.017).cos() * 0.2);
+        }
+
+        assert_ne!(first_output_buffer_size, second_output_buffer_size);
+
+        let mut resampler = OffThreadStreamingResampler::new(first_config).unwrap();
+        resampler.write_samples(&first_input).unwrap();
+        resampler.new_span(32_000, 2).unwrap();
+        resampler.write_samples(&second_input).unwrap();
+        resampler.finalize_samples().unwrap();
+
+        assert_eq!(resampler.samples_left_in_span(), Some(process_all_samples(&mut first_offline, &first_input).unwrap().len()));
+        assert_eq!(resampler.output_buffer_size(), first_output_buffer_size);
+
+        let first_read_len = resampler.samples_left_in_span().unwrap();
+        let mut first_read = vec![0.0; first_read_len];
+        assert_eq!(resampler.read_samples(&mut first_read), first_read_len);
+        assert_eq!(resampler.samples_left_in_span(), Some(0));
+        assert_eq!(resampler.output_buffer_size(), second_output_buffer_size);
+    }
+
+    #[test]
+    fn samples_pending_in_output_span_tracks_output_active_span() {
+        let first_config = mono_config(44_100, 48_000);
+        let mut first_offline = InterleavedResampler::new(first_config.clone()).unwrap();
+        let first_input: Vec<f32> = (0..(first_offline.input_buffer_size() + 3))
+            .map(|frame| (frame as f32 * 0.011).sin() * 0.3)
+            .collect();
+        let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
+
+        let second_config = stereo_config(44_100, 48_000);
+        let mut second_offline = InterleavedResampler::<f32>::new(second_config).unwrap();
+        let second_frames = second_offline.input_buffer_size() / 2 + 3;
+        let mut second_input = Vec::with_capacity(second_frames * 2);
+        for frame in 0..second_frames {
+            second_input.push((frame as f32 * 0.013).sin() * 0.2);
+            second_input.push((frame as f32 * 0.017).cos() * 0.2);
+        }
+        let second_expected = process_all_samples(&mut second_offline, &second_input).unwrap();
+
+        let mut resampler = OffThreadStreamingResampler::new(first_config).unwrap();
+        resampler.write_samples(&first_input).unwrap();
+        resampler.new_span(44_100, 2).unwrap();
+        resampler.write_samples(&second_input).unwrap();
+        resampler.finalize_samples().unwrap();
+
+        assert_eq!(resampler.samples_pending_in_output_span(), first_expected.len());
+        assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
+
+        let mut first_actual = vec![0.0; first_expected.len()];
+        assert_eq!(resampler.read_samples(&mut first_actual), first_expected.len());
+
+        assert_eq!(resampler.samples_left_in_span(), Some(0));
+        assert_eq!(resampler.samples_pending_in_output_span(), second_expected.len());
     }
 
     #[test]
