@@ -125,6 +125,17 @@ where
             .channels
     }
 
+    /// Returns true when the stream has fully completed.
+    ///
+    /// A stream is considered done when:
+    /// - the active span has been finalized,
+    /// - there is no queued next span, and
+    /// - all buffered input/output samples have been drained.
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        self.spans.len() == 1 && self.spans.front().is_some_and(StreamingSpan::is_drained)
+    }
+
     /// Accepts interleaved streaming samples of any length.
     ///
     /// Input is internally buffered and converted into fixed-size chunks. This method does not
@@ -710,5 +721,36 @@ mod tests {
         stream.write_samples(&second).unwrap();
 
         assert_eq!(stream.input_sample_processed(), second.len());
+    }
+
+    #[test]
+    fn is_done_requires_finalize_and_drain() {
+        let mut stream = OffThreadStreamingResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let input_frames = input_chunk_frames(&stream) + 5;
+        let input: Vec<f32> = (0..input_frames)
+            .map(|frame| (frame as f32 * 0.01).sin() * 0.2)
+            .collect();
+
+        assert!(!stream.is_done());
+        stream.write_samples(&input).unwrap();
+        assert!(!stream.is_done());
+
+        stream.finalize_samples().unwrap();
+        assert!(!stream.is_done());
+
+        let _ = drain_stream(&mut stream, 11);
+        assert!(stream.is_done());
+    }
+
+    #[test]
+    fn is_done_false_while_next_span_is_queued() {
+        let first_config = mono_config(44_100, 48_000);
+        let mut stream = OffThreadStreamingResampler::new(first_config).unwrap();
+        let input = vec![0.1f32; stream.input_buffer_size() + 3];
+
+        stream.write_samples(&input).unwrap();
+        stream.new_span(32_000, 1).unwrap();
+        assert!(!stream.is_done());
+        assert!(stream.samples_left_in_span().is_some());
     }
 }

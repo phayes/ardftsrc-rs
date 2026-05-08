@@ -134,6 +134,15 @@ where
 
                         let samples_read = streaming_sampler.read_samples(&mut output_buffer[..samples_remaining]);
 
+                        // If we read no samples, check if the stream is done.
+                        // If so, push the end of stream packet and return, exiting the thread.
+                        if samples_read == 0 {
+                            if streaming_sampler.is_done() {
+                                let _ = out_producer.push(Packet::EndOfStream);
+                                return Ok(())
+                            }
+                        }
+
                         let mut i = 0usize;
                         while i < samples_read {
                             let res = out_producer.push(Packet::Sample(output_buffer[i]));
