@@ -38,7 +38,6 @@ pub struct RealtimeResampler<T = f64>
 where
     T: Float + FftNum,
 {
-
     // The configuration for the resampler.
     // TODO: Move all this into ResamplingConfig and derive downstream Config.
     config: Config,
@@ -121,7 +120,7 @@ where
     fn set_samples_per_wake(&mut self) {
         self.samples_per_wake = self.input_chunk_samples().div_ceil(4).max(1);
     }
-
+    
     fn set_initial_sample_delay(&mut self) {
         self.initial_sample_delay = self.input_chunk_samples() * 2;
     }
@@ -154,12 +153,14 @@ where
 
             // Loop until we get a "thread should stop" signal.
             while !thread_should_stop.load(Ordering::Relaxed) {
-                // TODO: Check if the input ring-buffer is full, if it is that means we're falling behind.
-                // Read forward in a frame-aligned way until either we hit a span boundary or we've consumed enough samples to catch up.
 
-                // Read a single packet from the input ring buffer and process it.
-                let did_input_work = match in_consumer.pop() {
-                    Ok(packet) => {
+                // Input work first
+                let num_packets = in_consumer.slots();
+                let mut did_input_work = false;
+                if num_packets > 0 {
+                    did_input_work = true;
+
+                    for packet in in_consumer.read_chunk(num_packets).expect("ardftsrc: failed to read input chunk despite checking for slots") {
                         match packet {
                             Packet::EndOfStream => {
                                 streaming_sampler.finalize_samples()?;
@@ -188,11 +189,10 @@ where
                                 );
                             }
                         }
-                        true
                     }
-                    Err(_) => false,
-                };
+                }
 
+                // Output work second
                 let did_output_work = {
                     // Check to see if are nearing the end of an output span, if so process end-of-span behavior.
                     // TODO: There's a bug here:
@@ -200,8 +200,8 @@ where
                     //   - The second time around we see streaming_sampler.samples_left_in_span() == Some(0), and then re-emit out_producer.push(Packet::Format(output_span_format)).unwrap();
                     //   - The issue is that we always need to emit the format packet at least once, even when streaming_sampler.samples_left_in_span() is naturally zero from the upstream resampler.
                     //   - IF samples_left_in_span() is always non-zero when we complete a span because of finalize, we are safe skip the Some(0) case.
-                    //   
-                    //   Bug TLDR: We spam Format packets onto the ring buffer during span transitions. 
+                    //
+                    //   Bug TLDR: We spam Format packets onto the ring buffer during span transitions.
                     //   This can be fixed when we move the buffered output on the ring buffer since we'll be able to peek.
                     //   It's less of a problem than it seems because we park the thread after the second spam.
                     if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
@@ -378,7 +378,7 @@ where
 
         // Track the total number of input samples written to the resampler.
         self.total_input_samples_written = self.total_input_samples_written.saturating_add(1);
-        
+
         // Track if we should wake up the thread to process the pending samples in the input ring buffer.
         self.samples_written_since_wake += 1;
         if self.samples_written_since_wake >= self.samples_per_wake {

@@ -42,6 +42,9 @@ rodio = ["dep:rodio", "realtime"]
 rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
 
+ # Rodio features (examples only)
+rodio-playback= ["rodio/playback"]
+
 [[bench]]
 name = "ardftsrc_throughput"
 harness = false
@@ -56,8 +59,8 @@ harness = false
 
 [[example]]
 name = "rodio_adapter"
-required-features = ["rodio"]
+required-features = ["rodio-playback"]
 
 [[example]]
 name = "rodio_adapter_with_spans"
-required-features = ["rodio"]
+required-features = ["rodio-playback"]
