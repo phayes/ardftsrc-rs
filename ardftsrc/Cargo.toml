@@ -13,6 +13,7 @@ thiserror.workspace = true
 audioadapter = { workspace = true, optional = true }
 audio-core = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
+rtrb = "0.3.4"
 
 [dev-dependencies]
 audioadapter-buffers.workspace = true
@@ -26,7 +27,7 @@ wavers.workspace = true
 mimalloc.workspace = true
 
 [[bench]]
-name = "ardftsrc_all"
+name = "ardftsrc_throughput"
 harness = false
 
 [[bench]]

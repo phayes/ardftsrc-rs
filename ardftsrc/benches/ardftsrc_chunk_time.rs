@@ -10,10 +10,10 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 use ardftsrc::{Config, InterleavedResampler, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use criterion::measurement::WallTime;
-use criterion::{criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion};
+use criterion::{BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main};
 use num_traits::Float;
 use realfft::FftNum;
-use wavers::{read, Wav};
+use wavers::{Wav, read};
 
 const TARGET_SAMPLE_RATES: &[usize] = &[22_050, 48_000, 96_000];
 const FIXTURE_PATHS: &[&str] = &[
@@ -121,13 +121,13 @@ fn benchmark_sample_type<T>(
         return;
     }
     let mut resampler = resampler.expect("resampler construction checked above");
-    let input_chunk_size = resampler.input_chunk_size();
+    let input_chunk_size = resampler.input_buffer_size();
     if samples.len() < input_chunk_size {
         return;
     }
 
     let input_chunk = samples[..input_chunk_size].to_vec();
-    let mut output_chunk = vec![T::zero(); resampler.output_chunk_size()];
+    let mut output_chunk = vec![T::zero(); resampler.output_buffer_size()];
 
     group.bench_with_input(
         benchmark_id(

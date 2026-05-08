@@ -65,4 +65,8 @@ pub enum Error {
         "preset config must be configured before creating a stream. Use with_input_rate(), with_output_rate(), and with_channels() to configure the preset."
     )]
     PresetNotConfigured,
+
+    /// The background streaming worker thread panicked.
+    #[error("streaming worker thread panicked: {0}")]
+    WorkerThreadPanic(String),
 }

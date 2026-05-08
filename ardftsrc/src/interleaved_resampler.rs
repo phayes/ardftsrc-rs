@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{PlanarResampler, Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
+use crate::{Config, Error, PlanarResampler, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
 
 pub struct InterleavedResampler<T = f64>
 where
@@ -69,7 +69,7 @@ where
     /// Use this to allocate/read fixed-size streaming input buffers.
     #[must_use]
     #[inline]
-    pub fn input_chunk_size(&self) -> usize {
+    pub fn input_buffer_size(&self) -> usize {
         self.derived.input_chunk_frames * self.config.channels
     }
 
@@ -79,7 +79,7 @@ where
     /// `process_chunk_final()` to at least this value.
     #[must_use]
     #[inline]
-    pub fn output_chunk_size(&self) -> usize {
+    pub fn output_buffer_size(&self) -> usize {
         self.derived.output_chunk_frames * self.config.channels
     }
 
@@ -294,7 +294,7 @@ where
     /// Callers should allocate at least `output_buffer_size()` samples before processing.
     #[inline]
     fn ensure_output_buffer_shape<'a>(&self, output: &[T]) -> Result<(), Error> {
-        let expected = self.output_chunk_size();
+        let expected = self.output_buffer_size();
         if output.len() < expected {
             return Err(Error::InsufficientOutputBuffer {
                 expected,
@@ -334,7 +334,7 @@ where
         }
 
         let channels = self.config.channels;
-        let max_samples = self.input_chunk_size();
+        let max_samples = self.input_buffer_size();
         let start = pre.len().saturating_sub(max_samples);
         let start = start.div_ceil(channels) * channels;
 
@@ -376,7 +376,7 @@ where
         }
 
         let channels = self.config.channels;
-        let end = post.len().min(self.input_chunk_size());
+        let end = post.len().min(self.input_buffer_size());
 
         for (channel_idx, core) in self.cores.iter_mut().enumerate() {
             let samples = post[channel_idx..end].iter().step_by(channels).copied().collect();
@@ -505,11 +505,11 @@ mod tests {
     use dasp_signal::Signal;
 
     fn input_chunk_frames(resampler: &InterleavedResampler<f32>) -> usize {
-        resampler.input_chunk_size() / resampler.config().channels
+        resampler.input_buffer_size() / resampler.config().channels
     }
 
     fn output_chunk_frames(resampler: &InterleavedResampler<f32>) -> usize {
-        resampler.output_chunk_size() / resampler.config().channels
+        resampler.output_buffer_size() / resampler.config().channels
     }
 
     fn process_chunk_samples(
@@ -532,10 +532,7 @@ mod tests {
         Ok(written)
     }
 
-    fn finalize_samples_chunk(
-        resampler: &mut InterleavedResampler<f32>,
-        output: &mut [f32],
-    ) -> Result<usize, Error> {
+    fn finalize_samples_chunk(resampler: &mut InterleavedResampler<f32>, output: &mut [f32]) -> Result<usize, Error> {
         let written = resampler.finalize(output)?;
         assert_no_nans(&output[..written], "chunk::finalize_samples_chunk output");
         Ok(written)
@@ -573,11 +570,11 @@ mod tests {
             resampler.post(post.to_vec()).unwrap();
         }
 
-        let input_buffer_size = resampler.input_chunk_size();
+        let input_buffer_size = resampler.input_buffer_size();
         let full_chunks = input.len() / input_buffer_size;
         let has_partial = !input.len().is_multiple_of(input_buffer_size);
         let output_blocks = full_chunks + usize::from(has_partial) + 1;
-        let mut output = vec![0.0; output_blocks * resampler.output_chunk_size()];
+        let mut output = vec![0.0; output_blocks * resampler.output_buffer_size()];
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
@@ -706,7 +703,7 @@ mod tests {
     #[test]
     fn expected_output_size_matches_frame_count_conversion() {
         let resampler = InterleavedResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
-        let input_samples = resampler.input_chunk_size() * 2 + 14;
+        let input_samples = resampler.input_buffer_size() * 2 + 14;
         let input_frames = input_samples / resampler.config().channels;
 
         let expected_from_frames = resampler.expected_output_size(input_frames) * resampler.config().channels;
@@ -914,7 +911,7 @@ mod tests {
         let mut config = mono_config(44_100, 48_000);
         config.taper_type = TaperType::Cosine(1.55);
         let mut full_resampler = InterleavedResampler::new(config.clone()).unwrap();
-        let context_len = full_resampler.input_chunk_size();
+        let context_len = full_resampler.input_buffer_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
         let output_sample_rate = config.output_sample_rate;
@@ -968,7 +965,7 @@ mod tests {
     fn split_resampling_is_worse_without_pre_post() {
         let config = mono_config(44_100, 48_000);
         let mut full_resampler = InterleavedResampler::new(config.clone()).unwrap();
-        let context_len = full_resampler.input_chunk_size();
+        let context_len = full_resampler.input_buffer_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
         let output_sample_rate = config.output_sample_rate;
@@ -1062,7 +1059,7 @@ mod tests {
         let config = mono_config(44_100, 48_000);
         let interleaved = InterleavedResampler::<f32>::new(config.clone()).unwrap();
         let planar = PlanarResampler::<f32>::new(config).unwrap();
-        let context_chunk_size = interleaved.input_chunk_size() / interleaved.config().channels;
+        let context_chunk_size = interleaved.input_buffer_size() / interleaved.config().channels;
         let track_frames = context_chunk_size * 2 + 17;
 
         let tracks: Vec<Vec<f32>> = (0..3)
@@ -1095,7 +1092,7 @@ mod tests {
     fn batch_matches_independent_process_all() {
         let config = mono_config(44_100, 48_000);
         let batch = InterleavedResampler::<f32>::new(config.clone()).unwrap();
-        let chunk = batch.input_chunk_size() / batch.config().channels;
+        let chunk = batch.input_buffer_size() / batch.config().channels;
         let tracks: Vec<Vec<f32>> = vec![
             (0..(chunk + 17))
                 .map(|frame| (frame as f32 * 0.009).sin() * 0.2)
@@ -1131,7 +1128,7 @@ mod tests {
     #[test]
     fn stereo_channels_are_processed_independently() {
         let mut resampler = InterleavedResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        let mut input = vec![0.0; resampler.input_chunk_size()];
+        let mut input = vec![0.0; resampler.input_buffer_size()];
         input[0] = 1.0;
 
         let output = process_all_samples(&mut resampler, &input).unwrap();
@@ -1159,11 +1156,11 @@ mod tests {
 
         let offline_output = process_all_samples(&mut offline, &input).unwrap();
 
-        let input_buffer_size = streaming.input_chunk_size();
+        let input_buffer_size = streaming.input_buffer_size();
         let full_chunks = input.len() / input_buffer_size;
         let has_partial = !input.len().is_multiple_of(input_buffer_size);
         let output_blocks = full_chunks + usize::from(has_partial) + 1;
-        let mut streaming_output = vec![0.0; output_blocks * streaming.output_chunk_size()];
+        let mut streaming_output = vec![0.0; output_blocks * streaming.output_buffer_size()];
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
@@ -1219,8 +1216,8 @@ mod tests {
     #[test]
     fn input_sample_count_tracks_full_and_partial_stream_input() {
         let mut resampler = InterleavedResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        let mut output = vec![0.0; resampler.output_chunk_size()];
-        let full = vec![0.0; resampler.input_chunk_size()];
+        let mut output = vec![0.0; resampler.output_buffer_size()];
+        let full = vec![0.0; resampler.input_buffer_size()];
         let partial = vec![0.0; 10];
 
         assert_eq!(resampler.input_sample_processed(), 0);

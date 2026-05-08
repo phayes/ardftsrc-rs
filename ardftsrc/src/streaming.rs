@@ -2,26 +2,66 @@ use std::collections::VecDeque;
 
 use num_traits::Float;
 use realfft::FftNum;
+use rtrb::{Consumer, PopError, Producer, PushError, RingBuffer};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::thread::JoinHandle;
 
-use crate::{InterleavedResampler, Config, Error};
+use crate::{Config, Error, offthread::OffThreadStreamingResampler};
+
+/// Runtime audio format metadata for tapped packets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SpanFormat {
+    channels: u8,
+    sample_rate: u32,
+}
+
+/// Packet emitted by the low-level ring buffer.
+///
+/// Invariants:
+/// - The first packet for a stream is always `Format`.
+/// - Whenever span format changes, a new `Format` packet is emitted before the first `Sample` in that span.
+///
+/// This should be sized 128bits - oh for a float-niche!
+#[derive(Debug, Clone, PartialEq)]
+pub enum Packet<T: Float> {
+    /// Format packet announces the current `{channels, sample_rate_hz}`.
+    Format(SpanFormat),
+    /// A single sample (usually f64)
+    Sample(T),
+}
 
 pub struct StreamingResampler<T = f64>
 where
     T: Float + FftNum,
 {
-    spans: VecDeque<StreamingSpan<T>>,
+    thread_handle: Option<JoinHandle<Result<(), Error>>>,
+
+    // The shape of the input span, when this changes we emit a "SpanChanged"
+    span_format_in: SpanFormat,
+
+    // The shape of the output span, we update this when we receive a "SpanChanged" even
+    span_format_out: SpanFormat,
+
+    in_producer: Producer<Packet<T>>,
+
+    out_consumer: Consumer<Packet<T>>,
+
+    // If we can't write to the input ring buffer, we need to ditch `span_format_in.channel` (channel -1 additional) number of samples to stay frame-aligned.
+    input_alignment_ditch: usize,
+
+    // Flip this to true to stop the thread.
+    stop_thread: Arc<AtomicBool>,
 }
 
-struct StreamingSpan<T = f64>
+impl<T> Drop for StreamingResampler<T>
 where
     T: Float + FftNum,
 {
-    inner: InterleavedResampler<T>,
-    samples_pending_input: VecDeque<T>,
-    samples_pending_output: VecDeque<T>,
-    samples_input_chunk_buffer: Vec<T>,
-    samples_output_chunk_buffer: Vec<T>,
-    samples_finalized: bool,
+    fn drop(&mut self) {
+        self.stop_thread.store(true, Ordering::Relaxed);
+    }
 }
 
 impl<T> StreamingResampler<T>
@@ -29,667 +69,367 @@ where
     T: Float + FftNum,
 {
     /// Constructs a sample-streaming resampler from `config`.
-    pub fn new(config: Config) -> Result<Self, Error> {
-        Ok(Self {
-            spans: VecDeque::from([StreamingSpan::new(config)?]),
-        })
-    }
+    pub fn new(config: Config, streaming_config: StreamingConfig) -> Self {
+        let span_format_in = SpanFormat {
+            sample_rate: config.input_sample_rate as u32,
+            channels: config.channels as u8,
+        };
 
-    /// Returns the configuration for the active writable span.
-    #[must_use]
-    pub fn config(&self) -> &Config {
-        self.active_span().config()
-    }
+        let span_format_out = SpanFormat {
+            sample_rate: config.output_sample_rate as u32,
+            channels: config.channels as u8,
+        };
 
-    #[cfg(test)]
-    fn input_sample_processed(&self) -> usize {
-        self.active_span().inner.input_sample_processed()
-    }
+        // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
+        let (input_buffer_size, output_buffer_size) = streaming_config.required_buffer_sizes(&config);
+        let (mut in_producer, mut in_consumer) = RingBuffer::new(input_buffer_size * 2);
+        let (mut out_producer, mut out_consumer) = RingBuffer::new(output_buffer_size * 2);
 
-    #[cfg(test)]
-    #[must_use]
-    #[inline]
-    fn input_chunk_size(&self) -> usize {
-        self.active_span().input_chunk_size()
-    }
+        let stop_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        let thread_should_stop = Arc::clone(&stop_thread);
 
-    #[cfg(test)]
-    #[must_use]
-    fn output_chunk_size(&self) -> usize {
-        self.active_span().output_chunk_size()
-    }
+        // Off-thread resampler loop thread, handles all the off-thread resampling work.
+        let thread_handle = std::thread::spawn(move || {
+            let mut streaming_sampler = OffThreadStreamingResampler::<T>::new(config.clone())?;
+            let mut output_buffer = vec![T::zero(); streaming_sampler.output_buffer_size()];
 
-    /// Returns the active writable span's algorithmic latency to trim/flush.
-    #[must_use]
-    pub fn output_delay_frames(&self) -> usize {
-        self.active_span().output_delay_frames()
-    }
+            let mut span_format_in = SpanFormat {
+                sample_rate: config.input_sample_rate as u32,
+                channels: config.channels as u8,
+            };
 
-    /// Resets internal streaming state so the next input is treated as a new, independent stream.
-    pub fn reset(&mut self) {
-        let config = self.active_span().config().clone();
-        self.spans = VecDeque::from([StreamingSpan::new(config)
-            .expect("ardftsrc: Existing stream config became invalid. This is a bug in the ardftsrc crate.")]);
-    }
+            // Loop until we get a "thread should stop" signal.
+            while !thread_should_stop.load(Ordering::Relaxed) {
+                // Read a single packet from the input ring buffer and process it.
+                let did_input_work = match in_consumer.pop() {
+                    Ok(packet) => {
+                        match packet {
+                            Packet::Format(format) => {
+                                if span_format_in != format {
+                                    streaming_sampler
+                                        .new_span(format.sample_rate as usize, format.channels as usize)?;
+                                    span_format_in = format;
+                                }
+                            }
+                            Packet::Sample(sample) => {
+                                streaming_sampler.write_samples(&[sample])?;
+                            }
+                        }
+                        true
+                    }
+                    Err(_) => false,
+                };
 
-    /// Starts a new input span while preserving output rate and quality settings.
-    ///
-    /// Writes will write to the new span immediately. Reads will drain the previous span before moving to the new span.
-    ///
-    /// If `input_sample_rate` and `channels` match the current writable span, this is a no-op.
-    pub fn new_span(&mut self, input_sample_rate: usize, channels: usize) -> Result<(), Error> {
-        let current_config = self.active_span().config();
-        if current_config.input_sample_rate == input_sample_rate && current_config.channels == channels {
-            return Ok(());
+                let did_output_work = {
+                    // Check to see if are nearing the end of an output span, if so process end-of-span behavior.
+                    if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
+                        // If there are samples remaining in the span, read them.
+
+                        // First check the size of the output buffer, and grow it if needed.
+                        if output_buffer.len() < samples_remaining {
+                            output_buffer.resize(samples_remaining, T::zero());
+                        }
+
+                        let samples_read = streaming_sampler.read_samples(&mut output_buffer[..samples_remaining]);
+
+                        for i in 0..samples_read {
+                            let res = out_producer.push(Packet::Sample(output_buffer[i]));
+
+                            // If the ring buffer is full, ditch enough samples to keep it frame aligned and park the thread.
+                            // This should never happen unless the CPU is in heavy contention.
+                            if let Err(_) = res {
+                                let ditch_samples = config.channels - 1;
+                                if ditch_samples > 0 {
+                                    // TODO
+                                }
+
+                                #[cfg(debug_assertions)]
+                                {
+                                    eprintln!(
+                                        "ardftsrc: output ring buffer full, ditching {ditch_samples} out samples to keep it frame aligned."
+                                    );
+                                }
+
+                                std::thread::park();
+                            }
+                        }
+
+                        // We should be right at a span boundary.
+                        debug_assert!(
+                            streaming_sampler.samples_left_in_span() == Some(0),
+                            "ardftsrc: samples_left_in_span() is not 0 at expected span boundary."
+                        );
+
+                        // Grab the next span shape
+                        let output_channels = streaming_sampler.output_channels();
+
+                        // We *must* write this packet, so loop and park until we can.
+                        while !out_producer.is_full() {
+                            let output_span_format = SpanFormat {
+                                sample_rate: config.output_sample_rate as u32,
+                                channels: output_channels as u8,
+                            };
+
+                            let res = out_producer.push(Packet::Format(output_span_format));
+                            if res.is_err() {
+                                std::thread::park();
+                            }
+                        }
+
+                        true
+                    } else {
+                        // If we are not nearing the end of an output span, just read samples into the output buffer and write them to the output ring buffer.
+                        let samples_read = streaming_sampler.read_samples(&mut output_buffer);
+
+                        for i in 0..samples_read {
+                            let res = out_producer.push(Packet::Sample(output_buffer[i]));
+
+                            // If the ring buffer is full, ditch enough samples to keep it frame aligned and park the thread.
+                            // This should never happen unless the CPU is in heavy contention.
+                            if let Err(_) = res {
+                                let ditch_samples = config.channels - 1;
+                                if ditch_samples > 0 {
+                                    let _ = streaming_sampler.read_samples(&mut output_buffer[ditch_samples..]);
+                                }
+
+                                #[cfg(debug_assertions)]
+                                {
+                                    eprintln!(
+                                        "ardftsrc: output ring buffer full, ditching {ditch_samples} out samples to keep it frame aligned."
+                                    );
+                                }
+
+                                std::thread::park();
+                            }
+                        }
+
+                        if samples_read > 0 { true } else { false }
+                    }
+                };
+
+                // If we didn't do any work, park the thread.
+                if !did_input_work && !did_output_work {
+                    std::thread::park();
+                }
+
+                // TODO: There's a race condition here. This can miss a wakeup:
+                // consumer: pop() sees empty
+                // producer: push()
+                // producer: unpark(consumer)
+                // consumer: park()
+            }
+
+            Ok(())
+        });
+
+        Self {
+            thread_handle: Some(thread_handle),
+            span_format_in,
+            span_format_out,
+            in_producer,
+            out_consumer,
+            input_alignment_ditch: 0,
+            stop_thread,
         }
-
-        let mut next_config = current_config.clone();
-        next_config.input_sample_rate = input_sample_rate;
-        next_config.channels = channels;
-
-        let active_span = self.active_span_mut();
-        if !active_span.samples_finalized {
-            active_span.finalize_samples()?;
-        }
-
-        self.spans.push_back(StreamingSpan::new(next_config)?);
-        Ok(())
     }
 
-    /// Returns samples left before reads cross into the next queued span.
-    ///
-    /// `None` means there is no pending span transition. `Some(0)` means a transition is queued and
-    /// the next read can enter the next span immediately.
-    #[must_use]
-    pub fn samples_left_in_span(&self) -> Option<usize> {
-        (self.spans.len() > 1).then(|| {
-            self.spans
-                .front()
-                .expect("ardftsrc: StreamingResampler always has at least one span")
-                .samples_pending_output
-                .len()
-        })
-    }
+    // Shutdown the resampler worker thread.
+    // Returns the error from the thread if it panicked or returned an error.
+    pub fn shutdown(&mut self) -> Result<(), Error> {
+        self.stop_thread.store(true, Ordering::Relaxed);
 
-    /// Accepts interleaved streaming samples of any length.
-    ///
-    /// Input is internally buffered and converted into fixed-size chunks. This method does not
-    /// return produced output directly; call `read_samples()` to drain available samples.
-    pub fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
-        // A write after sample finalization starts a new independent stream.
-        if self.active_span().samples_finalized {
-            self.reset();
-        }
+        if let Some(thread_handle) = self.thread_handle.take() {
+            // Wake the thread in case it is currently parked.
+            thread_handle.thread().unpark();
 
-        self.active_span_mut().write_samples(input)
-    }
-
-    /// Reads up to `output.len()` interleaved samples from internally buffered output.
-    ///
-    /// Returns the number of samples copied into `output`.
-    pub fn read_samples(&mut self, output: &mut [T]) -> usize {
-        let mut total_read = 0;
-
-        while total_read < output.len() {
-            self.drop_drained_front_spans();
-
-            let span = self
-                .spans
-                .front_mut()
-                .expect("ardftsrc: StreamingResampler always has at least one span");
-            let read = span.read_samples(&mut output[total_read..]);
-            total_read += read;
-
-            if read == 0 {
-                break;
+            match thread_handle.join() {
+                Ok(thread_result) => thread_result?,
+                Err(panic_payload) => {
+                    let panic_message = if let Some(msg) = panic_payload.downcast_ref::<String>() {
+                        msg.clone()
+                    } else if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+                        (*msg).to_owned()
+                    } else {
+                        "unknown panic payload".to_owned()
+                    };
+                    return Err(Error::WorkerThreadPanic(panic_message));
+                }
             }
         }
 
-        total_read
+        Ok(())
     }
+}
 
-    /// Marks the active writable span as finalized and flushes delayed output into pending samples.
-    ///
-    /// After this call, no new input should be written for the current stream. Keep calling
-    /// `read_samples()` until it returns zero to drain all finalized output.
-    ///
-    /// If your streaming pipeline does not need delayed tail output at end-of-stream, call
-    /// `reset()` directly instead of `finalize_samples()`. This is specifically for abrupt
-    /// switching cases where you intentionally discard the previous stream tail. For normal
-    /// endings where tail output is desired, use `finalize_samples()`.
-    ///
-    /// For multi-channel streams, callers must provide a complete interleaved frame via
-    /// `write_samples()` before finalizing. If a dangling partial frame remains buffered, this
-    /// method returns `Error::DanglingPartialFrame`.
-    pub fn finalize_samples(&mut self) -> Result<(), Error> {
-        self.active_span_mut().finalize_samples()
-    }
+pub struct StreamingConfig {
+    expected_input_range: std::ops::Range<usize>,
+    expected_max_channels: usize,
+}
 
-    fn active_span(&self) -> &StreamingSpan<T> {
-        self.spans
-            .back()
-            .expect("ardftsrc: StreamingResampler always has at least one span")
-    }
-
-    fn active_span_mut(&mut self) -> &mut StreamingSpan<T> {
-        self.spans
-            .back_mut()
-            .expect("ardftsrc: StreamingResampler always has at least one span")
-    }
-
-    fn drop_drained_front_spans(&mut self) {
-        while self.spans.len() > 1 && self.spans.front().is_some_and(StreamingSpan::is_drained) {
-            self.spans.pop_front();
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            expected_input_range: 22_050..192_000,
+            expected_max_channels: 8,
         }
     }
 }
 
-impl<T> StreamingSpan<T>
-where
-    T: Float + FftNum,
-{
-    fn new(config: Config) -> Result<Self, Error> {
-        let inner = InterleavedResampler::new(config)?;
-        let input_chunk_size = inner.input_chunk_size();
-        let output_chunk_size = inner.output_chunk_size();
+impl StreamingConfig {
+    // Returns the required input and output buffer sizes for the given config.
+    //
+    // Returns (input_buffer_size, output_buffer_size)
+    pub fn required_buffer_sizes(&self, config: &Config) -> (usize, usize) {
+        let quality = config.quality;
+        let fixed_output_rate = config.output_sample_rate;
+        let min_input_rate = self.expected_input_range.start;
+        let max_input_rate = self.expected_input_range.end;
 
-        Ok(Self {
-            inner,
-            samples_pending_input: VecDeque::with_capacity(input_chunk_size * 2),
-            samples_pending_output: VecDeque::with_capacity(output_chunk_size * 2),
-            samples_input_chunk_buffer: Vec::with_capacity(input_chunk_size),
-            samples_output_chunk_buffer: vec![T::zero(); output_chunk_size],
-            samples_finalized: false,
-        })
-    }
-
-    #[must_use]
-    fn config(&self) -> &Config {
-        self.inner.config()
-    }
-
-    #[must_use]
-    #[inline]
-    fn input_chunk_size(&self) -> usize {
-        self.inner.input_chunk_size()
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    fn output_chunk_size(&self) -> usize {
-        self.inner.output_chunk_size()
-    }
-
-    #[must_use]
-    fn output_delay_frames(&self) -> usize {
-        self.inner.output_delay_frames()
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-        self.samples_pending_input.clear();
-        self.samples_pending_output.clear();
-        self.samples_finalized = false;
-    }
-
-    fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
-        // A write after sample finalization starts a new independent stream.
-        if self.samples_finalized {
-            self.reset();
+        let mut a = max_input_rate;
+        let mut b = fixed_output_rate;
+        while b != 0 {
+            let r = a % b;
+            a = b;
+            b = r;
         }
+        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
+        let input_common_divisor = a;
+        let mut input_chunk_frames = max_input_rate / input_common_divisor;
+        let output_chunk_frames_for_input = fixed_output_rate / input_common_divisor;
+        let input_denominator = input_chunk_frames.min(output_chunk_frames_for_input).max(1);
+        let input_factor = quality.div_ceil(input_denominator).next_multiple_of(2);
+        input_chunk_frames *= input_factor;
 
-        self.samples_pending_input.extend(input.iter().copied());
-        self.process_pending_samples(false)
-    }
-
-    fn read_samples(&mut self, output: &mut [T]) -> usize {
-        let drain_count = output.len().min(self.samples_pending_output.len());
-
-        for (dst, src) in output[..drain_count]
-            .iter_mut()
-            .zip(self.samples_pending_output.drain(..drain_count))
-        {
-            *dst = src;
+        let mut a = min_input_rate;
+        let mut b = fixed_output_rate;
+        while b != 0 {
+            let r = a % b;
+            a = b;
+            b = r;
         }
+        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
+        let output_common_divisor = a;
+        let input_chunk_frames_for_output = min_input_rate / output_common_divisor;
+        let mut output_chunk_frames = fixed_output_rate / output_common_divisor;
+        let output_denominator = input_chunk_frames_for_output.min(output_chunk_frames).max(1);
+        let output_factor = quality.div_ceil(output_denominator).next_multiple_of(2);
+        output_chunk_frames *= output_factor;
 
-        drain_count
-    }
-
-    fn finalize_samples(&mut self) -> Result<(), Error> {
-        if self.samples_finalized {
-            return Err(Error::StreamAlreadyFinalized);
-        }
-
-        if !self.samples_pending_input.len().is_multiple_of(self.config().channels) {
-            return Err(Error::DanglingPartialFrame {
-                channels: self.config().channels,
-                samples: self.samples_pending_input.len(),
-            });
-        }
-
-        self.process_pending_samples(true)?;
-        self.samples_finalized = true;
-        Ok(())
-    }
-
-    fn is_drained(&self) -> bool {
-        self.samples_finalized && self.samples_pending_input.is_empty() && self.samples_pending_output.is_empty()
-    }
-
-    fn process_pending_samples(&mut self, finalize: bool) -> Result<(), Error> {
-        let channels = self.config().channels;
-        let input_chunk_size = self.input_chunk_size();
-
-        while self.samples_pending_input.len() >= input_chunk_size {
-            self.samples_input_chunk_buffer.clear();
-            self.samples_input_chunk_buffer
-                .extend(self.samples_pending_input.drain(..input_chunk_size));
-
-            let samples_written = self
-                .inner
-                .process_chunk(&self.samples_input_chunk_buffer, &mut self.samples_output_chunk_buffer)?;
-
-            self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
-        }
-
-        if finalize && !self.samples_pending_input.is_empty() {
-            let remaining_samples = self.samples_pending_input.len();
-            debug_assert!(remaining_samples % channels == 0);
-
-            self.samples_input_chunk_buffer.clear();
-            self.samples_input_chunk_buffer
-                .extend(self.samples_pending_input.drain(..));
-
-            let samples_written = self
-                .inner
-                .process_chunk_final(&self.samples_input_chunk_buffer, &mut self.samples_output_chunk_buffer)?;
-
-            self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
-        }
-
-        if finalize {
-            let samples_written = self.inner.finalize(&mut self.samples_output_chunk_buffer)?;
-
-            self.samples_pending_output
-                .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
-        }
-
-        Ok(())
+        (
+            input_chunk_frames * self.expected_max_channels,
+            output_chunk_frames * self.expected_max_channels,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        TaperType,
-        test_utils::{assert_no_nans, process_all_samples},
-    };
+    use crate::InterleavedResampler;
 
-    fn mono_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
-        Config {
-            input_sample_rate,
-            output_sample_rate,
-            channels: 1,
-            quality: 64,
-            bandwidth: 0.95,
-            taper_type: TaperType::Cosine(3.45),
+    fn endpoint_chunk_sizes(input_rate: usize, output_rate: usize, quality: usize, channels: usize) -> (usize, usize) {
+        let mut a = input_rate;
+        let mut b = output_rate;
+        while b != 0 {
+            let r = a % b;
+            a = b;
+            b = r;
         }
-    }
-
-    fn stereo_config(input_sample_rate: usize, output_sample_rate: usize) -> Config {
-        Config {
-            channels: 2,
-            ..mono_config(input_sample_rate, output_sample_rate)
-        }
-    }
-
-    fn input_chunk_frames(resampler: &StreamingResampler<f32>) -> usize {
-        resampler.input_chunk_size() / resampler.config().channels
-    }
-
-    fn process_chunk_samples(
-        resampler: &mut InterleavedResampler<f32>,
-        input: &[f32],
-        output: &mut [f32],
-    ) -> Result<usize, Error> {
-        let written = resampler.process_chunk(input, output)?;
-        assert_no_nans(&output[..written], "streaming::process_chunk_samples output");
-        Ok(written)
-    }
-
-    fn resample_stream_with_sample_api(
-        config: Config,
-        input: &[f32],
-        write_block_size: usize,
-        read_block_size: usize,
-    ) -> Vec<f32> {
-        let mut resampler = StreamingResampler::new(config).unwrap();
-        let mut output = Vec::new();
-        let mut read_buffer = vec![0.0; read_block_size.max(1)];
-        let channels = resampler.config().channels;
-        let mut write_step = write_block_size.max(1);
-        write_step -= write_step % channels;
-        if write_step == 0 {
-            write_step = channels;
-        }
-
-        let mut offset = 0;
-        while offset < input.len() {
-            let end = (offset + write_step).min(input.len());
-            resampler.write_samples(&input[offset..end]).unwrap();
-            offset = end;
-
-            loop {
-                let written = resampler.read_samples(&mut read_buffer);
-                if written == 0 {
-                    break;
-                }
-                output.extend_from_slice(&read_buffer[..written]);
-            }
-        }
-
-        resampler.finalize_samples().unwrap();
-
-        loop {
-            let written = resampler.read_samples(&mut read_buffer);
-            if written == 0 {
-                break;
-            }
-            output.extend_from_slice(&read_buffer[..written]);
-        }
-
-        assert_no_nans(&output, "streaming::resample_stream_with_sample_api output");
-        output
-    }
-
-    fn drain_stream(resampler: &mut StreamingResampler<f32>, read_block_size: usize) -> Vec<f32> {
-        let mut output = Vec::new();
-        let mut read_buffer = vec![0.0; read_block_size.max(1)];
-        loop {
-            let written = resampler.read_samples(&mut read_buffer);
-            if written == 0 {
-                break;
-            }
-            output.extend_from_slice(&read_buffer[..written]);
-        }
-        assert_no_nans(&output, "streaming::drain_stream output");
-        output
+        let gcd = a;
+        let mut input_chunk_frames = input_rate / gcd;
+        let mut output_chunk_frames = output_rate / gcd;
+        let denominator = input_chunk_frames.min(output_chunk_frames).max(1);
+        let factor = quality.div_ceil(denominator).next_multiple_of(2);
+        input_chunk_frames *= factor;
+        output_chunk_frames *= factor;
+        (input_chunk_frames * channels, output_chunk_frames * channels)
     }
 
     #[test]
-    fn write_samples_accepts_non_channel_aligned_input() {
-        let mut resampler = StreamingResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        let input = vec![0.0; 3];
-        assert!(resampler.write_samples(&input).is_ok());
-    }
-
-    #[test]
-    fn finalize_samples_rejects_dangling_partial_frame() {
-        let mut resampler = StreamingResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        resampler.write_samples(&[0.0]).unwrap();
-        assert!(matches!(
-            resampler.finalize_samples(),
-            Err(Error::DanglingPartialFrame {
-                channels: 2,
-                samples: 1
-            })
-        ));
-    }
-
-    #[test]
-    fn new_span_matching_format_is_no_op() {
-        let mut resampler = StreamingResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        resampler.write_samples(&[0.0]).unwrap();
-
-        resampler.new_span(44_100, 2).unwrap();
-
-        assert_eq!(resampler.spans.len(), 1);
-        assert_eq!(resampler.samples_left_in_span(), None);
-        assert!(matches!(
-            resampler.finalize_samples(),
-            Err(Error::DanglingPartialFrame {
-                channels: 2,
-                samples: 1
-            })
-        ));
-    }
-
-    #[test]
-    fn new_span_preserves_output_rate_and_quality_settings() {
-        let config = Config {
-            quality: 128,
-            bandwidth: 0.91,
-            taper_type: TaperType::Cosine(2.75),
-            ..mono_config(44_100, 48_000)
+    fn required_buffer_sizes_matches_known_direct_math_case() {
+        let streaming = StreamingConfig {
+            expected_input_range: 22_050..192_000,
+            expected_max_channels: 16,
         };
-        let mut resampler = StreamingResampler::<f32>::new(config).unwrap();
+        let mut config = Config::new(48_000, 22_000, 16);
+        config.quality = 1_878;
 
-        resampler.new_span(32_000, 2).unwrap();
-
-        assert_eq!(resampler.config().input_sample_rate, 32_000);
-        assert_eq!(resampler.config().output_sample_rate, 48_000);
-        assert_eq!(resampler.config().channels, 2);
-        assert_eq!(resampler.config().quality, 128);
-        assert_eq!(resampler.config().bandwidth, 0.91);
-        assert_eq!(resampler.config().taper_type, TaperType::Cosine(2.75));
+        let (input_size, output_size) = streaming.required_buffer_sizes(&config);
+        assert_eq!(input_size, 264_192);
+        assert_eq!(output_size, 42_240);
     }
 
     #[test]
-    fn reads_drain_old_span_before_new_span() {
-        let first_config = mono_config(44_100, 48_000);
-        let mut first_offline = InterleavedResampler::new(first_config.clone()).unwrap();
-        let first_len = first_offline.input_chunk_size() + 7;
-        let first_input: Vec<f32> = (0..first_len)
-            .map(|frame| (frame as f32 * 0.019).sin() * 0.25)
-            .collect();
-        let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
+    fn required_buffer_sizes_matches_endpoint_math_for_varied_configs() {
+        let cases = [
+            (22_050..192_000, 22_000usize, 8usize, 1_878usize),
+            (16_000..96_000, 48_000usize, 2usize, 512usize),
+            (32_000..192_000, 96_000usize, 6usize, 2_048usize),
+        ];
 
-        let second_config = Config {
-            input_sample_rate: 32_000,
-            ..first_config.clone()
+        for (input_range, output_rate, channels, quality) in cases {
+            let streaming = StreamingConfig {
+                expected_input_range: input_range.clone(),
+                expected_max_channels: channels,
+            };
+            let mut config = Config::new(48_000, output_rate, channels);
+            config.quality = quality;
+
+            let (actual_input, actual_output) = streaming.required_buffer_sizes(&config);
+
+            let (expected_input, _) = endpoint_chunk_sizes(input_range.end, output_rate, quality, channels);
+            let (_, expected_output) = endpoint_chunk_sizes(input_range.start, output_rate, quality, channels);
+
+            assert_eq!(actual_input, expected_input);
+            assert_eq!(actual_output, expected_output);
+        }
+    }
+
+    #[test]
+    fn required_input_size_matches_interleaved_at_max_input_endpoint() {
+        let streaming = StreamingConfig {
+            expected_input_range: 22_050..192_000,
+            expected_max_channels: 8,
         };
-        let mut second_offline = InterleavedResampler::new(second_config).unwrap();
-        let second_len = second_offline.input_chunk_size() + 5;
-        let second_input: Vec<f32> = (0..second_len)
-            .map(|frame| (frame as f32 * 0.023).cos() * 0.2)
-            .collect();
-        let second_expected = process_all_samples(&mut second_offline, &second_input).unwrap();
+        let mut config = Config::new(48_000, 22_000, 8);
+        config.quality = 1_878;
 
-        let mut resampler = StreamingResampler::new(first_config).unwrap();
-        resampler.write_samples(&first_input).unwrap();
-        resampler.new_span(32_000, 1).unwrap();
-        assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
+        let (required_input_size, _) = streaming.required_buffer_sizes(&config);
 
-        resampler.write_samples(&second_input).unwrap();
-        resampler.finalize_samples().unwrap();
+        let max_endpoint_config = Config {
+            input_sample_rate: streaming.expected_input_range.end,
+            output_sample_rate: config.output_sample_rate,
+            channels: streaming.expected_max_channels,
+            quality: config.quality,
+            bandwidth: config.bandwidth,
+            taper_type: config.taper_type,
+        };
+        let interleaved = InterleavedResampler::<f32>::new(max_endpoint_config).unwrap();
 
-        let actual = drain_stream(&mut resampler, 13);
-        let expected = first_expected
-            .iter()
-            .chain(second_expected.iter())
-            .copied()
-            .collect::<Vec<_>>();
-
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
+        assert_eq!(required_input_size, interleaved.input_buffer_size());
     }
 
     #[test]
-    fn samples_left_in_span_tracks_channel_change_boundary() {
-        let first_config = mono_config(44_100, 48_000);
-        let mut first_offline = InterleavedResampler::new(first_config.clone()).unwrap();
-        let first_input: Vec<f32> = (0..(first_offline.input_chunk_size() + 3))
-            .map(|frame| (frame as f32 * 0.011).sin() * 0.3)
-            .collect();
-        let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
+    fn required_output_size_matches_offthread_at_min_input_endpoint() {
+        let streaming = StreamingConfig {
+            expected_input_range: 22_050..192_000,
+            expected_max_channels: 8,
+        };
+        let mut config = Config::new(48_000, 22_000, 8);
+        config.quality = 1_878;
 
-        let second_config = stereo_config(44_100, 48_000);
-        let mut second_offline = InterleavedResampler::new(second_config).unwrap();
-        let second_frames = second_offline.input_chunk_size() / 2 + 3;
-        let mut second_input = Vec::with_capacity(second_frames * 2);
-        for frame in 0..second_frames {
-            second_input.push((frame as f32 * 0.013).sin() * 0.2);
-            second_input.push((frame as f32 * 0.017).cos() * 0.2);
-        }
-        let second_expected = process_all_samples(&mut second_offline, &second_input).unwrap();
+        let (_, required_output_size) = streaming.required_buffer_sizes(&config);
 
-        let mut resampler = StreamingResampler::new(first_config).unwrap();
-        resampler.write_samples(&first_input).unwrap();
-        resampler.new_span(44_100, 2).unwrap();
-        resampler.write_samples(&second_input).unwrap();
-        resampler.finalize_samples().unwrap();
+        let min_endpoint_config = Config {
+            input_sample_rate: streaming.expected_input_range.start,
+            output_sample_rate: config.output_sample_rate,
+            channels: streaming.expected_max_channels,
+            quality: config.quality,
+            bandwidth: config.bandwidth,
+            taper_type: config.taper_type,
+        };
+        let offthread = OffThreadStreamingResampler::<f32>::new(min_endpoint_config).unwrap();
 
-        assert_eq!(resampler.config().channels, 2);
-        assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
-
-        let mut first_actual = vec![0.0; first_expected.len()];
-        assert_eq!(resampler.read_samples(&mut first_actual), first_expected.len());
-        assert_eq!(resampler.samples_left_in_span(), Some(0));
-
-        let mut second_actual = vec![0.0; second_expected.len()];
-        assert_eq!(resampler.read_samples(&mut second_actual), second_expected.len());
-        assert_eq!(resampler.samples_left_in_span(), None);
-
-        for (left, right) in first_actual.iter().zip(first_expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-        for (left, right) in second_actual.iter().zip(second_expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn finalize_samples_rejects_dangling_partial_frame_for_active_span() {
-        let mut resampler = StreamingResampler::new(mono_config(44_100, 48_000)).unwrap();
-        resampler.new_span(44_100, 2).unwrap();
-        resampler.write_samples(&[0.0]).unwrap();
-
-        assert!(matches!(
-            resampler.finalize_samples(),
-            Err(Error::DanglingPartialFrame {
-                channels: 2,
-                samples: 1
-            })
-        ));
-    }
-
-    #[test]
-    fn write_samples_and_read_samples_match_chunk_output() {
-        let config = mono_config(44_100, 48_000);
-        let mut chunk_resampler = InterleavedResampler::new(config.clone()).unwrap();
-        let mut sample_resampler = StreamingResampler::new(config).unwrap();
-        let input: Vec<f32> = (0..chunk_resampler.input_chunk_size())
-            .map(|frame| (frame as f32 * 0.013).sin() * 0.3)
-            .collect();
-
-        let split = input.len() / 2;
-        sample_resampler.write_samples(&input[..split]).unwrap();
-        sample_resampler.write_samples(&input[split..]).unwrap();
-
-        let mut sample_output = vec![0.0; sample_resampler.output_chunk_size()];
-        let sample_written = sample_resampler.read_samples(&mut sample_output);
-
-        let mut chunk_output = vec![0.0; chunk_resampler.output_chunk_size()];
-        let chunk_written = process_chunk_samples(&mut chunk_resampler, &input, &mut chunk_output).unwrap();
-
-        assert_eq!(sample_written, chunk_written);
-        for (left, right) in sample_output[..sample_written]
-            .iter()
-            .zip(chunk_output[..chunk_written].iter())
-        {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn sample_api_finalize_matches_process_all_total_output() {
-        let config = mono_config(44_100, 48_000);
-        let mut offline = InterleavedResampler::new(config.clone()).unwrap();
-        let driver = StreamingResampler::<f32>::new(config.clone()).unwrap();
-        let input_frames = input_chunk_frames(&driver) * 2 + input_chunk_frames(&driver) / 3;
-        let input: Vec<f32> = (0..input_frames)
-            .map(|frame| (frame as f32 * 0.008).sin() * 0.25)
-            .collect();
-
-        let expected = process_all_samples(&mut offline, &input).unwrap();
-        let actual = resample_stream_with_sample_api(config, &input, 7, 11);
-
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn sample_api_stereo_matches_process_all_total_output() {
-        let config = stereo_config(44_100, 48_000);
-        let mut offline = InterleavedResampler::new(config.clone()).unwrap();
-        let driver = StreamingResampler::<f32>::new(config.clone()).unwrap();
-        let input_frames = input_chunk_frames(&driver) * 2 + 17;
-        let mut input = Vec::with_capacity(input_frames * 2);
-        for frame in 0..input_frames {
-            input.push((frame as f32 * 0.01).sin() * 0.25);
-            input.push((frame as f32 * 0.017).cos() * 0.2);
-        }
-
-        let expected = process_all_samples(&mut offline, &input).unwrap();
-        let actual = resample_stream_with_sample_api(config, &input, 9, 13);
-
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn finalize_samples_read_until_zero_drains_stream() {
-        let config = mono_config(44_100, 48_000);
-        let mut offline = InterleavedResampler::new(config.clone()).unwrap();
-        let mut stream = StreamingResampler::new(config).unwrap();
-        let input_frames = input_chunk_frames(&stream) + input_chunk_frames(&stream) / 4;
-        let input: Vec<f32> = (0..input_frames)
-            .map(|frame| (frame as f32 * 0.011).sin() * 0.2)
-            .collect();
-
-        let expected = process_all_samples(&mut offline, &input).unwrap();
-
-        stream.write_samples(&input).unwrap();
-        stream.finalize_samples().unwrap();
-
-        let mut actual = Vec::new();
-        let mut read_buffer = vec![0.0; 5];
-        loop {
-            let written = stream.read_samples(&mut read_buffer);
-            if written == 0 {
-                break;
-            }
-            actual.extend_from_slice(&read_buffer[..written]);
-        }
-
-        assert_eq!(actual.len(), expected.len());
-        for (left, right) in actual.iter().zip(expected.iter()) {
-            assert!((*left - *right).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn write_samples_after_finalize_samples_starts_new_stream() {
-        let mut stream = StreamingResampler::new(mono_config(44_100, 48_000)).unwrap();
-        let chunk = stream.input_chunk_size();
-        let first = vec![0.1f32; chunk];
-        let second = vec![0.2f32; chunk];
-
-        stream.write_samples(&first).unwrap();
-        stream.finalize_samples().unwrap();
-
-        // Start a new stream; this should reset core history and sample counters.
-        stream.write_samples(&second).unwrap();
-
-        assert_eq!(stream.input_sample_processed(), second.len());
+        assert_eq!(required_output_size, offthread.output_buffer_size());
     }
 }

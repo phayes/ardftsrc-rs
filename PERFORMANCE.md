@@ -217,5 +217,4 @@ which would allow us to progressively run the tranform continuously between samp
 
 1. Rubato could benefit from a fast-path no-op for matching sample rates.
 2. Rubato could benefit from synthetic pre/post samples.
-3. For proper live resampling, ardftsrc needs an "off-thread" version of it's `StreamingResampler` struct.
-4. Expanding this analysis with other test suites other than HydrogenAudio SRC would be a good idea. 
+3. Expanding this analysis with other test suites other than HydrogenAudio SRC would be a good idea. 

@@ -1,6 +1,4 @@
-use ardftsrc::{
-    PlanarResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs, TaperType,
-};
+use ardftsrc::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType};
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacChannelReader;
 use flac_codec::encode::{FlacChannelWriter, Options as FlacOptions};
