@@ -53,7 +53,7 @@ Internally ardftsrc uses planar representation, so `PlanarResampler` is more eff
 4. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
 5. Finally, call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
 
-To end the stream early, stop writing input samples, call `finalize()`, then drain with `read_sample()` until it returns `None`.
+To end the stream early, you may simply call `reset()`. 
 
 ```rust
 use ardftsrc::{InterleavedResampler, PRESET_GOOD};
@@ -127,7 +127,7 @@ Enable the `realtime` feature to use `RealtimeResampler` for live resampling. It
 2. For multichannel streams, samples must be written interleaved.
 3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
 4. Call `finalize()` at end-of-stream, then keep calling `read_sample(...)` until it returns `None`.
-5. Call `shutdown()` when you are done to stop and join the worker thread.
+5. Call `shutdown()` when you are done to stop and join the worker thread (you may also just drop the resampler and the worker thread will exit)
 
 `RealtimeResampler` has some startup delay and will emit `Some(-0.0)` (negative-zero silence) until the off-thread resampler
 is warmed up and producing samples. You may do nothing (it will play as silence), or check (`x.is_zero() && x.is_sign_negative()`) for this specific circumstance.
