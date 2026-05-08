@@ -14,6 +14,7 @@ audioadapter = { workspace = true, optional = true }
 audio-core = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
 rtrb = "0.3.4"
+rodio = { workspace = true, optional = true }
 
 [dev-dependencies]
 audioadapter-buffers.workspace = true
@@ -25,6 +26,7 @@ serde.workspace = true
 serde_json.workspace = true
 wavers.workspace = true
 mimalloc.workspace = true
+rodio = { version = "0.22", default-features = false, features = ["playback"] }
 
 [[bench]]
 name = "ardftsrc_throughput"
@@ -39,9 +41,10 @@ name = "rubato_sync"
 harness = false
 
 [features]
-default = ["avx", "neon", "sse", "wasm_simd"]
+default = ["avx", "neon", "sse", "wasm_simd", "rodio"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
 rayon = ["dep:rayon"]
+rodio = ["dep:rodio"]
 avx = ["realfft/avx"]
 neon = ["realfft/neon"]
 sse = ["realfft/sse"]

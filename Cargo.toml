@@ -28,6 +28,7 @@ wavers = "1.5"
 audioadapter = "3"
 audioadapter-buffers = "3"
 audio-core = "0.2"
+rodio = { version = "0.22", default-features = false }
 
 [profile.release]
 opt-level = 3

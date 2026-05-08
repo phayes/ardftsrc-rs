@@ -15,7 +15,11 @@ pub use error::Error;
 pub use interleaved_resampler::InterleavedResampler;
 pub use planar_resampler::PlanarResampler;
 pub use planar_vecs::PlanarVecs;
-pub use streaming::StreamingResampler;
+pub use streaming::{StreamingConfig, StreamingResampler};
+
+
+#[cfg(feature = "rodio")]
+pub mod rodio;
 
 #[cfg(test)]
 mod test_utils;
