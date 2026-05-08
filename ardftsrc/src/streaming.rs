@@ -55,6 +55,10 @@ where
 
     // The size of the current span in samples.
     current_span_len: Option<usize>,
+
+    samples_written_since_wake: usize,
+    samples_per_wake: usize,
+    config: Config,
 }
 
 impl<T> Drop for StreamingResampler<T>
@@ -70,6 +74,36 @@ impl<T> StreamingResampler<T>
 where
     T: Float + FftNum,
 {
+    fn gcd(mut a: usize, mut b: usize) -> usize {
+        while b != 0 {
+            let r = a % b;
+            a = b;
+            b = r;
+        }
+        a
+    }
+
+    fn input_chunk_samples(&self) -> usize {
+        let input_sample_rate = self.span_format_in.sample_rate as usize;
+        let output_sample_rate = self.config.output_sample_rate;
+        let channels = self.span_format_in.channels as usize;
+
+        let common_divisor = Self::gcd(input_sample_rate, output_sample_rate);
+        debug_assert!(common_divisor != 0, "expected non-zero gcd for input/output rates");
+
+        let mut input_chunk_frames = input_sample_rate / common_divisor;
+        let output_chunk_frames = output_sample_rate / common_divisor;
+        let denominator = input_chunk_frames.min(output_chunk_frames).max(1);
+        let factor = self.config.quality.div_ceil(denominator).next_multiple_of(2);
+        input_chunk_frames *= factor;
+
+        input_chunk_frames * channels
+    }
+
+    fn wake_threshold_samples(&self) -> usize {
+        self.input_chunk_samples().div_ceil(4).max(1)
+    }
+
     /// Constructs a sample-streaming resampler from `config`.
     pub fn new(config: Config, streaming_config: StreamingConfig) -> Self {
         let span_format_in = SpanFormat {
@@ -81,6 +115,7 @@ where
             sample_rate: config.output_sample_rate as u32,
             channels: config.channels as u8,
         };
+        let thread_config = config.clone();
 
         // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
         let (input_buffer_size, output_buffer_size) = streaming_config.required_buffer_sizes(&config);
@@ -92,7 +127,7 @@ where
 
         // Off-thread resampler loop thread, handles all the off-thread resampling work.
         let thread_handle = std::thread::spawn(move || {
-            let mut streaming_sampler = OffThreadStreamingResampler::<T>::new(config.clone())?;
+            let mut streaming_sampler = OffThreadStreamingResampler::<T>::new(thread_config)?;
             let mut output_buffer = vec![T::zero(); streaming_sampler.output_buffer_size()];
 
             // Loop until we get a "thread should stop" signal.
@@ -143,6 +178,7 @@ where
                     //   - The second time around we see streaming_sampler.samples_left_in_span() == Some(0), and then re-emit out_producer.push(Packet::Format(output_span_format)).unwrap();
                     //   - The issue is that we always need to emit the format packet at least once, even when streaming_sampler.samples_left_in_span() is naturally zero from the upstream resampler.
                     //   - IF samples_left_in_span() is always non-zero when we complete a span because of finalize, we are safe skip the Some(0) case.
+                    //   - Don't fix for now
                     if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
                         // If there are samples remaining in the span, read them.
 
@@ -235,15 +271,20 @@ where
             Ok(())
         });
 
-        Self {
+        let mut instance = Self {
             thread_handle: Some(thread_handle),
             span_format_in,
             span_format_out,
             in_producer,
             out_consumer,
             current_span_len: None,
+            samples_written_since_wake: 0,
+            samples_per_wake: 1,
+            config,
             stop_thread,
-        }
+        };
+        instance.samples_per_wake = instance.wake_threshold_samples();
+        instance
     }
 
     pub fn read_sample(&mut self) -> Option<T> {
@@ -302,8 +343,11 @@ where
             // TODO: Handle this
         }
 
-        // Wake up the thread to wake up and process the sample.
-        self.wake_up();
+        self.samples_written_since_wake += 1;
+
+        if self.samples_written_since_wake >= self.samples_per_wake {
+            self.wake_up();
+        }
     }
 
     pub fn finalize(&mut self) {
@@ -325,19 +369,24 @@ where
         }
 
         self.span_format_in = span_format_in.clone();
+        self.samples_per_wake = self.wake_threshold_samples();
 
         let packet = Packet::Format(span_format_in);
 
         // TODO: Handle this error
         self.in_producer.push(packet).unwrap();
+
+        self.wake_up();
     }
 
-    pub fn wake_up(&self) {
+    pub fn wake_up(&mut self) {
         self.thread_handle
             .as_ref()
             .expect("ardftsrc: thread handle should be set")
             .thread()
             .unpark();
+
+        self.samples_written_since_wake = 0;
     }
 
     pub fn current_span_len(&self) -> Option<usize> {
