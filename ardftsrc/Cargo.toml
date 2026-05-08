@@ -30,14 +30,18 @@ rodio = { version = "0.22", default-features = false, features = ["playback"] }
 
 [features]
 default = ["avx", "neon", "sse", "wasm_simd"]
-audioadapter = ["dep:audio-core", "dep:audioadapter"]
-realtime = ["dep:rtrb"]
-rodio = ["dep:rodio", "realtime"]
-rayon = ["dep:rayon"]
+
+# SIMD features (enabled by default)
 avx = ["realfft/avx"]
 neon = ["realfft/neon"]
 sse = ["realfft/sse"]
 wasm_simd = ["realfft/wasm_simd"]
+
+# Optional features (disabled by default)
+realtime = ["dep:rtrb"]
+rodio = ["dep:rodio", "realtime"]
+rayon = ["dep:rayon"]
+audioadapter = ["dep:audio-core", "dep:audioadapter"]
 
 [[bench]]
 name = "ardftsrc_throughput"
