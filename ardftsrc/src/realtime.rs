@@ -203,6 +203,7 @@ where
                     //   
                     //   Bug TLDR: We spam Format packets onto the ring buffer during span transitions. 
                     //   This can be fixed when we move the buffered output on the ring buffer since we'll be able to peek.
+                    //   It's less of a problem than it seems because we park the thread after the second spam.
                     if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
                         // If there are samples remaining in the span, read them.
 
@@ -222,7 +223,7 @@ where
                             }
                         }
 
-                        let mut i = 0usize;
+                        let mut i = 0;
                         while i < samples_read {
                             let res = out_producer.push(Packet::Sample(output_buffer[i]));
 
@@ -255,7 +256,7 @@ where
                         // TODO: Handle this error
                         out_producer.push(Packet::Format(output_span_format)).unwrap();
 
-                        true
+                        samples_read > 0
                     } else {
                         // If we are not nearing the end of an output span, just read samples into the output buffer and write them to the output ring buffer.
                         let samples_read = streaming_sampler.read_samples(&mut output_buffer);
@@ -276,7 +277,7 @@ where
                             i += 1;
                         }
 
-                        if samples_read > 0 { true } else { false }
+                        samples_read > 0
                     }
                 };
 
