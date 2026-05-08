@@ -34,7 +34,7 @@ pub enum Packet<T: Float> {
     EndOfStream,
 }
 
-pub struct StreamingResampler<T = f64>
+pub struct RealtimeResampler<T = f64>
 where
     T: Float + FftNum,
 {
@@ -79,7 +79,7 @@ where
     total_input_samples_written: usize,
 }
 
-impl<T> Drop for StreamingResampler<T>
+impl<T> Drop for RealtimeResampler<T>
 where
     T: Float + FftNum,
 {
@@ -88,7 +88,7 @@ where
     }
 }
 
-impl<T> StreamingResampler<T>
+impl<T> RealtimeResampler<T>
 where
     T: Float + FftNum,
 {

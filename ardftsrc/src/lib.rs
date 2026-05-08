@@ -8,14 +8,14 @@ mod lpc;
 mod offthread;
 mod planar_resampler;
 mod planar_vecs;
-mod streaming;
+mod realtime;
 
 pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
 pub use error::Error;
 pub use interleaved_resampler::InterleavedResampler;
 pub use planar_resampler::PlanarResampler;
 pub use planar_vecs::PlanarVecs;
-pub use streaming::{StreamingConfig, StreamingResampler};
+pub use realtime::{StreamingConfig, RealtimeResampler};
 
 
 #[cfg(feature = "rodio")]

@@ -1,4 +1,4 @@
-use crate::StreamingResampler;
+use crate::RealtimeResampler;
 use num_traits::Float;
 use realfft::FftNum;
 
@@ -7,12 +7,12 @@ where
     T: Float + FftNum,
 {
     inner: S,
-    resampler: StreamingResampler<T>,
+    resampler: RealtimeResampler<T>,
     stream_input_ended: bool,
 }
 
 impl<S: rodio::Source, T: Float + FftNum> RodioResampler<S, T> {
-    pub fn new(inner: S, resampler: StreamingResampler<T>) -> Self {
+    pub fn new(inner: S, resampler: RealtimeResampler<T>) -> Self {
         Self { inner, resampler, stream_input_ended: false }
     }
 }

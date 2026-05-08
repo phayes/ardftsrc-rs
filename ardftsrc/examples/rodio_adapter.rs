@@ -1,4 +1,4 @@
-use ardftsrc::{Config, StreamingConfig, StreamingResampler, rodio::RodioResampler};
+use ardftsrc::{Config, StreamingConfig, RealtimeResampler, rodio::RodioResampler};
 use rodio::Source;
 use std::error::Error;
 use std::num::NonZero;
@@ -30,16 +30,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         channels: 1,
         ..Config::default()
     };
-    let streaming_resampler = StreamingResampler::<f32>::new(config, StreamingConfig::default());
+    let streaming_resampler = RealtimeResampler::<f32>::new(config, StreamingConfig::default());
     let resampled_tone: RodioResampler<_, f32> = RodioResampler::new(tone, streaming_resampler);
 
     mixer.add(resampled_tone);
-
-    println!(
-        "Playing {FREQUENCY_HZ} Hz sine wave for {DURATION_SECS} seconds ({INPUT_SAMPLE_RATE_HZ} Hz -> {OUTPUT_SAMPLE_RATE_HZ} Hz)..."
-    );
     thread::sleep(Duration::from_secs(DURATION_SECS));
-    println!("Done.");
 
     Ok(())
 }
