@@ -195,12 +195,14 @@ where
 
                 let did_output_work = {
                     // Check to see if are nearing the end of an output span, if so process end-of-span behavior.
-                    // There's a bug here:
+                    // TODO: There's a bug here:
                     //   - The first time around we see streaming_sampler.samples_left_in_span() == Some(foo) (!= 0)
                     //   - The second time around we see streaming_sampler.samples_left_in_span() == Some(0), and then re-emit out_producer.push(Packet::Format(output_span_format)).unwrap();
                     //   - The issue is that we always need to emit the format packet at least once, even when streaming_sampler.samples_left_in_span() is naturally zero from the upstream resampler.
                     //   - IF samples_left_in_span() is always non-zero when we complete a span because of finalize, we are safe skip the Some(0) case.
-                    //   - Don't fix for now
+                    //   
+                    //   Bug TLDR: We spam Format packets onto the ring buffer during span transitions. 
+                    //   This can be fixed when we move the buffered output on the ring buffer since we'll be able to peek.
                     if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
                         // If there are samples remaining in the span, read them.
 
