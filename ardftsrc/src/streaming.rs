@@ -38,27 +38,45 @@ pub struct StreamingResampler<T = f64>
 where
     T: Float + FftNum,
 {
+
+    // The configuration for the resampler.
+    // TODO: Move all this into ResamplingConfig and derive downstream Config.
+    config: Config,
+
     thread_handle: Option<JoinHandle<Result<(), Error>>>,
 
     // The shape of the input span, when this changes we emit a "SpanChanged"
     pub(crate) span_format_in: SpanFormat,
 
-    // The shape of the output span, we update this when we receive a "SpanChanged" even
+    // The shape of the output span, we update this when we receive a "SpanChanged" packet.
     pub(crate) span_format_out: SpanFormat,
 
+    // The input-samples producer for the input ring buffer.
     in_producer: Producer<Packet<T>>,
 
+    // The output-samples consumer for the output ring buffer.
     out_consumer: Consumer<Packet<T>>,
 
     // Flip this to true to stop the thread.
     stop_thread: Arc<AtomicBool>,
 
-    // The size of the current span in samples.
+    // The size of the current span in samples. None for unknown.
     current_span_len: Option<usize>,
 
+    // Track the number of samples written since the last wakeup.
     samples_written_since_wake: usize,
+
+    // The number of samples to write before waking up the thread.
+    // This can change as the sample-rate ratio and channel count changes across spans.
     samples_per_wake: usize,
-    config: Config,
+
+    // Initial sample delay to allow the resampler to prime the FFT, then prime the output ring buffer.
+    // This can change as the sample-rate ratio and channel count changes across spans (unlikely in first few ms, but still possible)
+    initial_sample_delay: usize,
+
+    // Track the total number of input samples written to the resampler.
+    // This is used to determine if we need to prime output with silence.
+    total_input_samples_written: usize,
 }
 
 impl<T> Drop for StreamingResampler<T>
@@ -100,8 +118,12 @@ where
         input_chunk_frames * channels
     }
 
-    fn wake_threshold_samples(&self) -> usize {
-        self.input_chunk_samples().div_ceil(4).max(1)
+    fn set_samples_per_wake(&mut self) {
+        self.samples_per_wake = self.input_chunk_samples().div_ceil(4).max(1);
+    }
+
+    fn set_initial_sample_delay(&mut self) {
+        self.initial_sample_delay = self.input_chunk_samples() * 2;
     }
 
     /// Constructs a sample-streaming resampler from `config`.
@@ -282,8 +304,12 @@ where
             samples_per_wake: 1,
             config,
             stop_thread,
+            initial_sample_delay: 0,
+            total_input_samples_written: 0,
         };
-        instance.samples_per_wake = instance.wake_threshold_samples();
+        instance.set_samples_per_wake();
+        instance.set_initial_sample_delay();
+        instance.total_input_samples_written = 0;
         instance
     }
 
@@ -309,6 +335,10 @@ where
                 }
                 Err(_) => None,
             };
+        }
+
+        if self.total_input_samples_written < self.initial_sample_delay {
+            return Some(T::zero());
         }
 
         if let Ok(packet) = self.out_consumer.pop() {
@@ -343,8 +373,11 @@ where
             // TODO: Handle this
         }
 
+        // Track the total number of input samples written to the resampler.
+        self.total_input_samples_written = self.total_input_samples_written.saturating_add(1);
+        
+        // Track if we should wake up the thread to process the pending samples in the input ring buffer.
         self.samples_written_since_wake += 1;
-
         if self.samples_written_since_wake >= self.samples_per_wake {
             self.wake_up();
         }
@@ -369,7 +402,8 @@ where
         }
 
         self.span_format_in = span_format_in.clone();
-        self.samples_per_wake = self.wake_threshold_samples();
+        self.set_samples_per_wake();
+        self.set_initial_sample_delay();
 
         let packet = Packet::Format(span_format_in);
 
