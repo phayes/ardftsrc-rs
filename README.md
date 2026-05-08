@@ -53,11 +53,6 @@ Internally ardftsrc uses planar representation, so `PlanarResampler` is more eff
 4. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
 5. Finally, call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
 
-<<<<<<< HEAD
-=======
-To end the stream early, you may simply call `reset()`. 
-
->>>>>>> af37305da5e10b0074fea7247d07b5565940252a
 ```rust
 use ardftsrc::{InterleavedResampler, PRESET_GOOD};
 
