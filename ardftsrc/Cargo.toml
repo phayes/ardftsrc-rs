@@ -13,8 +13,8 @@ thiserror.workspace = true
 audioadapter = { workspace = true, optional = true }
 audio-core = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
-rtrb = "0.3.4"
-rodio = { workspace = true, optional = true }
+rtrb = { version = "0.3.4", optional = true }
+rodio = { version = "0.22", default-features = false, optional = true }
 
 [dev-dependencies]
 audioadapter-buffers.workspace = true
@@ -28,6 +28,17 @@ wavers.workspace = true
 mimalloc.workspace = true
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
 
+[features]
+default = ["avx", "neon", "sse", "wasm_simd"]
+audioadapter = ["dep:audio-core", "dep:audioadapter"]
+realtime = ["dep:rtrb"]
+rodio = ["dep:rodio", "realtime"]
+rayon = ["dep:rayon"]
+avx = ["realfft/avx"]
+neon = ["realfft/neon"]
+sse = ["realfft/sse"]
+wasm_simd = ["realfft/wasm_simd"]
+
 [[bench]]
 name = "ardftsrc_throughput"
 harness = false
@@ -40,12 +51,10 @@ harness = false
 name = "rubato_sync"
 harness = false
 
-[features]
-default = ["avx", "neon", "sse", "wasm_simd", "rodio"]
-audioadapter = ["dep:audio-core", "dep:audioadapter"]
-rayon = ["dep:rayon"]
-rodio = ["dep:rodio"]
-avx = ["realfft/avx"]
-neon = ["realfft/neon"]
-sse = ["realfft/sse"]
-wasm_simd = ["realfft/wasm_simd"]
+[[example]]
+name = "rodio_adapter"
+required-features = ["rodio"]
+
+[[example]]
+name = "rodio_adapter_with_spans"
+required-features = ["rodio"]

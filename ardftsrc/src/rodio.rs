@@ -89,7 +89,7 @@ where
 
 impl<S: rodio::Source> rodio::Source for RodioResampler<S, f64>
 where
-    S::Item: Float + FftNum + Send + 'static + From<f64>,
+    S::Item: Float + FftNum + Send + 'static + Into<f64>,
 {
     fn sample_rate(&self) -> std::num::NonZero<u32> {
         std::num::NonZero::new(self.resampler.span_format_out.sample_rate as u32).unwrap()
@@ -110,7 +110,7 @@ where
 
 impl<S: rodio::Source> rodio::Source for RodioResampler<S, f32>
 where
-    S::Item: Float + FftNum + Send + 'static + From<f32>,
+    S::Item: Float + FftNum + Send + 'static + Into<f32>,
 {
     fn sample_rate(&self) -> std::num::NonZero<u32> {
         std::num::NonZero::new(self.resampler.span_format_out.sample_rate as u32).unwrap()

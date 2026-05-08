@@ -341,7 +341,7 @@ where
         }
 
         if self.total_input_samples_written < self.initial_sample_delay {
-            return Some(T::zero());
+            return Some(T::neg_zero());
         }
 
         if let Ok(packet) = self.out_consumer.pop() {

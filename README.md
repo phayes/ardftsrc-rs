@@ -53,7 +53,7 @@ Internally ardftsrc uses planar representation, so `PlanarResampler` is more eff
 4. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
 5. Finally, call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
 
-To end the stream early, you can always just stop and call `reset()` on the stream.
+To end the stream early, stop writing input samples, call `finalize()`, then drain with `read_sample()` until it returns `None`.
 
 ```rust
 use ardftsrc::{InterleavedResampler, PRESET_GOOD};
@@ -119,28 +119,29 @@ set before `process_chunk_final(...)`.
 This enables live gapless handoff: while track A is streaming, once track B is known you can
 call `post(...)` on A with B's head samples so A's stop-edge uses real next-track context.
 
-## Streaming Resampler
+## Realtime Resampler
 
-Use the streaming resampler for live resampling. It accepts interleaved sample slices of any size and buffers internally until enough input is available for the underlying chunk resampler.
+Enable the `realtime` feature to use `RealtimeResampler` for live resampling. It accepts interleaved samples one-at-a-time and runs the chunk resampler on a worker thread.
 
-1. Call `write_samples(...)` with any incoming input size and call `read_samples(...)` to drain available output.
+1. Call `write_sample(...)` with each incoming interleaved sample and `read_sample(...)` at your output cadence.
 2. For multichannel streams, samples must be written interleaved.
 3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
-4. Before calling `new_span(...)` or `finalize_samples(...)`, the current span must be frame aligned.
-5. Call `finalize_samples(...)` once at end-of-stream, then keep calling `read_samples(...)` until it returns `0`.
+4. Call `finalize()` at end-of-stream, then keep calling `read_sample(...)` until it returns `None`.
+5. Call `shutdown()` when you are done to stop and join the worker thread.
 
-Expect bursty read behavior. `read_samples(...)` accepts any output buffer size.
+`RealtimeResampler` has some startup delay and will emit `Some(-0.0)` (negative-zero silence) until the off-thread resampler
+is warmed up and producing samples. You may do nothing (it will play as silence), or check (`x.is_zero() && x.is_sign_negative()`) for this specific circumstance.
 
 ### Spans
 
-Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The streaming resampler models those format regions as spans. You can start a new span with `new_span()`. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next. 
+Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The realtime resampler models those format regions as spans. You can start a new span with `new_span()`. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next.
 
-Input spans and output spans are non-synchronous. After calling `new_span`, you should query `samples_left_in_span()` to see how many samples are left on the output side before the output will switch to a new span.
+Input spans and output spans are non-synchronous. After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
 
-To end the stream early, you can always just stop and call `reset()` on the stream.
+To end the stream early, stop writing input samples, call `finalize()`, then drain with `read_sample()` until it returns `None`.
 
 ```rust
-use ardftsrc::{PRESET_GOOD, StreamingResampler};
+use ardftsrc::{PRESET_GOOD, RealtimeResampler, StreamingConfig};
 
 fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32> {
     // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
@@ -152,50 +153,54 @@ fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32
         .with_output_rate(48_000)
         .with_channels(2);
 
-    let mut resampler = StreamingResampler::<f32>::new(config).unwrap();
+    let mut resampler = RealtimeResampler::<f32>::new(config, StreamingConfig::default());
     let mut output = Vec::<f32>::new();
-    let mut read_sample = [0.0_f32; 1];
 
     // This intentionally writes one sample at a time. Larger slices are more efficient,
     // but single-sample writes are valid.
     for sample in span_1_input {
-        resampler.write_samples(&[sample]).unwrap();
+        resampler.write_sample(sample);
 
-        let written = resampler.read_samples(&mut read_sample);
-        output.extend_from_slice(&read_sample[..written]);
+        if let Some(sample) = resampler.read_sample() {
+            output.push(sample);
+        }
 
-        if resampler.samples_left_in_span() == Some(0) {
+        if resampler.current_span_len() == Some(0) {
             // New span detected, maybe switch channel count in output.
         }
     }
 
-    // Starting a new span implicitly finalizes span 1. Span 1 must be frame aligned.
-    resampler.new_span(48_000, 1).unwrap();
+    resampler.new_span(48_000, 1);
 
     for sample in span_2_input {
-        resampler.write_samples(&[sample]).unwrap();
+        resampler.write_sample(sample);
 
-        let written = resampler.read_samples(&mut read_sample);
-        output.extend_from_slice(&read_sample[..written]);
+        if let Some(sample) = resampler.read_sample() {
+            output.push(sample);
+        }
 
-        if resampler.samples_left_in_span() == Some(0) {
+        if resampler.current_span_len() == Some(0) {
             // New span detected, maybe switch channel count in output.
         }
     }
 
     // Finalization can produce delayed tail output, so keep reading until the stream is drained.
-    resampler.finalize_samples().unwrap();
-    loop {
-        let written = resampler.read_samples(&mut read_sample);
-        if written == 0 {
-            break;
-        }
-        output.extend_from_slice(&read_sample[..written]);
+    resampler.finalize();
+    while let Some(sample) = resampler.read_sample() {
+        output.push(sample);
     }
 
+    resampler.shutdown().unwrap();
     output
 }
 ```
+
+### Rodio integration
+
+Enable the `rodio` feature to use `rodio::RodioResampler` to wrap a `rodio::Source` and resample it in realtime in your rodio pipeline.
+
+- Basic rodio example: [`examples/rodio_adapter.rs`](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/examples/rodio_adapter.rs)
+- Span-switching rodio example: [`examples/rodio_adapter_with_spans.rs`](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/examples/rodio_adapter_with_spans.rs)
 
 ## Batching
 
@@ -259,14 +264,15 @@ let config = ardftsrc::PRESET_GOOD
 
 ## Feature Flags
 
-| Flag           | Enables                                                                      | Default |
-| -------------- | ---------------------------------------------------------------------------- | ------- |
-| `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support | No      |
-| `rayon`        | Parallel processing (channel and track parallelism)                          | No      |
-| `avx`          | FFT AVX SIMD                                                                 | Yes     |
-| `sse`          | FFT SSE SIMD                                                                 | Yes     |
-| `neon`         | FFT NEON SIMD for ARM / Mac                                                  | Yes     |
-| `wasm_simd`    | FFT WebAssembly SIMD                                                         | Yes     |
+| Flag           | Enables                                                                           | Default |
+| -------------- | --------------------------------------------------------------------------------- | ------- |
+| `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
+| `rayon`        | Parallel processing (channel and track parallelism)                               | No      |
+| `rodio`        | [`rodio`](https://crates.io/crates/rodio) integration via `rodio::RodioResampler` | No      |
+| `avx`          | FFT AVX SIMD                                                                      | Yes     |
+| `sse`          | FFT SSE SIMD                                                                      | Yes     |
+| `neon`         | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
+| `wasm_simd`    | FFT WebAssembly SIMD                                                              | Yes     |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
 
