@@ -267,6 +267,7 @@ let config = ardftsrc::PRESET_GOOD
 | Flag           | Enables                                                                           | Default |
 | -------------- | --------------------------------------------------------------------------------- | ------- |
 | `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
+| `realtime`     | `RealtimeResampler` streaming API backed by lock-free ring buffers                | No      |
 | `rayon`        | Parallel processing (channel and track parallelism)                               | No      |
 | `rodio`        | [`rodio`](https://crates.io/crates/rodio) integration via `rodio::RodioResampler` | No      |
 | `avx`          | FFT AVX SIMD                                                                      | Yes     |
