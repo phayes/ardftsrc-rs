@@ -1,10 +1,10 @@
-use ardftsrc::{StreamingConfig, RealtimeResampler, rodio::RodioResampler};
+use ardftsrc::PRESET_FAST;
+use ardftsrc::{RealtimeResampler, StreamingConfig, rodio::RodioResampler};
 use rodio::Source;
 use std::error::Error;
 use std::num::NonZero;
 use std::thread;
 use std::time::Duration;
-use ardftsrc::PRESET_FAST;
 
 const FREQUENCY_HZ: f32 = 440.0;
 const AMPLITUDE: f32 = 0.20;
@@ -18,14 +18,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mixer = stream.mixer();
 
     let tone = rodio::source::SignalGenerator::new(
-        NonZero::new(INPUT_SAMPLE_RATE_HZ as u32).expect("constant non-zero sample rate"),
+        NonZero::new(INPUT_SAMPLE_RATE_HZ as u32).unwrap(),
         FREQUENCY_HZ,
         rodio::source::Function::Sine,
     )
     .amplify(AMPLITUDE)
     .take_duration(Duration::from_secs(DURATION_SECS));
 
-    let config = PRESET_FAST.with_channels(1).with_output_rate(OUTPUT_SAMPLE_RATE_HZ).with_input_rate(INPUT_SAMPLE_RATE_HZ);
+    let config = PRESET_FAST
+        .with_channels(1)
+        .with_output_rate(OUTPUT_SAMPLE_RATE_HZ)
+        .with_input_rate(INPUT_SAMPLE_RATE_HZ);
     let streaming_resampler = RealtimeResampler::<f32>::new(config, StreamingConfig::default());
     let resampled_tone: RodioResampler<_, f32> = RodioResampler::new(tone, streaming_resampler);
 
