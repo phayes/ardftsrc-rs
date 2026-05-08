@@ -116,13 +116,13 @@ pub struct Config {
     // Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
     // but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
     //
-    // Default value is 2048.
+    // Default value is 1878 (same quality as PRESET_GOOD).
     //
     // Value guide:
-    //  - `512`:    Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    //  - `2048`:   Good quality, appropriate for realtime applications where high quality is desired. (Default)
-    //  - `65536`:  High quality, good for offline resampling, also marginally appropriate for realtime applications where quality is critical.
-    //  - `524288`: Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications.
+    //  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
+    //  - `1878` (PRESET_GOOD):      Good balanced quality, appropriate for realtime applications where high quality is desired. (Default)
+    //  - `73622` (PRESET_HIGH):     High quality, good for offline resampling, also marginally appropriate for realtime applications where quality is critical.
+    //  - `524514` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications.
     pub quality: usize,
 
     /// Normalized filter bandwidth in the range `[0.0, 1.0]`.
@@ -130,9 +130,9 @@ pub struct Config {
     /// Higher values preserve more high-frequency content but shorten the transition band.
     ///
     /// Value guide:
-    /// - `0.82`:  Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    /// - `0.95`:  Balanced high-end retention for most cases.
-    /// - `0.97`:  More aggressive high-end retention; Use with a higher "quality" setting.
+    /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
+    /// - `0.95`: Balanced high-end retention for most cases.
+    /// - `0.97`: More aggressive high-end retention; Use with a higher "quality" setting.
     /// - `0.99`: Very aggressive high-end retention; Only recommended when using a very high "quality" setting.
     pub bandwidth: f32,
 
@@ -529,7 +529,7 @@ mod tests {
         assert_eq!(derived.input_offset, 1029);
         assert_eq!(derived.output_offset, 1120);
         assert_eq!(derived.cutoff_bins, 2059);
-        assert_eq!(derived.taper_bins, 103);
+        assert_eq!(derived.taper_bins, 183);
     }
 
     #[test]
@@ -546,7 +546,7 @@ mod tests {
         assert_eq!(derived.input_offset, 1029);
         assert_eq!(derived.output_offset, 2240);
         assert_eq!(derived.cutoff_bins, 2059);
-        assert_eq!(derived.taper_bins, 103);
+        assert_eq!(derived.taper_bins, 183);
     }
 
     #[test]
