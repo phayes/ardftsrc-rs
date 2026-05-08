@@ -38,7 +38,7 @@ fn resample_all(input: &[f32], in_rate: usize, out_rate: usize, channels: usize)
 
 ## Chunk Resampling
 
-Use chunk resampling when you can control both read and write buffer sizes. Query `input_chunk_size()` and `output_chunk_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API and is preferred when you are not doing live resampling.
+Use chunk resampling when you can control both read and write buffer sizes. Query `input_buffer_size()` and `output_buffer_size()` and size your input and output slices to the sizes required. The chunk API is more efficient than the streaming API and is preferred when you are not doing live resampling.
 
 There are two chunked resamplers depending on the shape of your audio:
 
@@ -71,8 +71,8 @@ fn resample_chunked(input: Vec<f32>, in_rate: usize, out_rate: usize, channels: 
 
     // Get the input and output chunk sizes
     // You must read and write in these buffer sizes
-    let input_chunk_size = resampler.input_chunk_size();
-    let output_chunk_size = resampler.output_chunk_size();
+    let input_chunk_size = resampler.input_buffer_size();
+    let output_chunk_size = resampler.output_buffer_size();
     let mut out_buf = vec![0.0_f64; output_chunk_size];
     let mut out_f64 = Vec::<f64>::new();
     let mut offset = 0;
@@ -141,9 +141,10 @@ Input spans and output spans are non-synchronous. After calling `new_span`, quer
 To end the stream early, stop writing input samples, call `finalize()`, then drain with `read_sample()` until it returns `None`.
 
 ```rust
-use ardftsrc::{PRESET_GOOD, RealtimeResampler, StreamingConfig};
-
+ #[cfg(feature = "realtime")]
 fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32> {
+    use ardftsrc::{PRESET_GOOD, RealtimeResampler, StreamingConfig};
+
     // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
     // Both spans are resampled to the same 48 kHz output rate.
     assert!(span_1_input.len().is_multiple_of(2));

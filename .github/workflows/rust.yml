@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - name: Check
+      run: cargo check --verbose
+    - name: Run tests (without rodio)
+      run: cargo test --workspace --no-default-features --features "avx,neon,sse,wasm_simd,rayon,realtime,audioadapter" --verbose

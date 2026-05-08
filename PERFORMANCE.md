@@ -181,11 +181,12 @@ For live / realtime use, a resampler should ideally use a very small fraction of
 inter-sample budget (the peroid of the sample rate). 
 
 While ardftsrc-rs has enough *throughput* for realtime use, the burstly nature of FFT's
-means that it cannot be used for on-thread resampling beteen samples.
+means that it's chunk resamplers cannot be used for on-thread resampling between samples.
 
-Realtime use of ardftsrc-rs will require reworking `StreamingResampler` to use off-thread resampling, 
-or developing an alternative ArdftsrcCore that usees Constant-Q Sliding DFT (https://github.com/jurihock/qdft), 
-which would allow us to progressively run the tranform continuously between samples, instead of in bursts.
+Realtime use of ardftsrc-rs requires using `RealtimeResampler` to use off-thread resampling.
+Enable the `realtime` feature to use the real-time resampler. 
+
+*Chunk Resampler chunk time*
 
 | scenario               | preset | type | chunk time (µs) | budget (µs) |
 | :--------------------- | :----- | :--- | --------------: | ----------: |
