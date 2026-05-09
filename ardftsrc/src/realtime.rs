@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
+use std::collections::VecDeque;
 
 use crate::{Config, Error, offthread::OffThreadStreamingResampler};
 
@@ -13,6 +14,7 @@ const WAKES_PER_CHUNK: usize = 8;
 const INITIAL_SAMPLE_DELAY_CHUNKS: usize = 2;
 const INPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
 const OUTPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
+const LOCAL_READ_BUFFER_SIZE: usize = 16384; 
 
 /// Runtime audio format metadata for tapped packets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +51,8 @@ where
     config: Config,
 
     thread_handle: Option<JoinHandle<Result<(), Error>>>,
+
+    local_read_buffer: VecDeque<T>,
 
     // The shape of the input span, when this changes we emit a "SpanChanged"
     pub(crate) span_format_in: SpanFormat,
@@ -326,11 +330,45 @@ where
             stop_thread,
             initial_sample_delay: 0,
             total_input_samples_written: 0,
+            local_read_buffer: VecDeque::with_capacity(LOCAL_READ_BUFFER_SIZE),
         };
         instance.set_samples_per_wake();
         instance.set_initial_sample_delay();
         instance.total_input_samples_written = 0;
         instance
+    }
+
+    pub fn fill_local_read_buffer(&mut self) {
+
+        // If the local read buffer is less than half full, fill it.
+        if self.local_read_buffer.len() <= LOCAL_READ_BUFFER_SIZE / 2 {
+            // Check how many samples we can read from the ring buffer.
+            let want_samples = self.out_consumer.slots().min(LOCAL_READ_BUFFER_SIZE - self.local_read_buffer.len());
+            if want_samples > 0 {
+                let packets = self.out_consumer.read_chunk(want_samples).expect("ardftsrc: failed to read samples despite checking for slots");
+            
+                for packet in packets {
+                    match packet {
+                        Packet::EndOfStream => {},
+                        Packet::Sample(sample) => {
+                            if let Some(current_span_len) = self.current_span_len.as_mut() {
+                                *current_span_len -= 1;
+                            }
+                            self.local_read_buffer.push_back(sample);
+                        }
+                        Packet::NewSpanPending(n) => {
+                            self.current_span_len = Some(n);
+                        }
+                        Packet::Format(format) => {
+                            self.span_format_out = format;
+                            self.current_span_len = None;
+                        }
+                    };
+                }
+
+                self.track_sample_read_for_wake();
+            }
+        }
     }
 
     pub fn read_sample(&mut self) -> Option<T> {
@@ -358,33 +396,21 @@ where
             };
         }
 
+        // If we are still priming the resampler, return negative-zero silence.
         if self.total_input_samples_written < self.initial_sample_delay {
             return Some(T::neg_zero());
         }
 
-        if let Ok(packet) = self.out_consumer.pop() {
-            match packet {
-                Packet::EndOfStream => None,
-                Packet::Sample(sample) => {
-                    if let Some(current_span_len) = self.current_span_len.as_mut() {
-                        *current_span_len -= 1;
-                    }
-                    self.track_sample_read_for_wake();
-                    Some(sample)
-                }
-                Packet::NewSpanPending(n) => {
-                    self.current_span_len = Some(n);
-                    return self.read_sample();
-                }
-                Packet::Format(format) => {
-                    self.span_format_out = format;
-                    self.current_span_len = None;
-                    self.read_sample()
-                }
-            }
-        } else {
-            // Return negative-zero silence if the ring buffer is empty
-            Some(T::neg_zero())
+        // Fill the local read buffer with samples from the ring buffer.
+        self.fill_local_read_buffer();
+
+        // If we have samples in the local read buffer, return the next sample.
+        if let Some(sample) = self.local_read_buffer.pop_front() {
+            return Some(sample);
+        }
+        else {
+            // If we don't have samples in the local read buffer, return negative-zero silence.
+            return Some(T::neg_zero());
         }
     }
 

@@ -2,8 +2,7 @@ use crate::RealtimeResampler;
 use num_traits::Float;
 use realfft::FftNum;
 
-// How many input samples to keep ahead of the neutral input/output pacing target.
-// A value of 0 preserves the unbiased pacing behavior.
+// How many input samples to keep ahead the inner source
 const PACING_LEAD_SAMPLES: u64 = 8192;
 
 pub struct RodioResampler<S: rodio::Source, T = f64>
