@@ -1,20 +1,20 @@
 use num_traits::Float;
 use realfft::FftNum;
 use rtrb::{Consumer, Producer, RingBuffer};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
-use std::collections::VecDeque;
 
 use crate::{Config, Error, offthread::OffThreadStreamingResampler};
 
 // PERFORMANCE TUNING PARAMETERS
-const WAKES_PER_CHUNK: usize = 8;
-const INITIAL_SAMPLE_DELAY_CHUNKS: usize = 2;
+const WAKES_PER_CHUNK: usize = 4;
+const INITIAL_SAMPLE_DELAY_CHUNKS: usize = 3;
 const INPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
-const OUTPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
-const LOCAL_READ_BUFFER_SIZE: usize = 16384; 
+const OUTPUT_BUFFER_SIZE_MULTIPLIER: usize = 8;
+const LOCAL_READ_BUFFER_SIZE: usize = 16384;
 
 /// Runtime audio format metadata for tapped packets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,10 +185,10 @@ where
 
                     if remaining_part.is_empty() {
                         break;
-                    }
-                    else {
+                    } else {
+                        // Output is full, yeild the thread.
                         packet_output_buffer_slice = remaining_part;
-                        std::thread::park();
+                        std::thread::yield_now();
                     }
                 }
             };
@@ -266,8 +266,7 @@ where
                                 let _ = out_producer.push(Packet::EndOfStream);
                                 return Ok(());
                             }
-                        }
-                        else {
+                        } else {
                             write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
                         }
 
@@ -301,9 +300,15 @@ where
                     }
                 };
 
-                // If we didn't do any work, park the thread.
+                // If we didn't do any work, either busy-wait or yield (the thread will fully park once we've filled the output ring buffer).
                 if !did_input_work && !did_output_work {
-                    std::thread::park();
+                    if out_producer.slots() < streaming_sampler.output_buffer_size() {
+                         // if the output ring buffer has less than one buffer-worth of samples, busy wait so we dont underrun.
+                        std::hint::spin_loop();
+                    } else {
+                        // We've got enough leeway to yield the thread.
+                        std::thread::yield_now();
+                    }
                 }
 
                 // TODO: There's a race condition here. This can miss a wakeup:
@@ -339,17 +344,22 @@ where
     }
 
     pub fn fill_local_read_buffer(&mut self) {
-
         // If the local read buffer is less than half full, fill it.
         if self.local_read_buffer.len() <= LOCAL_READ_BUFFER_SIZE / 2 {
             // Check how many samples we can read from the ring buffer.
-            let want_samples = self.out_consumer.slots().min(LOCAL_READ_BUFFER_SIZE - self.local_read_buffer.len());
+            let want_samples = self
+                .out_consumer
+                .slots()
+                .min(LOCAL_READ_BUFFER_SIZE - self.local_read_buffer.len());
             if want_samples > 0 {
-                let packets = self.out_consumer.read_chunk(want_samples).expect("ardftsrc: failed to read samples despite checking for slots");
-            
+                let packets = self
+                    .out_consumer
+                    .read_chunk(want_samples)
+                    .expect("ardftsrc: failed to read samples despite checking for slots");
+
                 for packet in packets {
                     match packet {
-                        Packet::EndOfStream => {},
+                        Packet::EndOfStream => {}
                         Packet::Sample(sample) => {
                             if let Some(current_span_len) = self.current_span_len.as_mut() {
                                 *current_span_len -= 1;
@@ -407,8 +417,7 @@ where
         // If we have samples in the local read buffer, return the next sample.
         if let Some(sample) = self.local_read_buffer.pop_front() {
             return Some(sample);
-        }
-        else {
+        } else {
             // If we don't have samples in the local read buffer, return negative-zero silence.
             return Some(T::neg_zero());
         }
