@@ -45,10 +45,10 @@ where
     thread_handle: Option<JoinHandle<Result<(), Error>>>,
 
     // The shape of the input span, when this changes we emit a "SpanChanged"
-    span_format_in: SpanFormat,
+    pub(crate) span_format_in: SpanFormat,
 
     // The shape of the output span, we update this when we receive a "SpanChanged" packet.
-    span_format_out: SpanFormat,
+    pub(crate) span_format_out: SpanFormat,
 
     // The input-samples producer for the input ring buffer.
     in_producer: Producer<Packet<T>>,
@@ -117,10 +117,12 @@ where
         input_chunk_frames * channels
     }
 
+    // Set the processor to wake up aproximately 4 times per chunk of input samples.
     fn set_samples_per_wake(&mut self) {
         self.samples_per_wake = self.input_chunk_samples().div_ceil(4).max(1);
     }
     
+    // Set the initial sample delay to 2 chunks of input samples. 
     fn set_initial_sample_delay(&mut self) {
         self.initial_sample_delay = self.input_chunk_samples() * 2;
     }
