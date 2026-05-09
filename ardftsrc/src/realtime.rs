@@ -45,10 +45,10 @@ where
     thread_handle: Option<JoinHandle<Result<(), Error>>>,
 
     // The shape of the input span, when this changes we emit a "SpanChanged"
-    pub(crate) span_format_in: SpanFormat,
+    span_format_in: SpanFormat,
 
     // The shape of the output span, we update this when we receive a "SpanChanged" packet.
-    pub(crate) span_format_out: SpanFormat,
+    span_format_out: SpanFormat,
 
     // The input-samples producer for the input ring buffer.
     in_producer: Producer<Packet<T>>,
@@ -426,8 +426,22 @@ where
         self.samples_written_since_wake = 0;
     }
 
+    #[inline]
+    #[must_use]
     pub fn current_span_len(&self) -> Option<usize> {
         self.current_span_len
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn span_format_in(&self) -> SpanFormat {
+        self.span_format_in
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn span_format_out(&self) -> SpanFormat {
+        self.span_format_out
     }
 
     // Shutdown the resampler worker thread.

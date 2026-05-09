@@ -10,6 +10,8 @@ where
     resampler: RealtimeResampler<T>,
     stream_input_ended: bool,
     just_seeked: bool,
+    samples_this_span: u64,
+    span_ratio: f64,
 }
 
 impl<S: rodio::Source, T: Float + FftNum> RodioResampler<S, T> {
@@ -20,6 +22,22 @@ impl<S: rodio::Source, T: Float + FftNum> RodioResampler<S, T> {
             stream_input_ended: false,
             just_seeked: false,
         }
+    }
+
+    #[inline]
+    pub fn set_span_ratio(&mut self, ratio: f64) {
+        let span_format_in = self.resampler.span_format_in();
+        let span_format_out = self.resampler.span_format_out();
+        self.span_ratio = span_format_in.sample_rate as f64 / span_format_out.sample_rate as f64;
+    }
+
+    pub fn new_span(&mut self) {
+        self.resampler.new_span(
+            self.inner.sample_rate().get() as usize,
+            self.inner.channels().get() as usize,
+        );
+        self.samples_this_span = 0;
+        self.set_span_ratio();
     }
 }
 
@@ -33,10 +51,10 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // If we just seeked, we may already be in a new span.
         if self.just_seeked {
-            self.resampler.new_span(
-                self.inner.sample_rate().get() as usize,
-                self.inner.channels().get() as usize,
-            );
+            let span_format_in = self.resampler.span_format_in();
+            if self.inner.sample_rate() != span_format_in.sample_rate || self.inner.channels() != span_format_in.channels {
+                self.new_span();
+            }
             self.just_seeked = false;
         }
 
@@ -47,6 +65,7 @@ where
         match self.inner.next() {
             Some(sample) => {
                 self.resampler.write_sample(sample);
+                self.samples_this_span += 1;
             }
             None => {
                 if !self.stream_input_ended {
@@ -57,10 +76,7 @@ where
         }
 
         if new_span_after_next {
-            self.resampler.new_span(
-                self.inner.sample_rate().get() as usize,
-                self.inner.channels().get() as usize,
-            );
+            self.new_span();
         }
 
         self.resampler.read_sample()
@@ -131,8 +147,8 @@ where
         self.resampler.current_span_len()
     }
 
-    fn try_seek(&self, time: core::time::Duration) -> Result<(), rodio::SeekError> {
-        self.inner.seek(time)?;
+    fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {
+        self.inner.try_seek(time)?;
         self.just_seeked = true;
         Ok(())
     }
@@ -158,8 +174,8 @@ where
         self.resampler.current_span_len()
     }
 
-    fn try_seek(&self, time: core::time::Duration) -> Result<(), rodio::SeekError> {
-        self.inner.seek(time)?;
+    fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {
+        self.inner.try_seek(time)?;
         self.just_seeked = true;
         Ok(())
     }
