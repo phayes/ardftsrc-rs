@@ -8,11 +8,17 @@ use std::thread::JoinHandle;
 
 use crate::{Config, Error, offthread::OffThreadStreamingResampler};
 
+// PERFORMANCE TUNING PARAMETERS
+const WAKES_PER_CHUNK: usize = 8;
+const INITIAL_SAMPLE_DELAY_CHUNKS: usize = 2;
+const INPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
+const OUTPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
+
 /// Runtime audio format metadata for tapped packets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SpanFormat {
-    pub(crate) channels: u8,
-    pub(crate) sample_rate: u32,
+pub struct SpanFormat {
+    pub channels: u8,
+    pub sample_rate: u32,
 }
 
 /// Packet emitted by the low-level ring buffer.
@@ -22,8 +28,8 @@ pub(crate) struct SpanFormat {
 /// - Whenever span format changes, a new `Format` packet is emitted before the first `Sample` in that span.
 ///
 /// This should be sized 128bits - my kingdom for a float-niche!
-#[derive(Debug, Clone, PartialEq)]
-pub enum Packet<T: Float> {
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Packet<T: Float + Copy> {
     /// Format packet announces the current `{channels, sample_rate_hz}`.
     Format(SpanFormat),
     /// New span pending in `n` samples
@@ -64,6 +70,9 @@ where
 
     // Track the number of samples written since the last wakeup.
     samples_written_since_wake: usize,
+
+    // Track the number of samples read since the last output-side wakeup.
+    read_samples_since_wake: usize,
 
     // The number of samples to write before waking up the thread.
     // This can change as the sample-rate ratio and channel count changes across spans.
@@ -117,14 +126,21 @@ where
         input_chunk_frames * channels
     }
 
-    // Set the processor to wake up aproximately 4 times per chunk of input samples.
+    // Set the processor to wake up at least 4 times per chunk of input samples.
     fn set_samples_per_wake(&mut self) {
-        self.samples_per_wake = self.input_chunk_samples().div_ceil(4).max(1);
+        self.samples_per_wake = (self.input_chunk_samples() / WAKES_PER_CHUNK).max(1);
     }
-    
-    // Set the initial sample delay to 2 chunks of input samples. 
+
+    // Set the initial sample delay to 2 chunks of input samples.
     fn set_initial_sample_delay(&mut self) {
-        self.initial_sample_delay = self.input_chunk_samples() * 2;
+        self.initial_sample_delay = self.input_chunk_samples() * INITIAL_SAMPLE_DELAY_CHUNKS;
+    }
+
+    /// Get the initial sample delay.
+    #[inline]
+    #[must_use]
+    pub fn initial_sample_delay(&self) -> usize {
+        self.initial_sample_delay
     }
 
     /// Constructs a sample-streaming resampler from `config`.
@@ -142,8 +158,8 @@ where
 
         // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
         let (input_buffer_size, output_buffer_size) = streaming_config.required_buffer_sizes(&config);
-        let (in_producer, mut in_consumer) = RingBuffer::new(input_buffer_size * 4);
-        let (mut out_producer, out_consumer) = RingBuffer::new(output_buffer_size * 4);
+        let (in_producer, mut in_consumer) = RingBuffer::new(input_buffer_size * INPUT_BUFFER_SIZE_MULTIPLIER);
+        let (mut out_producer, out_consumer) = RingBuffer::new(output_buffer_size * OUTPUT_BUFFER_SIZE_MULTIPLIER);
 
         let stop_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
         let thread_should_stop = Arc::clone(&stop_thread);
@@ -151,18 +167,43 @@ where
         // Off-thread resampler loop thread, handles all the off-thread resampling work.
         let thread_handle = std::thread::spawn(move || {
             let mut streaming_sampler = OffThreadStreamingResampler::<T>::new(thread_config)?;
-            let mut output_buffer = vec![T::zero(); streaming_sampler.output_buffer_size()];
+            let mut sample_output_buffer = vec![T::zero(); streaming_sampler.output_buffer_size()];
+            let mut packet_output_buffer = Vec::with_capacity(streaming_sampler.output_buffer_size());
+
+            let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>| {
+                packet_output_buffer.clear();
+                packet_output_buffer.extend(output_slice.iter().map(|s| Packet::Sample(*s)));
+
+                let mut packet_output_buffer_slice = packet_output_buffer.as_slice();
+
+                while !packet_output_buffer_slice.is_empty() {
+                    let (_written_part, remaining_part) = out_producer.push_partial_slice(&packet_output_buffer);
+
+                    #[cfg(debug_assertions)]
+                    eprintln!("ardftsrc: wrote {} of {} packets", _written_part.len(), output_slice.len());
+
+                    if remaining_part.is_empty() {
+                        break;
+                    }
+                    else {
+                        packet_output_buffer_slice = remaining_part;
+                        std::thread::park();
+                    }
+                }
+            };
 
             // Loop until we get a "thread should stop" signal.
             while !thread_should_stop.load(Ordering::Relaxed) {
-
                 // Input work first
                 let num_packets = in_consumer.slots();
                 let mut did_input_work = false;
                 if num_packets > 0 {
                     did_input_work = true;
 
-                    for packet in in_consumer.read_chunk(num_packets).expect("ardftsrc: failed to read input chunk despite checking for slots") {
+                    for packet in in_consumer
+                        .read_chunk(num_packets)
+                        .expect("ardftsrc: failed to read input chunk despite checking for slots")
+                    {
                         match packet {
                             Packet::EndOfStream => {
                                 streaming_sampler.finalize_samples()?;
@@ -210,11 +251,12 @@ where
                         // If there are samples remaining in the span, read them.
 
                         // First check the size of the output buffer, and grow it if needed.
-                        if output_buffer.len() < samples_remaining {
-                            output_buffer.resize(samples_remaining, T::zero());
+                        if sample_output_buffer.len() < samples_remaining {
+                            sample_output_buffer.resize(samples_remaining, T::zero());
                         }
 
-                        let samples_read = streaming_sampler.read_samples(&mut output_buffer[..samples_remaining]);
+                        let samples_read =
+                            streaming_sampler.read_samples(&mut sample_output_buffer[..samples_remaining]);
 
                         // If we read no samples, check if the stream is done.
                         // If so, push the end of stream packet and return, exiting the thread.
@@ -224,21 +266,8 @@ where
                                 return Ok(());
                             }
                         }
-
-                        let mut i = 0;
-                        while i < samples_read {
-                            let res = out_producer.push(Packet::Sample(output_buffer[i]));
-
-                            // If the ring buffer is full, park and retry this same sample after wakeup.
-                            // This should never happen unless the CPU is in heavy contention.
-                            if let Err(_) = res {
-                                #[cfg(debug_assertions)]
-                                eprintln!("ardftsrc: output ring buffer full, parking producer thread.");
-
-                                std::thread::park();
-                                continue;
-                            }
-                            i += 1;
+                        else {
+                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
                         }
 
                         // We should be right at a span boundary.
@@ -261,22 +290,10 @@ where
                         samples_read > 0
                     } else {
                         // If we are not nearing the end of an output span, just read samples into the output buffer and write them to the output ring buffer.
-                        let samples_read = streaming_sampler.read_samples(&mut output_buffer);
+                        let samples_read = streaming_sampler.read_samples(&mut sample_output_buffer);
 
-                        let mut i = 0usize;
-                        while i < samples_read {
-                            let res = out_producer.push(Packet::Sample(output_buffer[i]));
-
-                            // If the ring buffer is full, park and retry this same sample after wakeup.
-                            // This should never happen unless the CPU is in heavy contention.
-                            if let Err(_) = res {
-                                #[cfg(debug_assertions)]
-                                eprintln!("ardftsrc: output ring buffer full, parking producer thread.");
-
-                                std::thread::park();
-                                continue;
-                            }
-                            i += 1;
+                        if samples_read > 0 {
+                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
                         }
 
                         samples_read > 0
@@ -306,6 +323,7 @@ where
             out_consumer,
             current_span_len: None,
             samples_written_since_wake: 0,
+            read_samples_since_wake: 0,
             samples_per_wake: 1,
             config,
             stop_thread,
@@ -327,6 +345,7 @@ where
                     if let Some(current_span_len) = self.current_span_len.as_mut() {
                         *current_span_len -= 1;
                     }
+                    self.track_sample_read_for_wake();
                     Some(sample)
                 }
                 Ok(Packet::NewSpanPending(n)) => {
@@ -353,6 +372,7 @@ where
                     if let Some(current_span_len) = self.current_span_len.as_mut() {
                         *current_span_len -= 1;
                     }
+                    self.track_sample_read_for_wake();
                     Some(sample)
                 }
                 Packet::NewSpanPending(n) => {
@@ -366,8 +386,15 @@ where
                 }
             }
         } else {
-            // Return silence if the ring buffer is empty
-            Some(T::zero())
+            // Return negative-zero silence if the ring buffer is empty
+            Some(T::neg_zero())
+        }
+    }
+
+    fn track_sample_read_for_wake(&mut self) {
+        self.read_samples_since_wake += 1;
+        if self.read_samples_since_wake > self.samples_per_wake {
+            self.wake_up();
         }
     }
 
@@ -424,8 +451,8 @@ where
             .expect("ardftsrc: thread handle should be set")
             .thread()
             .unpark();
-
         self.samples_written_since_wake = 0;
+        self.read_samples_since_wake = 0;
     }
 
     #[inline]
