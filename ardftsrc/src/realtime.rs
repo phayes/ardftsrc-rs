@@ -16,6 +16,12 @@ const INPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
 const OUTPUT_BUFFER_SIZE_MULTIPLIER: usize = 8;
 const LOCAL_READ_BUFFER_SIZE: usize = 16384;
 
+// How long to idle before yielding the thread.
+const IDLE_YIELD_THRESHOLD_MS: u64 = 10;
+
+// How long to idle before parking the thread.
+const IDLE_PARK_THRESHOLD_MS: u64 = 1000;
+
 /// Runtime audio format metadata for tapped packets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpanFormat {
@@ -97,6 +103,9 @@ where
 {
     fn drop(&mut self) {
         self.stop_thread.store(true, Ordering::Relaxed);
+        if let Some(thread_handle) = self.thread_handle.take() {
+            thread_handle.thread().unpark();
+        }
     }
 }
 
@@ -168,8 +177,11 @@ where
         let stop_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
         let thread_should_stop = Arc::clone(&stop_thread);
 
+        // TODO, maybe move to tick-counter (https://github.com/sheroz/tick_counter)
+        let mut idle_time = None;
+
         // Off-thread resampler loop thread, handles all the off-thread resampling work.
-        let thread_handle = std::thread::spawn(move || {
+        let thread_handle = std::thread::Builder::new().name("ardftsrc-resampler".to_string()).spawn(move || {
             let mut streaming_sampler = OffThreadStreamingResampler::<T>::new(thread_config)?;
             let mut sample_output_buffer = vec![T::zero(); streaming_sampler.output_buffer_size()];
             let mut packet_output_buffer = Vec::with_capacity(streaming_sampler.output_buffer_size());
@@ -300,26 +312,50 @@ where
                     }
                 };
 
-                // If we didn't do any work, either busy-wait or yield (the thread will fully park once we've filled the output ring buffer).
+                // If we didn't do any work, either busy-wait, yield, or park the thread.
                 if !did_input_work && !did_output_work {
-                    if out_producer.slots() < streaming_sampler.output_buffer_size() {
-                         // if the output ring buffer has less than one buffer-worth of samples, busy wait so we dont underrun.
-                        std::hint::spin_loop();
+                    let output_buffer_slots = out_producer.slots();
+
+                    // Check if we should go idle
+                    if output_buffer_slots == 0 && in_consumer.slots() == 0 {
+                        if let Some(idle_start) = idle_time {
+                            let idle_duration = std::time::Instant::now().duration_since(idle_start);
+
+                            if idle_duration.as_millis() > IDLE_PARK_THRESHOLD_MS as u128 {
+                                std::thread::park();
+                            }
+                            else if idle_duration.as_millis() > IDLE_YIELD_THRESHOLD_MS as u128 {
+                                std::thread::yield_now();
+                            }
+                            else {
+                                std::hint::spin_loop();
+                            }
+                        }
+                        else {
+                            // enter idle and continue
+                            idle_time = Some(std::time::Instant::now());
+                            continue;
+                        }
                     } else {
-                        // We've got enough leeway to yield the thread.
-                        std::thread::yield_now();
+                        // Exit idle
+                        if idle_time.is_some() {
+                            idle_time = None;
+                        }
+
+                        // We shouldn't be idling, but maybe we should at least yield the thread.
+                        if output_buffer_slots > 0 && output_buffer_slots < streaming_sampler.output_buffer_size() {
+                            // if the output ring buffer has less than one buffer-worth of samples, busy wait so we dont underrun.
+                            std::hint::spin_loop();
+                        } else {
+                            // We've got enough leeway to yield the thread.
+                            std::thread::yield_now();
+                        }
                     }
                 }
-
-                // TODO: There's a race condition here. This can miss a wakeup:
-                // consumer: pop() sees empty
-                // producer: push()
-                // producer: unpark(consumer)
-                // consumer: park()
             }
 
             Ok(())
-        });
+        }).expect("ardftsrc: failed to spawn resampler thread"); // TODO: Handle this error
 
         let mut instance = Self {
             thread_handle: Some(thread_handle),
@@ -357,6 +393,7 @@ where
                     .read_chunk(want_samples)
                     .expect("ardftsrc: failed to read samples despite checking for slots");
 
+                let samples_read = packets.len();
                 for packet in packets {
                     match packet {
                         Packet::EndOfStream => {}
@@ -376,7 +413,7 @@ where
                     };
                 }
 
-                self.track_sample_read_for_wake();
+                self.track_sample_read_for_wake(samples_read);
             }
         }
     }
@@ -390,7 +427,7 @@ where
                     if let Some(current_span_len) = self.current_span_len.as_mut() {
                         *current_span_len -= 1;
                     }
-                    self.track_sample_read_for_wake();
+                    self.track_sample_read_for_wake(1);
                     Some(sample)
                 }
                 Ok(Packet::NewSpanPending(n)) => {
@@ -423,9 +460,9 @@ where
         }
     }
 
-    fn track_sample_read_for_wake(&mut self) {
-        self.samples_read_since_wake += 1;
-        if self.samples_read_since_wake > self.samples_per_wake {
+    fn track_sample_read_for_wake(&mut self, samples_read: usize) {
+        self.samples_read_since_wake += samples_read;
+        if self.samples_read_since_wake >= self.samples_per_wake {
             self.wake_up();
         }
     }
@@ -512,7 +549,7 @@ where
 
         if let Some(thread_handle) = self.thread_handle.take() {
             // Wake the thread in case it is currently parked.
-            self.wake_up();
+            thread_handle.thread().unpark();
 
             match thread_handle.join() {
                 Ok(thread_result) => thread_result?,

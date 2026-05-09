@@ -2,9 +2,6 @@ use crate::RealtimeResampler;
 use num_traits::Float;
 use realfft::FftNum;
 
-// How many input samples to keep ahead the inner source
-const PACING_LEAD_SAMPLES: u64 = 0;
-
 pub struct RodioResampler<S: rodio::Source, T = f64>
 where
     T: Float + FftNum,
@@ -78,12 +75,12 @@ where
     fn calculate_inner_pulls(&mut self) -> u64 {
         // If we are in fast start mode, try to prime the resampler with initial samples to get it up to speed.
         if self.fast_start && !self.fast_start_finished {
-            return (self.resampler.initial_sample_delay() as u64).saturating_add(PACING_LEAD_SAMPLES);
+            return self.resampler.initial_sample_delay() as u64;
         }
 
         // Otherwise, calculate the number of input samples to pull to keep output production approximately aligned with input consumption given the current span ratio.
         self.output_samples_this_span = self.output_samples_this_span.saturating_add(1);
-        let target_input_samples = ((self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64).saturating_add(PACING_LEAD_SAMPLES);
+        let target_input_samples = (self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64;
         target_input_samples.saturating_sub(self.samples_this_span)
     }
 
