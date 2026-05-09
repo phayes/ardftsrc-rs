@@ -78,13 +78,13 @@ where
     fn calculate_inner_pulls(&mut self) -> u64 {
         // If we are in fast start mode, try to prime the resampler with initial samples to get it up to speed.
         if self.fast_start && !self.fast_start_finished {
-            return self.resampler.initial_sample_delay() as u64;
+            return (self.resampler.initial_sample_delay() as u64).saturating_add(PACING_LEAD_SAMPLES);
         }
 
         // Otherwise, calculate the number of input samples to pull to keep output production approximately aligned with input consumption given the current span ratio.
         self.output_samples_this_span = self.output_samples_this_span.saturating_add(1);
-        let target_input_samples = ((self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64)
-            .saturating_add(PACING_LEAD_SAMPLES);
+        
+        let target_input_samples = ((self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64).saturating_add(PACING_LEAD_SAMPLES);
         target_input_samples.saturating_sub(self.samples_this_span)
     }
 
@@ -134,8 +134,10 @@ where
         while self.fast_start && !self.fast_start_finished && self.is_negative_zero(output_sample) {
             output_sample = self.resampler.read_sample();
         }
-        if self.fast_start {
-            self.fast_start = false;
+        if self.fast_start && !self.fast_start_finished {
+            self.fast_start_finished = true;
+            self.samples_this_span = 0;
+            self.output_samples_this_span = 0;
         }
 
         output_sample
