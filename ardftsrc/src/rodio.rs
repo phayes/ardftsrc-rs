@@ -139,11 +139,6 @@ where
             self.fast_start = false;
         }
 
-        #[cfg(debug_assertions)]
-        if self.is_negative_zero(output_sample) {
-            eprintln!("ardftsrc: under-run detected");
-        }
-
         output_sample
     }
 }

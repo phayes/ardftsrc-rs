@@ -72,7 +72,7 @@ where
     samples_written_since_wake: usize,
 
     // Track the number of samples read since the last output-side wakeup.
-    read_samples_since_wake: usize,
+    samples_read_since_wake: usize,
 
     // The number of samples to write before waking up the thread.
     // This can change as the sample-rate ratio and channel count changes across spans.
@@ -178,9 +178,6 @@ where
 
                 while !packet_output_buffer_slice.is_empty() {
                     let (_written_part, remaining_part) = out_producer.push_partial_slice(&packet_output_buffer);
-
-                    #[cfg(debug_assertions)]
-                    eprintln!("ardftsrc: wrote {} of {} packets", _written_part.len(), output_slice.len());
 
                     if remaining_part.is_empty() {
                         break;
@@ -323,7 +320,7 @@ where
             out_consumer,
             current_span_len: None,
             samples_written_since_wake: 0,
-            read_samples_since_wake: 0,
+            samples_read_since_wake: 0,
             samples_per_wake: 1,
             config,
             stop_thread,
@@ -392,8 +389,8 @@ where
     }
 
     fn track_sample_read_for_wake(&mut self) {
-        self.read_samples_since_wake += 1;
-        if self.read_samples_since_wake > self.samples_per_wake {
+        self.samples_read_since_wake += 1;
+        if self.samples_read_since_wake > self.samples_per_wake {
             self.wake_up();
         }
     }
@@ -452,7 +449,7 @@ where
             .thread()
             .unpark();
         self.samples_written_since_wake = 0;
-        self.read_samples_since_wake = 0;
+        self.samples_read_since_wake = 0;
     }
 
     #[inline]

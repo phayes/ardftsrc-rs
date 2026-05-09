@@ -28,7 +28,7 @@ wavers.workspace = true
 mimalloc.workspace = true
 
 [features]
-default = ["avx", "neon", "sse", "wasm_simd"]
+default = ["avx", "neon", "sse", "wasm_simd", "rodio"]
 
 # SIMD features (enabled by default)
 avx = ["realfft/avx"]

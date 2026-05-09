@@ -17,7 +17,7 @@
 //!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //!
-use ardftsrc::{InterleavedResampler, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs};
+use ardftsrc::{Config, InterleavedResampler, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;

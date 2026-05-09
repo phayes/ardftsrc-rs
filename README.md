@@ -127,15 +127,19 @@ Enable the `realtime` feature to use `RealtimeResampler` for live resampling. It
 4. Call `finalize()` at end-of-stream, then keep calling `read_sample(...)` until it returns `None`.
 
 `RealtimeResampler` has some startup delay and will emit `Some(-0.0)` (negative-zero silence) until the off-thread resampler
-is warmed up and producing samples. You may do nothing (it will play as silence), or check (`x.is_zero() && x.is_sign_negative()`) for this specific circumstance.
+is warmed up and producing samples. You may do nothing (it will play as silence), or check (`x.is_zero() && x.is_sign_negative()`)
+ for this specific circumstance. In subjective playback experiments this brief silence is not noticable and subjectively reads as instataneous. 
+
+If you are wiring `RealtimeResampler` into your own realtime audio pipeline, you'll want to keep proper pacing ratios between input and output samples, 
+see the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback, 
+or very slow sponse to seeking, those are both symtoms of bad pacing. 
+
 
 ### Spans
 
 Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The realtime resampler models those format regions as spans. You can start a new span with `new_span()`. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next.
 
 Input spans and output spans are non-synchronous. After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
-
-To end the stream early, stop writing input samples, call `finalize()`, then drain with `read_sample()` until it returns `None`.
 
 ```rust
  #[cfg(feature = "realtime")]

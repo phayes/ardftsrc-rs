@@ -25,13 +25,11 @@ mod realtime;
 mod offthread;
 
 #[cfg(feature = "realtime")]
-pub use realtime::{StreamingConfig, RealtimeResampler};
-
+pub use realtime::{RealtimeResampler, StreamingConfig};
 
 // feature: rodio
 #[cfg(feature = "rodio")]
 pub mod rodio;
-
 
 // feature: audioadapter
 #[cfg(feature = "audioadapter")]
@@ -39,7 +37,6 @@ mod adapter_resampler;
 
 #[cfg(feature = "audioadapter")]
 pub use adapter_resampler::AdapterResampler;
-
 
 // Re-export audioadapter for convenience.
 #[cfg(feature = "audioadapter")]

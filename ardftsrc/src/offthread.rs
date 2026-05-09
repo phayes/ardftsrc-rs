@@ -627,7 +627,10 @@ mod tests {
         resampler.write_samples(&second_input).unwrap();
         resampler.finalize_samples().unwrap();
 
-        assert_eq!(resampler.samples_left_in_span(), Some(process_all_samples(&mut first_offline, &first_input).unwrap().len()));
+        assert_eq!(
+            resampler.samples_left_in_span(),
+            Some(process_all_samples(&mut first_offline, &first_input).unwrap().len())
+        );
         assert_eq!(resampler.output_buffer_size(), first_output_buffer_size);
 
         let first_read_len = resampler.samples_left_in_span().unwrap();

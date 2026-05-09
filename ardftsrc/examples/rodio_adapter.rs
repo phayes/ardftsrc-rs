@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_output_rate(OUTPUT_SAMPLE_RATE_HZ)
         .with_input_rate(INPUT_SAMPLE_RATE_HZ);
     let streaming_resampler = RealtimeResampler::<f64>::new(config, StreamingConfig::default());
-    let resampled_tone: RodioResampler<_, f64> = RodioResampler::new(tone, streaming_resampler);
+    let resampled_tone: RodioResampler<_, f64> = RodioResampler::new(tone, streaming_resampler, false);
 
     mixer.add(resampled_tone);
     thread::sleep(Duration::from_secs(DURATION_SECS));
