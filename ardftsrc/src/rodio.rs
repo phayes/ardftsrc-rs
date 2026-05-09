@@ -9,11 +9,17 @@ where
     inner: S,
     resampler: RealtimeResampler<T>,
     stream_input_ended: bool,
+    just_seeked: bool,
 }
 
 impl<S: rodio::Source, T: Float + FftNum> RodioResampler<S, T> {
     pub fn new(inner: S, resampler: RealtimeResampler<T>) -> Self {
-        Self { inner, resampler, stream_input_ended: false }
+        Self {
+            inner,
+            resampler,
+            stream_input_ended: false,
+            just_seeked: false,
+        }
     }
 }
 
@@ -25,6 +31,15 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
+        // If we just seeked, we may already be in a new span.
+        if self.just_seeked {
+            self.resampler.new_span(
+                self.inner.sample_rate().get() as usize,
+                self.inner.channels().get() as usize,
+            );
+            self.just_seeked = false;
+        }
+
         // Check for a new span
         let new_span_after_next = self.inner.current_span_len() == Some(1);
 
@@ -60,6 +75,15 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
+        // If we just seeked, we may already be in a new span.
+        if self.just_seeked {
+            self.resampler.new_span(
+                self.inner.sample_rate().get() as usize,
+                self.inner.channels().get() as usize,
+            );
+            self.just_seeked = false;
+        }
+
         // Check for a new span
         let new_span_after_next = self.inner.current_span_len() == Some(1);
 
@@ -106,6 +130,12 @@ where
     fn current_span_len(&self) -> Option<usize> {
         self.resampler.current_span_len()
     }
+
+    fn try_seek(&self, time: core::time::Duration) -> Result<(), rodio::SeekError> {
+        self.inner.seek(time)?;
+        self.just_seeked = true;
+        Ok(())
+    }
 }
 
 impl<S: rodio::Source> rodio::Source for RodioResampler<S, f32>
@@ -126,5 +156,11 @@ where
 
     fn current_span_len(&self) -> Option<usize> {
         self.resampler.current_span_len()
+    }
+
+    fn try_seek(&self, time: core::time::Duration) -> Result<(), rodio::SeekError> {
+        self.inner.seek(time)?;
+        self.just_seeked = true;
+        Ok(())
     }
 }
