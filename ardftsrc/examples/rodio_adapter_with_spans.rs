@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ..Config::default()
     };
 
-    let resampled_tone: RodioResampler<_, f64> = RodioResampler::new(tone, config);
+    let resampled_tone = RodioResampler::new(tone, config);
 
     mixer.add(resampled_tone);
     thread::sleep(Duration::from_secs(SPAN_DURATION_SECS * 2));

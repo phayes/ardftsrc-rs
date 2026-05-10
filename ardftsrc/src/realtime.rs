@@ -10,6 +10,8 @@ use std::thread::JoinHandle;
 use crate::{Config, Error, offthread::OffThreadStreamingResampler};
 
 // PERFORMANCE TUNING PARAMETERS
+//
+// TODO: tune these
 const WAKES_PER_CHUNK: usize = 4;
 const INITIAL_SAMPLE_DELAY_CHUNKS: usize = 3;
 const INPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
