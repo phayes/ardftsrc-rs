@@ -29,7 +29,10 @@ pub use realtime::RealtimeResampler;
 
 // feature: rodio
 #[cfg(feature = "rodio")]
-pub mod rodio;
+mod rodio;
+
+#[cfg(feature = "rodio")]
+pub use rodio::RodioResampler;
 
 // feature: audioadapter
 #[cfg(feature = "audioadapter")]
