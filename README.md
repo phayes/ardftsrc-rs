@@ -53,6 +53,8 @@ Internally ardftsrc uses planar representation, so `PlanarResampler` is more eff
 4. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
 5. Finally, call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
 
+To end the stream early, you may simply call `reset()`. 
+
 ```rust
 use ardftsrc::{InterleavedResampler, PRESET_GOOD};
 
@@ -134,7 +136,6 @@ If you are wiring `RealtimeResampler` into your own realtime audio pipeline, you
 see the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback, 
 or very slow sponse to seeking, those are both symtoms of bad pacing. 
 
-
 ### Spans
 
 Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The realtime resampler models those format regions as spans. You can start a new span with `new_span()`. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next.
@@ -142,9 +143,9 @@ Streaming sources sometimes change format while they are still producing samples
 Input spans and output spans are non-synchronous. After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
 
 ```rust
- #[cfg(feature = "realtime")]
-fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32> {
-    use ardftsrc::{PRESET_GOOD, RealtimeResampler, StreamingConfig};
+#[cfg(feature = "realtime")]
+fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Result<Vec<f32>, ardftsrc::Error> {
+    use ardftsrc::{PRESET_GOOD, RealtimeResampler};
 
     // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
     // Both spans are resampled to the same 48 kHz output rate.
@@ -155,7 +156,7 @@ fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32
         .with_output_rate(48_000)
         .with_channels(2);
 
-    let mut resampler = RealtimeResampler::<f32>::new(config, StreamingConfig::default());
+    let mut resampler = RealtimeResampler::<f32>::new(config)?;
     let mut output = Vec::<f32>::new();
 
     // This intentionally writes one sample at a time. Larger slices are more efficient,
@@ -192,8 +193,8 @@ fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32
         output.push(sample);
     }
 
-    resampler.shutdown().unwrap();
-    output
+    resampler.shutdown()?;
+    Ok(output)
 }
 ```
 

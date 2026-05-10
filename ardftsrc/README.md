@@ -143,8 +143,8 @@ Streaming sources sometimes change format while they are still producing samples
 Input spans and output spans are non-synchronous. After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
 
 ```rust
- #[cfg(feature = "realtime")]
-fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32> {
+#[cfg(feature = "realtime")]
+fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Result<Vec<f32>, ardftsrc::Error> {
     use ardftsrc::{PRESET_GOOD, RealtimeResampler};
 
     // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
@@ -156,7 +156,7 @@ fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32
         .with_output_rate(48_000)
         .with_channels(2);
 
-    let mut resampler = RealtimeResampler::<f32>::new(config);
+    let mut resampler = RealtimeResampler::<f32>::new(config)?;
     let mut output = Vec::<f32>::new();
 
     // This intentionally writes one sample at a time. Larger slices are more efficient,
@@ -193,8 +193,8 @@ fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32
         output.push(sample);
     }
 
-    resampler.shutdown().unwrap();
-    output
+    resampler.shutdown()?;
+    Ok(output)
 }
 ```
 
