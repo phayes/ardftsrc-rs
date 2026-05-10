@@ -198,15 +198,15 @@ where
                 let mut packet_output_buffer_slice = packet_output_buffer.as_slice();
 
                 while !packet_output_buffer_slice.is_empty() {
-                    let (_written_part, remaining_part) = out_producer.push_partial_slice(&packet_output_buffer);
+                    let (_written_part, remaining_part) = out_producer.push_partial_slice(&packet_output_buffer_slice);
 
                     if remaining_part.is_empty() {
                         break;
-                    } else {
-                        // Output is full, yeild the thread.
-                        packet_output_buffer_slice = remaining_part;
-                        std::thread::yield_now();
                     }
+
+                    // Output is full, yeild the thread.
+                    packet_output_buffer_slice = remaining_part;
+                    std::thread::yield_now();
                 }
             };
 
@@ -319,13 +319,15 @@ where
 
                 // If we didn't do any work, either busy-wait, yield, or park the thread.
                 if !did_input_work && !did_output_work {
+                    let output_buffer_capacity = out_producer.buffer().capacity();
                     let output_buffer_slots = out_producer.slots();
+                    let current_output_samples = output_buffer_capacity - output_buffer_slots;
 
-                    // Check if we should go idle
+                    // Check if we should go idles
                     // Idle mode is entered when the output ring buffer empty and the input ring buffer is empty.
                     //
                     // It usually occurs because the user pushed "pause" or the stream ran out of content.
-                    if output_buffer_slots == out_producer.buffer().capacity() && in_consumer.slots() == 0 {
+                    if current_output_samples == 0 && in_consumer.slots() == 0 {
                         if let Some(idle_start) = idle_time {
                             let idle_duration = std::time::Instant::now().duration_since(idle_start);
 
@@ -351,7 +353,7 @@ where
                         }
 
                         // We shouldn't be idling, but maybe we should at least yield the thread.
-                        if output_buffer_slots > 0 && output_buffer_slots < streaming_sampler.output_buffer_size() {
+                        if current_output_samples < streaming_sampler.output_buffer_size() {
                             // if the output ring buffer has less than one buffer-worth of samples, busy wait so we dont underrun.
                             std::hint::spin_loop();
                         } else {
