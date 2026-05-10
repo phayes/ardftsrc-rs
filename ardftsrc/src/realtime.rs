@@ -141,7 +141,6 @@ where
             channels: config.channels as u8,
         };
 
-        // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
         let (input_buffer_size, output_buffer_size) = config.realtime_buffer_sizes();
         let (in_producer, in_consumer) = RingBuffer::new(input_buffer_size * INPUT_BUFFER_SIZE_MULTIPLIER);
         let (out_producer, out_consumer) = RingBuffer::new(output_buffer_size * OUTPUT_BUFFER_SIZE_MULTIPLIER);
@@ -214,6 +213,16 @@ where
     #[must_use]
     pub fn initial_sample_delay(&self) -> usize {
         self.initial_sample_delay
+    }
+
+    pub fn initial_sample_delay_duration(&self) -> std::time::Duration {
+        let channels: usize = usize::from(self.span_format_in.channels).max(1);
+        let input_sample_rate_hz = self.span_format_in.sample_rate;
+        
+        // `initial_sample_delay` is tracked in interleaved input samples.
+        // Convert to input frames before converting to wall-clock duration.
+        let input_frames = self.initial_sample_delay / channels;
+        std::time::Duration::from_secs_f64(input_frames as f64 / f64::from(input_sample_rate_hz))
     }
 
     pub fn fill_local_read_buffer(&mut self) {

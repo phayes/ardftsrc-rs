@@ -78,7 +78,18 @@ where
         // Otherwise, calculate the number of input samples to pull to keep output production approximately aligned with input consumption given the current span ratio.
         self.output_samples_this_span = self.output_samples_this_span.saturating_add(1);
         let target_input_samples = (self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64;
-        target_input_samples.saturating_sub(self.samples_this_span)
+        let inner_pulls = target_input_samples.saturating_sub(self.samples_this_span);
+    
+        // If we are near the end of the span, always pull at least one sample from inner.
+        if inner_pulls == 0 {
+            if let Some(samples_left) = self.inner.current_span_len() {
+                if samples_left < 256 {
+                    return 1;
+                }
+            }
+        }
+
+        inner_pulls
     }
 
     fn next_sample(&mut self) -> Option<T> {
@@ -185,7 +196,13 @@ where
     }
 
     fn total_duration(&self) -> Option<core::time::Duration> {
-        self.inner.total_duration()
+        self.inner.total_duration().map(|inner_duration| {
+            if self.fast_start {
+                inner_duration
+            } else {
+                inner_duration + self.resampler.initial_sample_delay_duration()
+            }
+        })
     }
 
     fn current_span_len(&self) -> Option<usize> {
