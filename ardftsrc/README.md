@@ -145,7 +145,7 @@ Input spans and output spans are non-synchronous. After calling `new_span`, quer
 ```rust
  #[cfg(feature = "realtime")]
 fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32> {
-    use ardftsrc::{PRESET_GOOD, RealtimeResampler, StreamingConfig};
+    use ardftsrc::{PRESET_GOOD, RealtimeResampler};
 
     // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
     // Both spans are resampled to the same 48 kHz output rate.
@@ -156,7 +156,7 @@ fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Vec<f32
         .with_output_rate(48_000)
         .with_channels(2);
 
-    let mut resampler = RealtimeResampler::<f32>::new(config, StreamingConfig::default());
+    let mut resampler = RealtimeResampler::<f32>::new(config);
     let mut output = Vec::<f32>::new();
 
     // This intentionally writes one sample at a time. Larger slices are more efficient,

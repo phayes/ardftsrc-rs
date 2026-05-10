@@ -1,4 +1,4 @@
-use crate::RealtimeResampler;
+use crate::{Config, RealtimeResampler};
 use num_traits::Float;
 use realfft::FftNum;
 
@@ -24,10 +24,9 @@ where
 {
     /// Create a new RodioResampler.  
     ///
-    /// fast_start will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
-    ///   - Set to "true" if the inner source is something like a buffered stream or audio file.
-    ///   - Set to "false" if the inner source is very realtime (e.g. a live microphone).
-    pub fn new(inner: S, resampler: RealtimeResampler<T>, fast_start: bool) -> Self {
+    pub fn new(inner: S, config: Config) -> Self {
+        let fast_start = config.rodio_fast_start;
+        let resampler = RealtimeResampler::new(config);
         let span_format_in = resampler.span_format_in();
         let span_format_out = resampler.span_format_out();
         let span_ratio = span_format_in.sample_rate as f64 / span_format_out.sample_rate as f64;

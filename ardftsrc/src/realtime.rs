@@ -63,7 +63,11 @@ where
 
     thread_handle: Option<JoinHandle<Result<(), Error>>>,
 
-    local_read_buffer: VecDeque<T>,
+    // TODO:
+    // There's a bug here, this should be packets
+    // The bug is because we can change the sample rate ratio and channel count across spans,
+    // so we need to unpack packets at read_sample() time.
+    local_read_buffer: VecDeque<Packet<T>>,
 
     // The shape of the input span, when this changes we emit a "SpanChanged"
     pub(crate) span_format_in: SpanFormat,
@@ -162,7 +166,7 @@ where
     }
 
     /// Constructs a sample-streaming resampler from `config`.
-    pub fn new(config: Config, streaming_config: StreamingConfig) -> Self {
+    pub fn new(config: Config) -> Self {
         let span_format_in = SpanFormat {
             sample_rate: config.input_sample_rate as u32,
             channels: config.channels as u8,
@@ -175,7 +179,7 @@ where
         let thread_config = config.clone();
 
         // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
-        let (input_buffer_size, output_buffer_size) = streaming_config.required_buffer_sizes(&config);
+        let (input_buffer_size, output_buffer_size) = config.realtime_buffer_sizes();
         let (in_producer, mut in_consumer) = RingBuffer::new(input_buffer_size * INPUT_BUFFER_SIZE_MULTIPLIER);
         let (mut out_producer, out_consumer) = RingBuffer::new(output_buffer_size * OUTPUT_BUFFER_SIZE_MULTIPLIER);
 
@@ -403,27 +407,9 @@ where
                     .read_chunk(want_samples)
                     .expect("ardftsrc: failed to read samples despite checking for slots");
 
-                let samples_read = packets.len();
-                for packet in packets {
-                    match packet {
-                        Packet::EndOfStream => {}
-                        Packet::Sample(sample) => {
-                            if let Some(current_span_len) = self.current_span_len.as_mut() {
-                                *current_span_len -= 1;
-                            }
-                            self.local_read_buffer.push_back(sample);
-                        }
-                        Packet::NewSpanPending(n) => {
-                            self.current_span_len = Some(n);
-                        }
-                        Packet::Format(format) => {
-                            self.span_format_out = format;
-                            self.current_span_len = None;
-                        }
-                    };
-                }
-
-                self.track_sample_read_for_wake(samples_read);
+                packets.into_iter().for_each(|packet| {
+                    self.local_read_buffer.push_back(packet);
+                });
             }
         }
     }
@@ -462,8 +448,26 @@ where
         self.fill_local_read_buffer();
 
         // If we have samples in the local read buffer, return the next sample.
-        if let Some(sample) = self.local_read_buffer.pop_front() {
-            return Some(sample);
+        if let Some(packet) = self.local_read_buffer.pop_front() {
+            return match packet {
+                Packet::EndOfStream => None,
+                Packet::Sample(sample) => {
+                    if let Some(current_span_len) = self.current_span_len.as_mut() {
+                        *current_span_len -= 1;
+                    }
+                    self.track_sample_read_for_wake(1);
+                    Some(sample)
+                }
+                Packet::NewSpanPending(n) => {
+                    self.current_span_len = Some(n);
+                    return self.read_sample();
+                }
+                Packet::Format(format) => {
+                    self.span_format_out = format;
+                    self.current_span_len = None;
+                    return self.read_sample();
+                }
+            };
         } else {
             // If we don't have samples in the local read buffer, return negative-zero silence.
             return Some(T::neg_zero());
@@ -580,71 +584,11 @@ where
     }
 }
 
-pub struct StreamingConfig {
-    expected_input_range: std::ops::Range<usize>,
-    expected_max_channels: usize,
-}
-
-impl Default for StreamingConfig {
-    fn default() -> Self {
-        Self {
-            expected_input_range: 22_050..192_000,
-            expected_max_channels: 8,
-        }
-    }
-}
-
-impl StreamingConfig {
-    // Returns the required input and output buffer sizes for the given config.
-    //
-    // Returns (input_buffer_size, output_buffer_size)
-    pub fn required_buffer_sizes(&self, config: &Config) -> (usize, usize) {
-        let quality = config.quality;
-        let fixed_output_rate = config.output_sample_rate;
-        let min_input_rate = self.expected_input_range.start;
-        let max_input_rate = self.expected_input_range.end;
-
-        let mut a = max_input_rate;
-        let mut b = fixed_output_rate;
-        while b != 0 {
-            let r = a % b;
-            a = b;
-            b = r;
-        }
-        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
-        let input_common_divisor = a;
-        let mut input_chunk_frames = max_input_rate / input_common_divisor;
-        let output_chunk_frames_for_input = fixed_output_rate / input_common_divisor;
-        let input_denominator = input_chunk_frames.min(output_chunk_frames_for_input).max(1);
-        let input_factor = quality.div_ceil(input_denominator).next_multiple_of(2);
-        input_chunk_frames *= input_factor;
-
-        let mut a = min_input_rate;
-        let mut b = fixed_output_rate;
-        while b != 0 {
-            let r = a % b;
-            a = b;
-            b = r;
-        }
-        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
-        let output_common_divisor = a;
-        let input_chunk_frames_for_output = min_input_rate / output_common_divisor;
-        let mut output_chunk_frames = fixed_output_rate / output_common_divisor;
-        let output_denominator = input_chunk_frames_for_output.min(output_chunk_frames).max(1);
-        let output_factor = quality.div_ceil(output_denominator).next_multiple_of(2);
-        output_chunk_frames *= output_factor;
-
-        (
-            input_chunk_frames * self.expected_max_channels,
-            output_chunk_frames * self.expected_max_channels,
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::InterleavedResampler;
+    use std::mem::size_of;
 
     fn endpoint_chunk_sizes(input_rate: usize, output_rate: usize, quality: usize, channels: usize) -> (usize, usize) {
         let mut a = input_rate;
@@ -666,14 +610,12 @@ mod tests {
 
     #[test]
     fn required_buffer_sizes_matches_known_direct_math_case() {
-        let streaming = StreamingConfig {
-            expected_input_range: 22_050..192_000,
-            expected_max_channels: 16,
-        };
         let mut config = Config::new(48_000, 22_000, 16);
         config.quality = 1_878;
+        config.realtime_input_range = 22_050..192_000;
+        config.realtime_max_channels = 16;
 
-        let (input_size, output_size) = streaming.required_buffer_sizes(&config);
+        let (input_size, output_size) = config.realtime_buffer_sizes();
         assert_eq!(input_size, 264_192);
         assert_eq!(output_size, 42_240);
     }
@@ -687,14 +629,12 @@ mod tests {
         ];
 
         for (input_range, output_rate, channels, quality) in cases {
-            let streaming = StreamingConfig {
-                expected_input_range: input_range.clone(),
-                expected_max_channels: channels,
-            };
             let mut config = Config::new(48_000, output_rate, channels);
             config.quality = quality;
+            config.realtime_input_range = input_range.clone();
+            config.realtime_max_channels = channels;
 
-            let (actual_input, actual_output) = streaming.required_buffer_sizes(&config);
+            let (actual_input, actual_output) = config.realtime_buffer_sizes();
 
             let (expected_input, _) = endpoint_chunk_sizes(input_range.end, output_rate, quality, channels);
             let (_, expected_output) = endpoint_chunk_sizes(input_range.start, output_rate, quality, channels);
@@ -705,23 +645,41 @@ mod tests {
     }
 
     #[test]
+    fn default_required_buffer_sizes_match_current_memory_use() {
+        let config = Config::default();
+
+        let (input_size, output_size) = config.realtime_buffer_sizes();
+        let input_capacity = input_size * INPUT_BUFFER_SIZE_MULTIPLIER;
+        let output_capacity = output_size * OUTPUT_BUFFER_SIZE_MULTIPLIER;
+        let packet_size = size_of::<Packet<f64>>();
+
+        assert_eq!(input_size, 71_680);
+        assert_eq!(output_size, 30_048);
+        assert_eq!(packet_size, 16);
+        assert_eq!(input_capacity * packet_size, 4_587_520);
+        assert_eq!(output_capacity * packet_size, 3_846_144);
+        assert_eq!((input_capacity + output_capacity) * packet_size, 8_433_664);
+    }
+
+    #[test]
     fn required_input_size_matches_interleaved_at_max_input_endpoint() {
-        let streaming = StreamingConfig {
-            expected_input_range: 22_050..192_000,
-            expected_max_channels: 8,
-        };
         let mut config = Config::new(48_000, 22_000, 8);
         config.quality = 1_878;
+        config.realtime_input_range = 22_050..192_000;
+        config.realtime_max_channels = 8;
 
-        let (required_input_size, _) = streaming.required_buffer_sizes(&config);
+        let (required_input_size, _) = config.realtime_buffer_sizes();
 
         let max_endpoint_config = Config {
-            input_sample_rate: streaming.expected_input_range.end,
+            input_sample_rate: config.realtime_input_range.end,
             output_sample_rate: config.output_sample_rate,
-            channels: streaming.expected_max_channels,
+            channels: config.realtime_max_channels,
             quality: config.quality,
             bandwidth: config.bandwidth,
             taper_type: config.taper_type,
+            realtime_input_range: config.realtime_input_range.clone(),
+            realtime_max_channels: config.realtime_max_channels,
+            rodio_fast_start: config.rodio_fast_start,
         };
         let interleaved = InterleavedResampler::<f32>::new(max_endpoint_config).unwrap();
 
@@ -730,22 +688,23 @@ mod tests {
 
     #[test]
     fn required_output_size_matches_offthread_at_min_input_endpoint() {
-        let streaming = StreamingConfig {
-            expected_input_range: 22_050..192_000,
-            expected_max_channels: 8,
-        };
         let mut config = Config::new(48_000, 22_000, 8);
         config.quality = 1_878;
+        config.realtime_input_range = 22_050..192_000;
+        config.realtime_max_channels = 8;
 
-        let (_, required_output_size) = streaming.required_buffer_sizes(&config);
+        let (_, required_output_size) = config.realtime_buffer_sizes();
 
         let min_endpoint_config = Config {
-            input_sample_rate: streaming.expected_input_range.start,
+            input_sample_rate: config.realtime_input_range.start,
             output_sample_rate: config.output_sample_rate,
-            channels: streaming.expected_max_channels,
+            channels: config.realtime_max_channels,
             quality: config.quality,
             bandwidth: config.bandwidth,
             taper_type: config.taper_type,
+            realtime_input_range: config.realtime_input_range.clone(),
+            realtime_max_channels: config.realtime_max_channels,
+            rodio_fast_start: config.rodio_fast_start,
         };
         let offthread = OffThreadStreamingResampler::<f32>::new(min_endpoint_config).unwrap();
 

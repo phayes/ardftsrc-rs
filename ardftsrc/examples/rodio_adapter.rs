@@ -1,5 +1,5 @@
 use ardftsrc::PRESET_FAST;
-use ardftsrc::{RealtimeResampler, StreamingConfig, rodio::RodioResampler};
+use ardftsrc::rodio::RodioResampler;
 use rodio::Source;
 use std::error::Error;
 use std::num::NonZero;
@@ -29,8 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_channels(1)
         .with_output_rate(OUTPUT_SAMPLE_RATE_HZ)
         .with_input_rate(INPUT_SAMPLE_RATE_HZ);
-    let streaming_resampler = RealtimeResampler::<f64>::new(config, StreamingConfig::default());
-    let resampled_tone: RodioResampler<_, f64> = RodioResampler::new(tone, streaming_resampler, false);
+    let resampled_tone: RodioResampler<_, f64> = RodioResampler::new(tone, config);
 
     mixer.add(resampled_tone);
     thread::sleep(Duration::from_secs(DURATION_SECS));

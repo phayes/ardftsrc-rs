@@ -25,7 +25,7 @@ mod realtime;
 mod offthread;
 
 #[cfg(feature = "realtime")]
-pub use realtime::{RealtimeResampler, StreamingConfig};
+pub use realtime::RealtimeResampler;
 
 // feature: rodio
 #[cfg(feature = "rodio")]

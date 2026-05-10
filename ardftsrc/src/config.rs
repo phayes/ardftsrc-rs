@@ -19,6 +19,7 @@ pub const PRESET_FAST: Config = Config {
     quality: 512,
     bandwidth: 0.8323,
     taper_type: TaperType::Cosine(3.4375),
+    ..Config::DEFAULT
 };
 
 /// Balanced preset for good realtime quality.
@@ -37,6 +38,7 @@ pub const PRESET_GOOD: Config = Config {
     quality: 1878,
     bandwidth: 0.9114534,
     taper_type: TaperType::Cosine(3.4375),
+    ..Config::DEFAULT
 };
 
 /// High quality preset suitable for offline processing or realtime applications where quality is critical.
@@ -55,6 +57,7 @@ pub const PRESET_HIGH: Config = Config {
     quality: 73622,
     bandwidth: 0.9873534,
     taper_type: TaperType::Cosine(3.4375),
+    ..Config::DEFAULT
 };
 
 /// Maximum quality preset, optimized for offline processing. Not recommended for realtime applications.
@@ -73,6 +76,7 @@ pub const PRESET_EXTREME: Config = Config {
     quality: 524514,
     bandwidth: 0.9952346,
     taper_type: TaperType::Cosine(3.4375),
+    ..Config::DEFAULT
 };
 
 use crate::Error;
@@ -153,9 +157,52 @@ pub struct Config {
     /// - `3.5`: Good balance between smoothness and selectivity.
     /// - `4.0`: Sharper shaping; can trade smoothness for selectivity.
     pub taper_type: TaperType,
+
+    /// The range of input sample rates that the realtime resampler will support.
+    ///
+    /// This is used in combination with `realtime_max_channels` to set the size of the ringer buffers for off-thread realtime resampling.
+    /// The default value (22.05KHz - 192KHz at 7.1 surround) is very generous in what it supports, but uses about 8MB of memory.
+    /// To reduce memory usage, you can set this to a narrower range, or reduce the number of channels supported.
+    ///
+    /// Because this range sets the buffer size and is not a hard limit, it will often support values outside the range (eg using the default config, 22.05KHz -> 384Khz stereo will work fine).
+    /// Going above the range (eg using the default config, but resampling 22.05KHz -> 384Khz 13.1 surround) will not error, but will cause underruns and crackling (negative-zero samples on `read_sample()``).
+    ///
+    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
+    pub realtime_input_range: std::ops::Range<usize>,
+
+    /// The maximum number of channels that the realtime resampler will support. See `realtime_input_range`.
+    ///
+    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
+    pub realtime_max_channels: usize,
+
+    /// For `RodioResampler`, this setting controls whether to use a fast start mode.
+    ///
+    /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
+    /// This is only appropriate to use when the inner sounce can handle rapid calls to `next()`. For example, this will
+    /// generally work on buffered streams or audio files, but not on live microphones.
+    ///
+    ///   - Set to "true" if the inner source is something like a buffered stream or audio file.
+    ///   - Set to "false" if the inner source is very realtime (e.g. a live microphone).
+    ///
+    /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
+    ///
+    /// This setting is only for `RodioResampler`, it has no effect on other resamplers.
+    pub rodio_fast_start: bool,
 }
 
 impl Config {
+    pub const DEFAULT: Self = Self {
+        input_sample_rate: 44_100,
+        output_sample_rate: 44_100,
+        channels: 2,
+        quality: 1878,
+        bandwidth: 0.9114534,
+        taper_type: TaperType::Cosine(3.4375),
+        realtime_input_range: 22_050..192_000,
+        realtime_max_channels: 8,
+        rodio_fast_start: false,
+    };
+
     /// Builds a config with explicit sample rates/channel count and default quality settings.
     ///
     /// Returns a new `Config` value; semantic validation is deferred to `validate`.
@@ -252,18 +299,56 @@ impl Config {
 
         Ok(DerivedConfig::from_config(self))
     }
+
+    // Returns the required input and output buffer sizes for realtime resampling.
+    //
+    // Returns (input_buffer_size, output_buffer_size)
+    pub fn realtime_buffer_sizes(&self) -> (usize, usize) {
+        let quality = self.quality;
+        let fixed_output_rate = self.output_sample_rate;
+        let min_input_rate = self.realtime_input_range.start;
+        let max_input_rate = self.realtime_input_range.end;
+
+        let mut a = max_input_rate;
+        let mut b = fixed_output_rate;
+        while b != 0 {
+            let r = a % b;
+            a = b;
+            b = r;
+        }
+        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
+        let input_common_divisor = a;
+        let mut input_chunk_frames = max_input_rate / input_common_divisor;
+        let output_chunk_frames_for_input = fixed_output_rate / input_common_divisor;
+        let input_denominator = input_chunk_frames.min(output_chunk_frames_for_input).max(1);
+        let input_factor = quality.div_ceil(input_denominator).next_multiple_of(2);
+        input_chunk_frames *= input_factor;
+
+        let mut a = min_input_rate;
+        let mut b = fixed_output_rate;
+        while b != 0 {
+            let r = a % b;
+            a = b;
+            b = r;
+        }
+        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
+        let output_common_divisor = a;
+        let input_chunk_frames_for_output = min_input_rate / output_common_divisor;
+        let mut output_chunk_frames = fixed_output_rate / output_common_divisor;
+        let output_denominator = input_chunk_frames_for_output.min(output_chunk_frames).max(1);
+        let output_factor = quality.div_ceil(output_denominator).next_multiple_of(2);
+        output_chunk_frames *= output_factor;
+
+        (
+            input_chunk_frames * self.realtime_max_channels,
+            output_chunk_frames * self.realtime_max_channels,
+        )
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            input_sample_rate: 44_100,
-            output_sample_rate: 44_100,
-            channels: 2,
-            quality: 1878,
-            bandwidth: 0.9114534,
-            taper_type: TaperType::default(),
-        }
+        Self::DEFAULT
     }
 }
 
@@ -559,6 +644,7 @@ mod tests {
                 quality: 64,
                 bandwidth: 0.95,
                 taper_type,
+                ..Config::default()
             };
             let derived = config.derive_config::<f32>().unwrap();
             let taper = &derived.taper;
@@ -589,6 +675,7 @@ mod tests {
                 quality: 64,
                 bandwidth: 0.75,
                 taper_type,
+                ..Config::default()
             };
             let derived = config.derive_config::<f32>().unwrap();
             assert_no_nans(&derived.taper, "config::passthrough_taper_is_all_ones taper");

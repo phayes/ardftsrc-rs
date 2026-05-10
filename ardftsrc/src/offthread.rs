@@ -370,6 +370,7 @@ mod tests {
             quality: 64,
             bandwidth: 0.95,
             taper_type: TaperType::Cosine(3.45),
+            ..Config::default()
         }
     }
 
