@@ -70,7 +70,7 @@ where
     /// Estimate the number of input samples to pull this tick.
     #[inline]
     fn calculate_inner_pulls(&mut self) -> u64 {
-        // If the stream is ended, return zero.
+        // If the inner stream is ended, return zero.
         if self.stream_input_ended {
             return 0;
         }
