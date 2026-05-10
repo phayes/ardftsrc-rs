@@ -25,7 +25,7 @@ const LOCAL_READ_BUFFER_SIZE: usize = 16384;
 //
 // TODO: There's a bug here where once we idle, starting up again underruns and we crackle. 
 // We need to tell the front-end that we're indle, then the front-end can wait for us to wake up.
-// One possible answer: Add an realtime_on_idle callback to the front-end, backend emit a Idle packet when it's about to idle
+// One possible answer: Add an realtime_on_idle callback to the front-end, backend emit a Idle packet when it's about to park the thread.
 // If realtime_on_idle is not set, then we never idle (because we cant do it safely without underrunning)
 
 // How long to idle before yielding the thread.
@@ -419,7 +419,11 @@ fn launch_thread<T: Float + FftNum>(
             let mut packet_output_buffer = Vec::with_capacity(streaming_sampler.output_buffer_size());
             let mut out_producer = out_producer;
             let mut in_consumer = in_consumer;
-            let mut idle_time = None; // TODO, maybe move to tick-counter (https://github.com/sheroz/tick_counter)            
+            let mut idle_time = None; // TODO, maybe move to tick-counter (https://github.com/sheroz/tick_counter)       
+            let mut current_output_span_format = SpanFormat {
+                sample_rate: config.output_sample_rate as u32,
+                channels: streaming_sampler.output_channels() as u8,
+            };
 
             let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>| {
                 packet_output_buffer.clear();
@@ -486,15 +490,6 @@ fn launch_thread<T: Float + FftNum>(
                 // Output work second
                 let did_output_work = {
                     // Check to see if are nearing the end of an output span, if so process end-of-span behavior.
-                    // TODO: There's a bug here:
-                    //   - The first time around we see streaming_sampler.samples_left_in_span() == Some(foo) (!= 0)
-                    //   - The second time around we see streaming_sampler.samples_left_in_span() == Some(0), and then re-emit out_producer.push(Packet::Format(output_span_format)).unwrap();
-                    //   - The issue is that we always need to emit the format packet at least once, even when streaming_sampler.samples_left_in_span() is naturally zero from the upstream resampler.
-                    //   - IF samples_left_in_span() is always non-zero when we complete a span because of finalize, we are safe skip the Some(0) case.
-                    //
-                    //   Bug TLDR: We spam Format packets onto the ring buffer during span transitions.
-                    //   This can be fixed when we move the buffered output on the ring buffer since we'll be able to peek.
-                    //   It's less of a problem than it seems because we park the thread after the second spam.
                     if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
                         // If there are samples remaining in the span, read them.
 
@@ -523,16 +518,18 @@ fn launch_thread<T: Float + FftNum>(
                             "ardftsrc: samples_left_in_span() is not 0 at expected span boundary."
                         );
 
-                        // Grab the next span shape
+                        // Grab the next span shape and check if we should emit a Format packet.
                         let output_channels = streaming_sampler.output_channels();
-
-                        let output_span_format = SpanFormat {
+                        let candidate_output_span_format = SpanFormat {
                             sample_rate: config.output_sample_rate as u32,
                             channels: output_channels as u8,
                         };
+                        if current_output_span_format != candidate_output_span_format {
+                            current_output_span_format = candidate_output_span_format;
 
-                        // TODO: Handle this error
-                        out_producer.push(Packet::Format(output_span_format)).unwrap();
+                            // TODO: Handle this error
+                            out_producer.push(Packet::Format(candidate_output_span_format)).unwrap();
+                        }
 
                         samples_read > 0
                     } else {
