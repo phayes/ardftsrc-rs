@@ -8,7 +8,7 @@ use std::time::Duration;
 
 const FREQUENCY_HZ: f32 = 440.0;
 const AMPLITUDE: f32 = 0.20;
-const DURATION_SECS: u64 = 3;
+const DURATION_SECS: u64 = 1;
 const INPUT_SAMPLE_RATE_HZ: usize = 44_100;
 const OUTPUT_SAMPLE_RATE_HZ: usize = 48_000;
 
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let resampled_tone = RodioResampler::new(tone, config)?;
 
     mixer.add(resampled_tone);
-    thread::sleep(Duration::from_secs(DURATION_SECS));
+    thread::sleep(Duration::from_secs(DURATION_SECS + 1));
 
     Ok(())
 }

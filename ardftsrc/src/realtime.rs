@@ -27,6 +27,8 @@ const LOCAL_READ_BUFFER_SIZE: usize = 16384;
 // We need to tell the front-end that we're indle, then the front-end can wait for us to wake up.
 // One possible answer: Add an realtime_on_idle callback to the front-end, backend emit a Idle packet when it's about to park the thread.
 // If realtime_on_idle is not set, then we never idle (because we cant do it safely without underrunning)
+// ... Is this the right model?  It almost needs to be a callback for being under-primed, which implicitly happens before idle. 
+//     Maybe this is the same concept...  We call the callback when we did no work and there's nothing on output or input.
 
 // How long to idle before yielding the thread.
 const IDLE_YIELD_THRESHOLD_MS: u64 = 10;

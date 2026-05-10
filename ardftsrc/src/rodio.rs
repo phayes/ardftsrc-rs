@@ -70,6 +70,11 @@ where
     /// Estimate the number of input samples to pull this tick.
     #[inline]
     fn calculate_inner_pulls(&mut self) -> u64 {
+        // If the stream is ended, return zero.
+        if self.stream_input_ended {
+            return 0;
+        }
+
         // If we are in fast start mode, try to prime the resampler with initial samples to get it up to speed.
         if self.fast_start && !self.fast_start_finished {
             return self.resampler.initial_sample_delay() as u64;
@@ -79,15 +84,6 @@ where
         self.output_samples_this_span = self.output_samples_this_span.saturating_add(1);
         let target_input_samples = (self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64;
         let inner_pulls = target_input_samples.saturating_sub(self.samples_this_span);
-    
-        // If we are near the end of the span, always pull at least one sample from inner.
-        if inner_pulls == 0 {
-            if let Some(samples_left) = self.inner.current_span_len() {
-                if samples_left < 256 {
-                    return 1;
-                }
-            }
-        }
 
         inner_pulls
     }
