@@ -22,6 +22,11 @@ const LOCAL_READ_BUFFER_SIZE: usize = 16384;
 //
 // We enter idle mode when both the input and output ring buffers are empty.
 // This usually occurs because the user pushed "pause" or the stream ran out of content.
+//
+// TODO: There's a bug here where once we idle, starting up again underruns and we crackle. 
+// We need to tell the front-end that we're indle, then the front-end can wait for us to wake up.
+// One possible answer: Add an realtime_on_idle callback to the front-end, backend emit a Idle packet when it's about to idle
+// If realtime_on_idle is not set, then we never idle (because we cant do it safely without underrunning)
 
 // How long to idle before yielding the thread.
 const IDLE_YIELD_THRESHOLD_MS: u64 = 10;
@@ -124,6 +129,50 @@ impl<T> RealtimeResampler<T>
 where
     T: Float + FftNum,
 {
+    /// Constructs a sample-streaming resampler from `config`.
+    pub fn new(config: Config) -> Result<Self, Error> {
+        let span_format_in = SpanFormat {
+            sample_rate: config.input_sample_rate as u32,
+            channels: config.channels as u8,
+        };
+
+        let span_format_out = SpanFormat {
+            sample_rate: config.output_sample_rate as u32,
+            channels: config.channels as u8,
+        };
+
+        // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
+        let (input_buffer_size, output_buffer_size) = config.realtime_buffer_sizes();
+        let (in_producer, in_consumer) = RingBuffer::new(input_buffer_size * INPUT_BUFFER_SIZE_MULTIPLIER);
+        let (out_producer, out_consumer) = RingBuffer::new(output_buffer_size * OUTPUT_BUFFER_SIZE_MULTIPLIER);
+
+        let stop_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        let thread_should_stop = Arc::clone(&stop_thread);
+
+        let thread_handle = launch_thread(config.clone(), thread_should_stop, in_consumer, out_producer)?;
+
+        let mut instance = Self {
+            thread_handle: Some(thread_handle),
+            span_format_in,
+            span_format_out,
+            in_producer,
+            out_consumer,
+            current_span_len: None,
+            samples_written_since_wake: 0,
+            samples_read_since_wake: 0,
+            samples_per_wake: 1,
+            config,
+            stop_thread,
+            initial_sample_delay: 0,
+            total_input_samples_written: 0,
+            local_read_buffer: VecDeque::with_capacity(LOCAL_READ_BUFFER_SIZE),
+        };
+        instance.set_samples_per_wake();
+        instance.set_initial_sample_delay();
+        instance.total_input_samples_written = 0;
+        Ok(instance)
+    }
+
     fn gcd(mut a: usize, mut b: usize) -> usize {
         while b != 0 {
             let r = a % b;
@@ -165,234 +214,6 @@ where
     #[must_use]
     pub fn initial_sample_delay(&self) -> usize {
         self.initial_sample_delay
-    }
-
-    /// Constructs a sample-streaming resampler from `config`.
-    pub fn new(config: Config) -> Self {
-        let span_format_in = SpanFormat {
-            sample_rate: config.input_sample_rate as u32,
-            channels: config.channels as u8,
-        };
-
-        let span_format_out = SpanFormat {
-            sample_rate: config.output_sample_rate as u32,
-            channels: config.channels as u8,
-        };
-        let thread_config = config.clone();
-
-        // TODO, make this configurable based on expected_input_range, expected_output_range, expected max channels
-        let (input_buffer_size, output_buffer_size) = config.realtime_buffer_sizes();
-        let (in_producer, mut in_consumer) = RingBuffer::new(input_buffer_size * INPUT_BUFFER_SIZE_MULTIPLIER);
-        let (mut out_producer, out_consumer) = RingBuffer::new(output_buffer_size * OUTPUT_BUFFER_SIZE_MULTIPLIER);
-
-        let stop_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-        let thread_should_stop = Arc::clone(&stop_thread);
-
-        // TODO, maybe move to tick-counter (https://github.com/sheroz/tick_counter)
-        let mut idle_time = None;
-
-        // Off-thread resampler loop thread, handles all the off-thread resampling work.
-        let thread_handle = std::thread::Builder::new().name("ardftsrc-resampler".to_string()).spawn(move || {
-            let mut streaming_sampler = OffThreadStreamingResampler::<T>::new(thread_config)?;
-            let mut sample_output_buffer = vec![T::zero(); streaming_sampler.output_buffer_size()];
-            let mut packet_output_buffer = Vec::with_capacity(streaming_sampler.output_buffer_size());
-
-            let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>| {
-                packet_output_buffer.clear();
-                packet_output_buffer.extend(output_slice.iter().map(|s| Packet::Sample(*s)));
-
-                let mut packet_output_buffer_slice = packet_output_buffer.as_slice();
-
-                while !packet_output_buffer_slice.is_empty() {
-                    let (_written_part, remaining_part) = out_producer.push_partial_slice(&packet_output_buffer_slice);
-
-                    if remaining_part.is_empty() {
-                        break;
-                    }
-
-                    // Output is full, yeild the thread.
-                    packet_output_buffer_slice = remaining_part;
-                    std::thread::yield_now();
-                }
-            };
-
-            // Loop until we get a "thread should stop" signal.
-            while !thread_should_stop.load(Ordering::Relaxed) {
-                // Input work first
-                let num_packets = in_consumer.slots();
-                let mut did_input_work = false;
-                if num_packets > 0 {
-                    did_input_work = true;
-
-                    for packet in in_consumer
-                        .read_chunk(num_packets)
-                        .expect("ardftsrc: failed to read input chunk despite checking for slots")
-                    {
-                        match packet {
-                            Packet::EndOfStream => {
-                                streaming_sampler.finalize_samples()?;
-
-                                let pending_packet =
-                                    Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
-                                // TODO: Handle this error
-                                out_producer.push(pending_packet).unwrap();
-                            }
-                            Packet::Format(format) => {
-                                streaming_sampler.new_span(format.sample_rate as usize, format.channels as usize)?;
-
-                                let pending_packet =
-                                    Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
-                                // TODO: Handle this error
-                                out_producer.push(pending_packet).unwrap();
-                            }
-                            Packet::Sample(sample) => {
-                                streaming_sampler.write_samples(&[sample])?;
-                            }
-                            Packet::NewSpanPending(_) => {
-                                // Ignore - we'll handle it on Packet::Format when the new span is actually announced.
-                                #[cfg(debug_assertions)]
-                                panic!(
-                                    "ardftsrc: NewSpanPending packet received. The input thread should not be sending this packet."
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // Output work second
-                let did_output_work = {
-                    // Check to see if are nearing the end of an output span, if so process end-of-span behavior.
-                    // TODO: There's a bug here:
-                    //   - The first time around we see streaming_sampler.samples_left_in_span() == Some(foo) (!= 0)
-                    //   - The second time around we see streaming_sampler.samples_left_in_span() == Some(0), and then re-emit out_producer.push(Packet::Format(output_span_format)).unwrap();
-                    //   - The issue is that we always need to emit the format packet at least once, even when streaming_sampler.samples_left_in_span() is naturally zero from the upstream resampler.
-                    //   - IF samples_left_in_span() is always non-zero when we complete a span because of finalize, we are safe skip the Some(0) case.
-                    //
-                    //   Bug TLDR: We spam Format packets onto the ring buffer during span transitions.
-                    //   This can be fixed when we move the buffered output on the ring buffer since we'll be able to peek.
-                    //   It's less of a problem than it seems because we park the thread after the second spam.
-                    if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
-                        // If there are samples remaining in the span, read them.
-
-                        // First check the size of the output buffer, and grow it if needed.
-                        if sample_output_buffer.len() < samples_remaining {
-                            sample_output_buffer.resize(samples_remaining, T::zero());
-                        }
-
-                        let samples_read =
-                            streaming_sampler.read_samples(&mut sample_output_buffer[..samples_remaining]);
-
-                        // If we read no samples, check if the stream is done.
-                        // If so, push the end of stream packet and return, exiting the thread.
-                        if samples_read == 0 {
-                            if streaming_sampler.is_done() {
-                                let _ = out_producer.push(Packet::EndOfStream);
-                                return Ok(());
-                            }
-                        } else {
-                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
-                        }
-
-                        // We should be right at a span boundary.
-                        debug_assert!(
-                            streaming_sampler.samples_left_in_span() == Some(0),
-                            "ardftsrc: samples_left_in_span() is not 0 at expected span boundary."
-                        );
-
-                        // Grab the next span shape
-                        let output_channels = streaming_sampler.output_channels();
-
-                        let output_span_format = SpanFormat {
-                            sample_rate: config.output_sample_rate as u32,
-                            channels: output_channels as u8,
-                        };
-
-                        // TODO: Handle this error
-                        out_producer.push(Packet::Format(output_span_format)).unwrap();
-
-                        samples_read > 0
-                    } else {
-                        // If we are not nearing the end of an output span, just read samples into the output buffer and write them to the output ring buffer.
-                        let samples_read = streaming_sampler.read_samples(&mut sample_output_buffer);
-
-                        if samples_read > 0 {
-                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
-                        }
-
-                        samples_read > 0
-                    }
-                };
-
-                // If we didn't do any work, either busy-wait, yield, or park the thread.
-                if !did_input_work && !did_output_work {
-                    let output_buffer_capacity = out_producer.buffer().capacity();
-                    let output_buffer_slots = out_producer.slots();
-                    let current_output_samples = output_buffer_capacity - output_buffer_slots;
-
-                    // Check if we should go idles
-                    // Idle mode is entered when the output ring buffer empty and the input ring buffer is empty.
-                    //
-                    // It usually occurs because the user pushed "pause" or the stream ran out of content.
-                    if current_output_samples == 0 && in_consumer.slots() == 0 {
-                        if let Some(idle_start) = idle_time {
-                            let idle_duration = std::time::Instant::now().duration_since(idle_start);
-
-                            if idle_duration.as_millis() > IDLE_PARK_THRESHOLD_MS as u128 {
-                                std::thread::park();
-                            }
-                            else if idle_duration.as_millis() > IDLE_YIELD_THRESHOLD_MS as u128 {
-                                std::thread::yield_now();
-                            }
-                            else {
-                                std::hint::spin_loop();
-                            }
-                        }
-                        else {
-                            // enter idle and continue
-                            idle_time = Some(std::time::Instant::now());
-                            continue;
-                        }
-                    } else {
-                        // Exit idle
-                        if idle_time.is_some() {
-                            idle_time = None;
-                        }
-
-                        // We shouldn't be idling, but maybe we should at least yield the thread.
-                        if current_output_samples < streaming_sampler.output_buffer_size() {
-                            // if the output ring buffer has less than one buffer-worth of samples, busy wait so we dont underrun.
-                            std::hint::spin_loop();
-                        } else {
-                            // We've got enough leeway to yield the thread.
-                            std::thread::yield_now();
-                        }
-                    }
-                }
-            }
-
-            Ok(())
-        }).expect("ardftsrc: failed to spawn resampler thread"); // TODO: Handle this error
-
-        let mut instance = Self {
-            thread_handle: Some(thread_handle),
-            span_format_in,
-            span_format_out,
-            in_producer,
-            out_consumer,
-            current_span_len: None,
-            samples_written_since_wake: 0,
-            samples_read_since_wake: 0,
-            samples_per_wake: 1,
-            config,
-            stop_thread,
-            initial_sample_delay: 0,
-            total_input_samples_written: 0,
-            local_read_buffer: VecDeque::with_capacity(LOCAL_READ_BUFFER_SIZE),
-        };
-        instance.set_samples_per_wake();
-        instance.set_initial_sample_delay();
-        instance.total_input_samples_written = 0;
-        instance
     }
 
     pub fn fill_local_read_buffer(&mut self) {
@@ -584,6 +405,197 @@ where
 
         Ok(())
     }
+}
+
+fn launch_thread<T: Float + FftNum>(
+    config: Config,
+    thread_should_stop: Arc<AtomicBool>,
+    in_consumer: Consumer<Packet<T>>,
+    out_producer: Producer<Packet<T>>,
+) -> Result<JoinHandle<Result<(), Error>>, Error> {
+    std::thread::Builder::new().name("ardftsrc-resampler".to_string()).spawn(move || {
+            let mut streaming_sampler = OffThreadStreamingResampler::<T>::new(config.clone())?;
+            let mut sample_output_buffer = vec![T::zero(); streaming_sampler.output_buffer_size()];
+            let mut packet_output_buffer = Vec::with_capacity(streaming_sampler.output_buffer_size());
+            let mut out_producer = out_producer;
+            let mut in_consumer = in_consumer;
+            let mut idle_time = None; // TODO, maybe move to tick-counter (https://github.com/sheroz/tick_counter)            
+
+            let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>| {
+                packet_output_buffer.clear();
+                packet_output_buffer.extend(output_slice.iter().map(|s| Packet::Sample(*s)));
+
+                let mut packet_output_buffer_slice = packet_output_buffer.as_slice();
+
+                while !packet_output_buffer_slice.is_empty() {
+                    let (_written_part, remaining_part) = out_producer.push_partial_slice(&packet_output_buffer_slice);
+
+                    if remaining_part.is_empty() {
+                        break;
+                    }
+
+                    // Output is full, yeild the thread.
+                    packet_output_buffer_slice = remaining_part;
+                    std::thread::yield_now();
+                }
+            };
+
+            // Loop until we get a "thread should stop" signal.
+            while !thread_should_stop.load(Ordering::Relaxed) {
+                // Input work first
+                let num_packets = in_consumer.slots();
+                let mut did_input_work = false;
+                if num_packets > 0 {
+                    did_input_work = true;
+
+                    for packet in in_consumer
+                        .read_chunk(num_packets)
+                        .expect("ardftsrc: failed to read input chunk despite checking for slots")
+                    {
+                        match packet {
+                            Packet::EndOfStream => {
+                                streaming_sampler.finalize_samples()?;
+
+                                let pending_packet =
+                                    Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
+                                // TODO: Handle this error
+                                out_producer.push(pending_packet).unwrap();
+                            }
+                            Packet::Format(format) => {
+                                streaming_sampler.new_span(format.sample_rate as usize, format.channels as usize)?;
+
+                                let pending_packet =
+                                    Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
+                                // TODO: Handle this error
+                                out_producer.push(pending_packet).unwrap();
+                            }
+                            Packet::Sample(sample) => {
+                                streaming_sampler.write_samples(&[sample])?;
+                            }
+                            Packet::NewSpanPending(_) => {
+                                // Ignore - we'll handle it on Packet::Format when the new span is actually announced.
+                                #[cfg(debug_assertions)]
+                                panic!(
+                                    "ardftsrc: NewSpanPending packet received. The input thread should not be sending this packet."
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Output work second
+                let did_output_work = {
+                    // Check to see if are nearing the end of an output span, if so process end-of-span behavior.
+                    // TODO: There's a bug here:
+                    //   - The first time around we see streaming_sampler.samples_left_in_span() == Some(foo) (!= 0)
+                    //   - The second time around we see streaming_sampler.samples_left_in_span() == Some(0), and then re-emit out_producer.push(Packet::Format(output_span_format)).unwrap();
+                    //   - The issue is that we always need to emit the format packet at least once, even when streaming_sampler.samples_left_in_span() is naturally zero from the upstream resampler.
+                    //   - IF samples_left_in_span() is always non-zero when we complete a span because of finalize, we are safe skip the Some(0) case.
+                    //
+                    //   Bug TLDR: We spam Format packets onto the ring buffer during span transitions.
+                    //   This can be fixed when we move the buffered output on the ring buffer since we'll be able to peek.
+                    //   It's less of a problem than it seems because we park the thread after the second spam.
+                    if let Some(samples_remaining) = streaming_sampler.samples_left_in_span() {
+                        // If there are samples remaining in the span, read them.
+
+                        // First check the size of the output buffer, and grow it if needed.
+                        if sample_output_buffer.len() < samples_remaining {
+                            sample_output_buffer.resize(samples_remaining, T::zero());
+                        }
+
+                        let samples_read =
+                            streaming_sampler.read_samples(&mut sample_output_buffer[..samples_remaining]);
+
+                        // If we read no samples, check if the stream is done.
+                        // If so, push the end of stream packet and return, exiting the thread.
+                        if samples_read == 0 {
+                            if streaming_sampler.is_done() {
+                                let _ = out_producer.push(Packet::EndOfStream);
+                                return Ok(());
+                            }
+                        } else {
+                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
+                        }
+
+                        // We should be right at a span boundary.
+                        debug_assert!(
+                            streaming_sampler.samples_left_in_span() == Some(0),
+                            "ardftsrc: samples_left_in_span() is not 0 at expected span boundary."
+                        );
+
+                        // Grab the next span shape
+                        let output_channels = streaming_sampler.output_channels();
+
+                        let output_span_format = SpanFormat {
+                            sample_rate: config.output_sample_rate as u32,
+                            channels: output_channels as u8,
+                        };
+
+                        // TODO: Handle this error
+                        out_producer.push(Packet::Format(output_span_format)).unwrap();
+
+                        samples_read > 0
+                    } else {
+                        // If we are not nearing the end of an output span, just read samples into the output buffer and write them to the output ring buffer.
+                        let samples_read = streaming_sampler.read_samples(&mut sample_output_buffer);
+
+                        if samples_read > 0 {
+                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
+                        }
+
+                        samples_read > 0
+                    }
+                };
+
+                // If we didn't do any work, either busy-wait, yield, or park the thread.
+                if !did_input_work && !did_output_work {
+                    let output_buffer_capacity = out_producer.buffer().capacity();
+                    let output_buffer_slots = out_producer.slots();
+                    let current_output_samples = output_buffer_capacity - output_buffer_slots;
+
+                    // Check if we should go idles
+                    // Idle mode is entered when the output ring buffer empty and the input ring buffer is empty.
+                    //
+                    // It usually occurs because the user pushed "pause" or the stream ran out of content.
+                    if current_output_samples == 0 && in_consumer.slots() == 0 {
+                        if let Some(idle_start) = idle_time {
+                            let idle_duration = std::time::Instant::now().duration_since(idle_start);
+
+                            if idle_duration.as_millis() > IDLE_PARK_THRESHOLD_MS as u128 {
+                                std::thread::park();
+                            }
+                            else if idle_duration.as_millis() > IDLE_YIELD_THRESHOLD_MS as u128 {
+                                std::thread::yield_now();
+                            }
+                            else {
+                                std::hint::spin_loop();
+                            }
+                        }
+                        else {
+                            // enter idle and continue
+                            idle_time = Some(std::time::Instant::now());
+                            continue;
+                        }
+                    } else {
+                        // Exit idle
+                        if idle_time.is_some() {
+                            idle_time = None;
+                        }
+
+                        // We shouldn't be idling, but maybe we should at least yield the thread.
+                        if current_output_samples < streaming_sampler.output_buffer_size() {
+                            // if the output ring buffer has less than one buffer-worth of samples, busy wait so we dont underrun.
+                            std::hint::spin_loop();
+                        } else {
+                            // We've got enough leeway to yield the thread.
+                            std::thread::yield_now();
+                        }
+                    }
+                }
+            }
+
+            Ok(())
+        }).map_err(|e| Error::FailedToLaunchWorkerThread(e.to_string()))
 }
 
 #[cfg(test)]

@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .with_channels(1)
         .with_output_rate(OUTPUT_SAMPLE_RATE_HZ)
         .with_input_rate(INPUT_SAMPLE_RATE_HZ);
-    let resampled_tone = RodioResampler::new(tone, config);
+    let resampled_tone = RodioResampler::new(tone, config)?;
 
     mixer.add(resampled_tone);
     thread::sleep(Duration::from_secs(DURATION_SECS));

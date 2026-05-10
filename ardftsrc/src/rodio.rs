@@ -1,4 +1,4 @@
-use crate::{Config, RealtimeResampler};
+use crate::{Config, RealtimeResampler, Error};
 use num_traits::Float;
 use realfft::FftNum;
 
@@ -22,16 +22,14 @@ where
     S: rodio::Source,
     T: Float + FftNum,
 {
-    /// Create a new RodioResampler.  
-    ///
-    pub fn new(inner: S, config: Config) -> Self {
+    fn new_typed(inner: S, config: Config) -> Result<Self, Error> {
         let fast_start = config.rodio_fast_start;
-        let resampler = RealtimeResampler::new(config);
+        let resampler = RealtimeResampler::new(config)?;
         let span_format_in = resampler.span_format_in();
         let span_format_out = resampler.span_format_out();
         let span_ratio = span_format_in.sample_rate as f64 / span_format_out.sample_rate as f64;
 
-        Self {
+        Ok(Self {
             inner,
             resampler,
             fast_start,
@@ -41,7 +39,7 @@ where
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
-        }
+        })
     }
 
     #[inline]
@@ -136,6 +134,26 @@ where
         }
 
         output_sample
+    }
+}
+
+impl<S> RodioResampler<S, f64>
+where
+    S: rodio::Source,
+{
+    /// Create a new RodioResampler using `f64` as the internal resampling type.
+    pub fn new(inner: S, config: Config) -> Result<Self, Error> {
+        Self::new_typed(inner, config)
+    }
+}
+
+impl<S> RodioResampler<S, f32>
+where
+    S: rodio::Source,
+{
+    /// Create a new RodioResampler using `f32` as the internal resampling type.
+    pub fn new_f32(inner: S, config: Config) -> Result<Self, Error> {
+        Self::new_typed(inner, config)
     }
 }
 

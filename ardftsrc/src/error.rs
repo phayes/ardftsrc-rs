@@ -69,4 +69,7 @@ pub enum Error {
     /// The background streaming worker thread panicked.
     #[error("streaming worker thread panicked: {0}")]
     WorkerThreadPanic(String),
+
+    #[error("failed to launch realtime worker thread: {0}")]
+    FailedToLaunchWorkerThread(String),
 }
