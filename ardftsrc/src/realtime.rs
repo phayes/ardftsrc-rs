@@ -16,6 +16,11 @@ const INPUT_BUFFER_SIZE_MULTIPLIER: usize = 4;
 const OUTPUT_BUFFER_SIZE_MULTIPLIER: usize = 8;
 const LOCAL_READ_BUFFER_SIZE: usize = 16384;
 
+// Idling parameters
+//
+// We enter idle mode when both the input and output ring buffers are empty.
+// This usually occurs because the user pushed "pause" or the stream ran out of content.
+
 // How long to idle before yielding the thread.
 const IDLE_YIELD_THRESHOLD_MS: u64 = 10;
 
@@ -317,7 +322,10 @@ where
                     let output_buffer_slots = out_producer.slots();
 
                     // Check if we should go idle
-                    if output_buffer_slots == 0 && in_consumer.slots() == 0 {
+                    // Idle mode is entered when the output ring buffer empty and the input ring buffer is empty.
+                    //
+                    // It usually occurs because the user pushed "pause" or the stream ran out of content.
+                    if output_buffer_slots == out_producer.buffer().capacity() && in_consumer.slots() == 0 {
                         if let Some(idle_start) = idle_time {
                             let idle_duration = std::time::Instant::now().duration_since(idle_start);
 
