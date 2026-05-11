@@ -60,6 +60,8 @@ pub enum Packet<T: Float + Copy> {
     Sample(T),
     /// End of stream packet
     EndOfStream,
+    /// Stream has been reset
+    Reset,
 }
 
 pub struct RealtimeResampler<T = f64>
@@ -92,6 +94,15 @@ where
 
     // Flip this to true to stop the thread.
     stop_thread: Arc<AtomicBool>,
+
+    // Flip this to true to reset the thread.
+    reset_thread: Arc<AtomicBool>,
+
+    // Are we in reset mode?
+    reset_mode: bool,
+
+    // The input packets that are pending reset.
+    reset_pending_input: VecDeque<Packet<T>>,
 
     // The size of the current span in samples. None for unknown.
     current_span_len: Option<usize>,
@@ -150,9 +161,15 @@ where
         let stop_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
         let thread_should_stop = Arc::clone(&stop_thread);
 
-        let thread_handle = launch_thread(config.clone(), thread_should_stop, in_consumer, out_producer)?;
+        let reset_thread: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        let thread_should_reset = Arc::clone(&reset_thread);
+
+        let thread_handle = launch_thread(config.clone(), thread_should_stop, thread_should_reset, in_consumer, out_producer)?;
 
         let mut instance = Self {
+            reset_mode: false,
+            reset_thread,
+            reset_pending_input: VecDeque::with_capacity(input_buffer_size * INITIAL_SAMPLE_DELAY_CHUNKS),
             thread_handle: Some(thread_handle),
             span_format_in,
             span_format_out,
@@ -248,6 +265,9 @@ where
         }
     }
 
+
+    #[must_use]
+    #[inline]
     pub fn read_sample(&mut self) -> Option<T> {
         // Check if the ring buffer is abandoned, if so read until the end.
         if self.out_consumer.is_abandoned() {
@@ -269,8 +289,15 @@ where
                     self.current_span_len = None;
                     return self.read_sample();
                 }
-                Err(_) => None,
+                Err(_) | Ok(Packet::Reset) => None,
             };
+        }
+
+        // If we are in reset mode, try to clear the reset flag, otherwise return negative-zero silence.
+        if self.reset_mode {
+            if !self.read_until_reset() {
+                return Some(T::neg_zero());
+            }
         }
 
         // If we are still priming the resampler, return negative-zero silence.
@@ -300,6 +327,17 @@ where
                     self.span_format_out = format;
                     self.current_span_len = None;
                     return self.read_sample();
+                },
+                Packet::Reset => {
+                    #[cfg(debug_assertions)]
+                    panic!("ardftsrc: Reset packet received in local read buffer. This should never happen.");
+
+                    // Fallback for production builds: Just reset the mode and keep going.
+                    #[cfg(not(debug_assertions))]
+                    {
+                        self.reset_mode = false;
+                        return self.read_sample();
+                    }
                 }
             };
         } else {
@@ -317,6 +355,23 @@ where
 
     pub fn write_sample(&mut self, sample: T) {
         let packet = Packet::Sample(sample);
+
+        // If we're in reset mode, store the packet in the reset pending input queue until reset is complete.
+        if self.reset_mode {
+
+            // If we're in debug build, log a warning when allocating on the audio thread.
+            #[cfg(debug_assertions)]
+            {
+                if self.reset_pending_input.len() == self.reset_pending_input.capacity() {
+                    // TODO: Log warning that we did an unexpected allocation on the audio thread.
+                }
+            }
+
+            self.reset_pending_input.push_back(packet);
+            return;
+        }
+
+        // Store the packet in the input ring buffer.
         let res = self.in_producer.push(packet);
         if res.is_err() {
             // TODO: Handle this
@@ -333,6 +388,11 @@ where
     }
 
     pub fn finalize(&mut self) {
+        if self.reset_mode {
+            self.reset_pending_input.push_back(Packet::EndOfStream);
+            return;
+        }
+
         // TODO: Handle this error condition
         let _ = self.in_producer.push(Packet::EndOfStream);
 
@@ -355,6 +415,11 @@ where
         self.set_initial_sample_delay();
 
         let packet = Packet::Format(span_format_in);
+
+        if self.reset_mode {
+            self.reset_pending_input.push_back(packet);
+            return;
+        }
 
         // TODO: Handle this error
         self.in_producer.push(packet).unwrap();
@@ -390,6 +455,102 @@ where
         self.span_format_out
     }
 
+    /// Reset the resampler, discarding all pending samples. You can use this when seeking to a new position.
+    /// 
+    /// If `block` is true, this will block until the reset is complete.
+    /// 
+    /// If `block` is false, this will return immediately and will emit underrun samples from `read_sample()` until the reset is complete.
+    pub fn reset(&mut self, block: bool) {
+        self.reset_mode = true;
+
+        // Clear the local read buffer and sample count
+        self.local_read_buffer.clear();
+        self.reset_pending_input.clear();
+        self.total_input_samples_written = 0;
+
+        // The current span length becomes unknown.
+        self.current_span_len = None;
+
+        // Clear the output ring buffer.
+        let slots = self.out_consumer.slots();
+        if slots > 0 {
+            let _ = self.out_consumer.read_chunk(slots).expect("ardftsrc: failed to read samples despite checking for slots");
+        }
+
+        if !block {
+            self.reset_thread.store(true, Ordering::Relaxed);
+            self.wake_up();
+            return;
+        }
+        
+        self.reset_thread.store(true, Ordering::Release);
+        self.wake_up();
+
+        // Read until we see the "Reset" packet.
+        let mut busy_loops: usize = 0;
+        while !self.read_until_reset() {
+            if busy_loops > 100 {
+                busy_loops = 0;
+                std::thread::yield_now();
+            }
+            else {
+                busy_loops += 1;
+                std::hint::spin_loop();
+            }
+        }
+
+        self.reset_mode = false;
+    }
+
+    /// Read samples until we see the "Reset" packet.
+    /// 
+    /// Returns true if we saw the "Reset" packet, false otherwise.
+    fn read_until_reset(&mut self) -> bool {
+        let slots = self.out_consumer.slots();
+        if slots > 0 {
+            let mut packets = self
+                .out_consumer
+                .read_chunk(slots)
+                .expect("ardftsrc: failed to read samples despite checking for slots")
+                .into_iter();
+
+            for packet in packets.by_ref() {
+                if let Packet::Reset = packet {
+                    // Store the rest of the packets in the local read buffer.
+                    for packet in packets {
+                        self.local_read_buffer.push_back(packet);
+                    }
+
+                    // Reset is complete, push and clear the reset pending input queue.
+                    let pending_inputs = self.reset_pending_input.len();
+                    let writable_inputs = self.in_producer.slots().saturating_sub(pending_inputs);
+
+                    #[cfg(debug_assertions)]
+                    if writable_inputs < pending_inputs {
+                        // TODO: Log warning that we will lose samples
+                    }
+
+                    if writable_inputs > 0 {
+                        let writable_chunk = self
+                            .in_producer
+                            .write_chunk_uninit(writable_inputs)
+                            .expect("ardftsrc: failed to write reset-pending input chunk despite reset completing");
+                        let written = writable_chunk.fill_from_iter(self.reset_pending_input.drain(..));
+                        debug_assert_eq!(written, writable_inputs);
+
+                        self.total_input_samples_written = written;
+                        self.wake_up();
+                    }
+
+                    self.reset_mode = false;
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     // Shutdown the resampler worker thread.
     // Returns the error from the thread if it panicked or returned an error.
     pub fn shutdown(&mut self) -> Result<(), Error> {
@@ -421,6 +582,7 @@ where
 fn launch_thread<T: Float + FftNum>(
     config: Config,
     thread_should_stop: Arc<AtomicBool>,
+    thread_should_reset: Arc<AtomicBool>,
     in_consumer: Consumer<Packet<T>>,
     out_producer: Producer<Packet<T>>,
 ) -> Result<JoinHandle<Result<(), Error>>, Error> {
@@ -457,6 +619,28 @@ fn launch_thread<T: Float + FftNum>(
 
             // Loop until we get a "thread should stop" signal.
             while !thread_should_stop.load(Ordering::Relaxed) {
+
+                // Check if we should reset the thread.
+                if thread_should_reset.load(Ordering::Relaxed) {
+                    // Drain the input ring buffer.
+                    let num_packets = in_consumer.slots();
+                    if num_packets > 0 {
+                        let _packets = in_consumer.read_chunk(num_packets).expect("ardftsrc: failed to read input chunk despite checking for slots");
+                    }
+
+                    // Reset the inner resampler.
+                    streaming_sampler.reset();
+
+                    // Let the on-thread font-end know that we've reset. All packets after Reset are safe to use.
+                    // If the push fails, loop around and try again.
+                    if out_producer.push(Packet::Reset).is_err() {
+                        std::hint::spin_loop();
+                        continue;
+                    }
+                    
+                    thread_should_reset.store(false, Ordering::Release);
+                }
+
                 // Input work first
                 let num_packets = in_consumer.slots();
                 let mut did_input_work = false;
@@ -488,11 +672,14 @@ fn launch_thread<T: Float + FftNum>(
                                 streaming_sampler.write_samples(&[sample])?;
                             }
                             Packet::NewSpanPending(_) => {
-                                // Ignore - we'll handle it on Packet::Format when the new span is actually announced.
                                 #[cfg(debug_assertions)]
                                 panic!(
                                     "ardftsrc: NewSpanPending packet received. The input thread should not be sending this packet."
                                 );
+                            }
+                            Packet::Reset => {
+                                #[cfg(debug_assertions)]
+                                panic!("ardftsrc: Reset packet received in input thread. This should never happen.");
                             }
                         }
                     }
