@@ -101,8 +101,10 @@ where
         let mut spins: u32 = 0;
         while sample.is_none() {
             sample = self.resampler.peek_sample();
-            if sample.is_some() {
-                break;
+            if let Some(sample) = sample {
+                if !Self::sample_is_underrun(sample) {
+                    break;
+                }
             }
             sample = self.resampler.read_sample();
             spins += 1;
