@@ -23,11 +23,11 @@ const LOCAL_READ_BUFFER_SIZE: usize = 16384;
 // We enter idle mode when both the input and output ring buffers are empty.
 // This usually occurs because the user pushed "pause" or the stream ran out of content.
 //
-// TODO: There's a bug here where once we idle, starting up again underruns and we crackle. 
+// TODO: There's a bug here where once we idle, starting up again underruns and we crackle.
 // We need to tell the front-end that we're indle, then the front-end can wait for us to wake up.
 // One possible answer: Add an realtime_on_idle callback to the front-end, backend emit a Idle packet when it's about to park the thread.
 // If realtime_on_idle is not set, then we never idle (because we cant do it safely without underrunning)
-// ... Is this the right model?  It almost needs to be a callback for being under-primed, which implicitly happens before idle. 
+// ... Is this the right model?  It almost needs to be a callback for being under-primed, which implicitly happens before idle.
 //     Maybe this is the same concept...  We call the callback when we did no work and there's nothing on output or input.
 
 // How long to idle before yielding the thread.
@@ -220,7 +220,7 @@ where
     pub fn initial_sample_delay_duration(&self) -> std::time::Duration {
         let channels: usize = usize::from(self.span_format_in.channels).max(1);
         let input_sample_rate_hz = self.span_format_in.sample_rate;
-        
+
         // `initial_sample_delay` is tracked in interleaved input samples.
         // Convert to input frames before converting to wall-clock duration.
         let input_frames = self.initial_sample_delay / channels;
@@ -248,31 +248,14 @@ where
         }
     }
 
+    /// Read a single sample from the resampler, returning the sample.
+    ///
+    /// Returns None if the stream is done.
+    /// If the resampler is underrunning, it returns Some(T::neg_zero()). This can be passed
+    /// along as silence, or handled by the caller.
+    #[must_use]
+    #[inline]
     pub fn read_sample(&mut self) -> Option<T> {
-        // Check if the ring buffer is abandoned, if so read until the end.
-        if self.out_consumer.is_abandoned() {
-            return match self.out_consumer.pop() {
-                Ok(Packet::EndOfStream) => None,
-                Ok(Packet::Sample(sample)) => {
-                    if let Some(current_span_len) = self.current_span_len.as_mut() {
-                        *current_span_len -= 1;
-                    }
-                    self.track_sample_read_for_wake(1);
-                    Some(sample)
-                }
-                Ok(Packet::NewSpanPending(n)) => {
-                    self.current_span_len = Some(n);
-                    return self.read_sample();
-                }
-                Ok(Packet::Format(format)) => {
-                    self.span_format_out = format;
-                    self.current_span_len = None;
-                    return self.read_sample();
-                }
-                Err(_) => None,
-            };
-        }
-
         // If we are still priming the resampler, return negative-zero silence.
         if self.total_input_samples_written < self.initial_sample_delay {
             return Some(T::neg_zero());
@@ -303,7 +286,12 @@ where
                 }
             };
         } else {
-            // If we don't have samples in the local read buffer, return negative-zero silence.
+            // Check if the ring buffer is abandoned, of so the stream is done.
+            if self.out_consumer.is_abandoned() {
+                return None;
+            }
+
+            // If we're not abandoned, we're underrun.
             return Some(T::neg_zero());
         }
     }
@@ -315,11 +303,15 @@ where
         }
     }
 
-    pub fn write_sample(&mut self, sample: T) {
+    /// Write a single sample to the resampler.
+    ///
+    /// Returns true if the sample was written successfully, false otherwise.
+    #[inline]
+    pub fn write_sample(&mut self, sample: T) -> bool {
         let packet = Packet::Sample(sample);
         let res = self.in_producer.push(packet);
         if res.is_err() {
-            // TODO: Handle this
+            return false;
         }
 
         // Track the total number of input samples written to the resampler.
@@ -330,6 +322,8 @@ where
         if self.samples_written_since_wake >= self.samples_per_wake {
             self.wake_up();
         }
+
+        true
     }
 
     pub fn finalize(&mut self) {
@@ -436,7 +430,7 @@ fn launch_thread<T: Float + FftNum>(
                 channels: streaming_sampler.output_channels() as u8,
             };
 
-            let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>| {
+            let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>, in_consumer: &mut Consumer<Packet<T>>| {
                 packet_output_buffer.clear();
                 packet_output_buffer.extend(output_slice.iter().map(|s| Packet::Sample(*s)));
 
@@ -449,7 +443,12 @@ fn launch_thread<T: Float + FftNum>(
                         break;
                     }
 
-                    // Output is full, yeild the thread.
+                    //  Output is full. If the input is abandoned, exit the loop.
+                    if in_consumer.is_abandoned() {
+                      break;
+                    }
+
+                    // Output is full, yeild the thread and continue the loop.
                     packet_output_buffer_slice = remaining_part;
                     std::thread::yield_now();
                 }
@@ -478,6 +477,10 @@ fn launch_thread<T: Float + FftNum>(
                             }
                             Packet::Format(format) => {
                                 streaming_sampler.new_span(format.sample_rate as usize, format.channels as usize)?;
+                                let required_output_buffer_size = streaming_sampler.output_buffer_size();
+                                if sample_output_buffer.len() < required_output_buffer_size {
+                                    sample_output_buffer.resize(required_output_buffer_size, T::zero());
+                                }
 
                                 let pending_packet =
                                     Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
@@ -520,7 +523,7 @@ fn launch_thread<T: Float + FftNum>(
                                 return Ok(());
                             }
                         } else {
-                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
+                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer, &mut in_consumer);
                         }
 
                         // We should be right at a span boundary.
@@ -548,7 +551,7 @@ fn launch_thread<T: Float + FftNum>(
                         let samples_read = streaming_sampler.read_samples(&mut sample_output_buffer);
 
                         if samples_read > 0 {
-                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer);
+                            write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer, &mut in_consumer);
                         }
 
                         samples_read > 0
@@ -557,6 +560,11 @@ fn launch_thread<T: Float + FftNum>(
 
                 // If we didn't do any work, either busy-wait, yield, or park the thread.
                 if !did_input_work && !did_output_work {
+                    // If the input is abandoned, exit the thread.
+                    if in_consumer.is_abandoned() {
+                        return Ok(());
+                    }
+
                     let output_buffer_capacity = out_producer.buffer().capacity();
                     let output_buffer_slots = out_producer.slots();
                     let current_output_samples = output_buffer_capacity - output_buffer_slots;
