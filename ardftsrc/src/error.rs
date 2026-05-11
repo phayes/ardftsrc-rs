@@ -72,4 +72,8 @@ pub enum Error {
 
     #[error("failed to launch realtime worker thread: {0}")]
     FailedToLaunchWorkerThread(String),
+
+
+    #[error("reset already in progress")]
+    ResetAlreadyInProgress,
 }

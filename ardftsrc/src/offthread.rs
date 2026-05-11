@@ -67,6 +67,15 @@ where
             .expect("ardftsrc: Existing stream config became invalid. This is a bug in the ardftsrc crate.")]);
     }
 
+    /// Resets internal streaming state and starts the next independent stream with a new input span.
+    pub fn reset_to_span(&mut self, input_sample_rate: usize, channels: usize) -> Result<(), Error> {
+        let mut config = self.active_input_span().config().clone();
+        config.input_sample_rate = input_sample_rate;
+        config.channels = channels;
+        self.spans = VecDeque::from([StreamingSpan::new(config)?]);
+        Ok(())
+    }
+
     /// Starts a new input span while preserving output rate and quality settings.
     ///
     /// Writes will write to the new span immediately. Reads will drain the previous span before moving to the new span.

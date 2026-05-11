@@ -60,7 +60,7 @@ where
     }
 
     #[inline]
-    fn is_negative_zero(&self, sample: Option<T>) -> bool {
+    fn is_underrun(&self, sample: Option<T>) -> bool {
         match sample {
             Some(sample) => sample.is_zero() && sample.is_sign_negative(),
             None => false,
@@ -130,8 +130,8 @@ where
         // Read the sample
         let mut output_sample = self.resampler.read_sample();
 
-        // If we are in fast start mode, read until we get a non-negative-zero sample.
-        while self.fast_start && !self.fast_start_finished && self.is_negative_zero(output_sample) {
+        // If we are in fast start mode, read output until we stop getting underruns.
+        while self.fast_start && !self.fast_start_finished && self.is_underrun(output_sample) {
             output_sample = self.resampler.read_sample();
         }
         if self.fast_start && !self.fast_start_finished {
@@ -207,6 +207,15 @@ where
 
     fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {
         self.inner.try_seek(time)?;
+
+        // If we have fast_start enabled, reset the resampler to clear any pending samples.
+        // Then reset the fast start flag so we pre-load inner samples into the resampler.
+        if false {
+            if self.resampler.reset(false).is_ok() {
+                self.fast_start_finished = false;
+            }
+        }
+
         self.just_seeked = true;
         Ok(())
     }

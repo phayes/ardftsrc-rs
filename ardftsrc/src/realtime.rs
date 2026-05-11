@@ -269,30 +269,6 @@ where
     #[must_use]
     #[inline]
     pub fn read_sample(&mut self) -> Option<T> {
-        // Check if the ring buffer is abandoned, if so read until the end.
-        if self.out_consumer.is_abandoned() {
-            return match self.out_consumer.pop() {
-                Ok(Packet::EndOfStream) => None,
-                Ok(Packet::Sample(sample)) => {
-                    if let Some(current_span_len) = self.current_span_len.as_mut() {
-                        *current_span_len -= 1;
-                    }
-                    self.track_sample_read_for_wake(1);
-                    Some(sample)
-                }
-                Ok(Packet::NewSpanPending(n)) => {
-                    self.current_span_len = Some(n);
-                    return self.read_sample();
-                }
-                Ok(Packet::Format(format)) => {
-                    self.span_format_out = format;
-                    self.current_span_len = None;
-                    return self.read_sample();
-                }
-                Err(_) | Ok(Packet::Reset) => None,
-            };
-        }
-
         // If we are in reset mode, try to clear the reset flag, otherwise return negative-zero silence.
         if self.reset_mode {
             if !self.read_until_reset() {
@@ -341,7 +317,10 @@ where
                 }
             };
         } else {
-            // If we don't have samples in the local read buffer, return negative-zero silence.
+            if self.out_consumer.is_abandoned() {
+                return None;
+            }
+            // If we don't have samples in the local read buffer, but the worker is still running, return negative-zero silence.
             return Some(T::neg_zero());
         }
     }
@@ -353,7 +332,11 @@ where
         }
     }
 
-    pub fn write_sample(&mut self, sample: T) {
+    /// Write a single sample to the resampler.
+    /// 
+    /// Returns true if the sample was written successfully, false otherwise.
+    #[inline]
+    pub fn write_sample(&mut self, sample: T) -> bool {
         let packet = Packet::Sample(sample);
 
         // If we're in reset mode, store the packet in the reset pending input queue until reset is complete.
@@ -368,13 +351,13 @@ where
             }
 
             self.reset_pending_input.push_back(packet);
-            return;
+            return true;
         }
 
         // Store the packet in the input ring buffer.
         let res = self.in_producer.push(packet);
         if res.is_err() {
-            // TODO: Handle this
+            return false;
         }
 
         // Track the total number of input samples written to the resampler.
@@ -385,6 +368,8 @@ where
         if self.samples_written_since_wake >= self.samples_per_wake {
             self.wake_up();
         }
+
+        true
     }
 
     pub fn finalize(&mut self) {
@@ -455,12 +440,28 @@ where
         self.span_format_out
     }
 
+    #[inline]
+    #[must_use]
+    /// Returns true if a reset is in progress, false otherwise.
+    pub fn reset_mode(&self) -> bool {
+        self.reset_mode
+    }
+
     /// Reset the resampler, discarding all pending samples. You can use this when seeking to a new position.
     /// 
     /// If `block` is true, this will block until the reset is complete.
     /// 
     /// If `block` is false, this will return immediately and will emit underrun samples from `read_sample()` until the reset is complete.
-    pub fn reset(&mut self, block: bool) {
+    ///
+    /// Returns `Error::ResetAlreadyInProgress` if a reset is already in progress. You can check if a reset is in progress by calling `reset_mode()`.
+    ///
+    /// Input submitted while a reset is in progress is preserved on a best-effort basis. If more pending input is queued than can fit
+    /// in the input ring buffer when reset completes, the excess pending input is intentionally dropped to preserve realtime behavior.
+    pub fn reset(&mut self, block: bool) -> Result<(), Error> {
+        if self.reset_mode {
+            return Err(Error::ResetAlreadyInProgress);
+        }
+
         self.reset_mode = true;
 
         // Clear the local read buffer and sample count
@@ -468,7 +469,11 @@ where
         self.reset_pending_input.clear();
         self.total_input_samples_written = 0;
 
-        // The current span length becomes unknown.
+        // The current span becomes the input span, and the current span length becomes unknown.
+        self.span_format_out = SpanFormat {
+            sample_rate: self.config.output_sample_rate as u32,
+            channels: self.span_format_in.channels,
+        };
         self.current_span_len = None;
 
         // Clear the output ring buffer.
@@ -480,7 +485,7 @@ where
         if !block {
             self.reset_thread.store(true, Ordering::Relaxed);
             self.wake_up();
-            return;
+            return Ok(());
         }
         
         self.reset_thread.store(true, Ordering::Release);
@@ -500,6 +505,8 @@ where
         }
 
         self.reset_mode = false;
+
+        Ok(())
     }
 
     /// Read samples until we see the "Reset" packet.
@@ -507,6 +514,7 @@ where
     /// Returns true if we saw the "Reset" packet, false otherwise.
     fn read_until_reset(&mut self) -> bool {
         // If the output ring buffer is abandoned, then we've had some sort of unclean shutdown, just clear the reset mode and return true.
+        // TODO: Add dirty = Option(&str) to record when we're in a non-recoverable dirty state.
         if self.out_consumer.is_abandoned() {
             self.reset_mode = false;
             return true;
@@ -537,16 +545,17 @@ where
                     }
 
                     if writable_inputs > 0 {
+                        let mut samples_written = 0;
+
                         let writable_chunk = self
                             .in_producer
                             .write_chunk_uninit(writable_inputs)
                             .expect("ardftsrc: failed to write reset-pending input chunk despite reset completing");
-                        let written = writable_chunk.fill_from_iter(self.reset_pending_input.drain(..writable_inputs));
+                        let written = writable_chunk.fill_from_iter(self.reset_pending_input.drain(..writable_inputs).map(|s| if let Packet::Sample(_) = s { samples_written += 1; s } else { s }));
                         debug_assert_eq!(written, writable_inputs);
 
-                        // TODO: This counts total packets, not samples
-                        self.total_input_samples_written = written;
-                        
+                        self.total_input_samples_written = samples_written;
+
                         self.wake_up();
                     }
 
@@ -607,6 +616,10 @@ fn launch_thread<T: Float + FftNum>(
                 sample_rate: config.output_sample_rate as u32,
                 channels: streaming_sampler.output_channels() as u8,
             };
+            let mut current_input_span_format = SpanFormat {
+                sample_rate: config.input_sample_rate as u32,
+                channels: config.channels as u8,
+            };
 
             let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>| {
                 packet_output_buffer.clear();
@@ -634,20 +647,45 @@ fn launch_thread<T: Float + FftNum>(
                 if thread_should_reset.load(Ordering::Relaxed) {
                     // Drain the input ring buffer.
                     let num_packets = in_consumer.slots();
+                    let mut last_pending_format_packet = None;
                     if num_packets > 0 {
-                        let _packets = in_consumer.read_chunk(num_packets).expect("ardftsrc: failed to read input chunk despite checking for slots");
+                        for packet in in_consumer
+                            .read_chunk(num_packets)
+                            .expect("ardftsrc: failed to read input chunk despite checking for slots")
+                        {
+                            if let Packet::Format(format) = packet {
+                                last_pending_format_packet = Some(format);
+                            }
+                        }
                     }
 
                     // Reset the inner resampler.
-                    streaming_sampler.reset();
+                    if let Some(format) = last_pending_format_packet {
+                        current_input_span_format = format;
+                        streaming_sampler.reset_to_span(format.sample_rate as usize, format.channels as usize)?;
+                        let required_output_buffer_size = streaming_sampler.output_buffer_size();
+                        if sample_output_buffer.len() < required_output_buffer_size {
+                            sample_output_buffer.resize(required_output_buffer_size, T::zero());
+                        }
+                    } else {
+                        streaming_sampler.reset();
+                    }
+
+                    // Set the current output span format to the input span format, this is the first packet after Reset.
+                    current_output_span_format = SpanFormat {
+                        sample_rate: config.output_sample_rate as u32,
+                        channels: current_input_span_format.channels,
+                    };
 
                     // Let the on-thread font-end know that we've reset. All packets after Reset are safe to use.
                     // If the push fails, loop around and try again.
-                    if out_producer.push(Packet::Reset).is_err() {
+                    let packets: Vec<Packet<T>> = vec![Packet::Reset, Packet::Format(current_output_span_format)];
+                    if out_producer.push_entire_slice(packets.as_slice()).is_err() {
                         std::hint::spin_loop();
                         continue;
                     }
-                    
+
+                    // Reset completed successfully, clear the reset flag.
                     thread_should_reset.store(false, Ordering::Release);
                 }
 
@@ -671,7 +709,12 @@ fn launch_thread<T: Float + FftNum>(
                                 out_producer.push(pending_packet).unwrap();
                             }
                             Packet::Format(format) => {
+                                current_input_span_format = format;
                                 streaming_sampler.new_span(format.sample_rate as usize, format.channels as usize)?;
+                                let required_output_buffer_size = streaming_sampler.output_buffer_size();
+                                if sample_output_buffer.len() < required_output_buffer_size {
+                                    sample_output_buffer.resize(required_output_buffer_size, T::zero());
+                                }
 
                                 let pending_packet =
                                     Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
