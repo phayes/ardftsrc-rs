@@ -506,6 +506,12 @@ where
     /// 
     /// Returns true if we saw the "Reset" packet, false otherwise.
     fn read_until_reset(&mut self) -> bool {
+        // If the output ring buffer is abandoned, then we've had some sort of unclean shutdown, just clear the reset mode and return true.
+        if self.out_consumer.is_abandoned() {
+            self.reset_mode = false;
+            return true;
+        }
+
         let slots = self.out_consumer.slots();
         if slots > 0 {
             let mut packets = self
@@ -523,7 +529,7 @@ where
 
                     // Reset is complete, push and clear the reset pending input queue.
                     let pending_inputs = self.reset_pending_input.len();
-                    let writable_inputs = self.in_producer.slots().saturating_sub(pending_inputs);
+                    let writable_inputs = self.in_producer.slots().min(pending_inputs);
 
                     #[cfg(debug_assertions)]
                     if writable_inputs < pending_inputs {
@@ -535,12 +541,16 @@ where
                             .in_producer
                             .write_chunk_uninit(writable_inputs)
                             .expect("ardftsrc: failed to write reset-pending input chunk despite reset completing");
-                        let written = writable_chunk.fill_from_iter(self.reset_pending_input.drain(..));
+                        let written = writable_chunk.fill_from_iter(self.reset_pending_input.drain(..writable_inputs));
                         debug_assert_eq!(written, writable_inputs);
 
+                        // TODO: This counts total packets, not samples
                         self.total_input_samples_written = written;
+                        
                         self.wake_up();
                     }
+
+                    self.reset_pending_input.clear();
 
                     self.reset_mode = false;
                     return true;
