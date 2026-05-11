@@ -88,12 +88,35 @@ where
         inner_pulls
     }
 
+    fn pull_inner_sample(&mut self) {
+        // Check for a new span on each pull since downsampling can consume >1 input sample per output.
+        let new_span_after_next = self.inner.current_span_len() == Some(1);
+
+        // If input is none, end the stream, but keep reading until the resampler is drained.
+        match self.inner.next() {
+            Some(sample) => {
+                self.resampler.write_sample(num_traits::cast(sample).unwrap());
+                self.samples_this_span += 1;
+            }
+            None => {
+                if !self.stream_input_ended {
+                    self.stream_input_ended = true;
+                    self.resampler.finalize();
+                }
+            }
+        }
+
+        if new_span_after_next {
+            self.maybe_new_span();
+        }
+    }
+
     fn fast_start(&mut self) {
         let num_in_samples = self.resampler.initial_sample_delay() as u64;
 
         // Write the initial samples to the resampler.
         for _ in 0..num_in_samples {
-            self.inner.next().map(|sample| self.resampler.write_sample(num_traits::cast(sample).unwrap()));
+            self.pull_inner_sample();
         }
 
         // Peak and read the initial samples from the resampler.
@@ -129,26 +152,7 @@ where
         let inner_pulls = self.calculate_inner_pulls();
 
         for _ in 0..inner_pulls {
-            // Check for a new span on each pull since downsampling can consume >1 input sample per output.
-            let new_span_after_next = self.inner.current_span_len() == Some(1);
-
-            // If input is none, end the stream, but keep reading until the resampler is drained.
-            match self.inner.next() {
-                Some(sample) => {
-                    self.resampler.write_sample(num_traits::cast(sample).unwrap());
-                    self.samples_this_span += 1;
-                }
-                None => {
-                    if !self.stream_input_ended {
-                        self.stream_input_ended = true;
-                        self.resampler.finalize();
-                    }
-                }
-            }
-
-            if new_span_after_next {
-                self.maybe_new_span();
-            }
+            self.pull_inner_sample();
         }
 
         // Read the sample
@@ -219,6 +223,7 @@ where
 
     fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {
         self.inner.try_seek(time)?;
+        self.stream_input_ended = false;
         self.just_seeked = true;
         Ok(())
     }

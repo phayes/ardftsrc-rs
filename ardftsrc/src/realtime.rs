@@ -441,6 +441,8 @@ fn launch_thread<T: Float + FftNum>(
             let mut out_producer = out_producer;
             let mut in_consumer = in_consumer;
             let mut idle_time = None; // TODO, maybe move to tick-counter (https://github.com/sheroz/tick_counter)       
+            let mut input_is_end_of_stream = false;
+
             let mut current_output_span_format = SpanFormat {
                 sample_rate: config.output_sample_rate as u32,
                 channels: streaming_sampler.output_channels() as u8,
@@ -484,12 +486,8 @@ fn launch_thread<T: Float + FftNum>(
                     {
                         match packet {
                             Packet::EndOfStream => {
-                                streaming_sampler.finalize_samples()?;
-
-                                let pending_packet =
-                                    Packet::NewSpanPending(streaming_sampler.samples_pending_in_output_span());
-                                // TODO: Handle this error
-                                out_producer.push(pending_packet).unwrap();
+                                streaming_sampler.finalize()?;
+                                input_is_end_of_stream = true;
                             }
                             Packet::Format(format) => {
                                 streaming_sampler.new_span(format.sample_rate as usize, format.channels as usize)?;
@@ -579,6 +577,19 @@ fn launch_thread<T: Float + FftNum>(
                     // If the input is abandoned, exit the thread.
                     if in_consumer.is_abandoned() {
                         return Ok(());
+                    }
+
+                    // The input is done, push the end of stream packet and return.
+                    if input_is_end_of_stream {
+                        match out_producer.push(Packet::EndOfStream) {
+                            Ok(_) => return Ok(()),
+                            Err(_) => {
+                                #[cfg(debug_assertions)]
+                                {
+                                    // TODO: Log this, we will try again in the next iteration.
+                                }
+                            }
+                        }
                     }
 
                     let output_buffer_capacity = out_producer.buffer().capacity();

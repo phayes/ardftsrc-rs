@@ -176,7 +176,7 @@ where
     /// For multi-channel streams, callers must provide a complete interleaved frame via
     /// `write_samples()` before finalizing. If a dangling partial frame remains buffered, this
     /// method returns `Error::DanglingPartialFrame`.
-    pub fn finalize_samples(&mut self) -> Result<(), Error> {
+    pub fn finalize(&mut self) -> Result<(), Error> {
         self.active_input_span_mut().finalize_samples()
     }
 
@@ -426,7 +426,7 @@ mod tests {
             }
         }
 
-        resampler.finalize_samples().unwrap();
+        resampler.finalize().unwrap();
 
         loop {
             let written = resampler.read_samples(&mut read_buffer);
@@ -466,7 +466,7 @@ mod tests {
         let mut resampler = OffThreadStreamingResampler::new(stereo_config(44_100, 48_000)).unwrap();
         resampler.write_samples(&[0.0]).unwrap();
         assert!(matches!(
-            resampler.finalize_samples(),
+            resampler.finalize(),
             Err(Error::DanglingPartialFrame {
                 channels: 2,
                 samples: 1
@@ -484,7 +484,7 @@ mod tests {
         assert_eq!(resampler.spans.len(), 1);
         assert_eq!(resampler.samples_left_in_span(), None);
         assert!(matches!(
-            resampler.finalize_samples(),
+            resampler.finalize(),
             Err(Error::DanglingPartialFrame {
                 channels: 2,
                 samples: 1
@@ -539,7 +539,7 @@ mod tests {
         assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
 
         resampler.write_samples(&second_input).unwrap();
-        resampler.finalize_samples().unwrap();
+        resampler.finalize().unwrap();
 
         let actual = drain_stream(&mut resampler, 13);
         let expected = first_expected
@@ -577,7 +577,7 @@ mod tests {
         resampler.write_samples(&first_input).unwrap();
         resampler.new_span(44_100, 2).unwrap();
         resampler.write_samples(&second_input).unwrap();
-        resampler.finalize_samples().unwrap();
+        resampler.finalize().unwrap();
 
         assert_eq!(resampler.config().channels, 2);
         assert_eq!(resampler.output_channels(), 1);
@@ -626,7 +626,7 @@ mod tests {
         resampler.write_samples(&first_input).unwrap();
         resampler.new_span(32_000, 2).unwrap();
         resampler.write_samples(&second_input).unwrap();
-        resampler.finalize_samples().unwrap();
+        resampler.finalize().unwrap();
 
         assert_eq!(
             resampler.samples_left_in_span(),
@@ -664,7 +664,7 @@ mod tests {
         resampler.write_samples(&first_input).unwrap();
         resampler.new_span(44_100, 2).unwrap();
         resampler.write_samples(&second_input).unwrap();
-        resampler.finalize_samples().unwrap();
+        resampler.finalize().unwrap();
 
         assert_eq!(resampler.samples_pending_in_output_span(), first_expected.len());
         assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
@@ -683,7 +683,7 @@ mod tests {
         resampler.write_samples(&[0.0]).unwrap();
 
         assert!(matches!(
-            resampler.finalize_samples(),
+            resampler.finalize(),
             Err(Error::DanglingPartialFrame {
                 channels: 2,
                 samples: 1
@@ -772,7 +772,7 @@ mod tests {
         let expected = process_all_samples(&mut offline, &input).unwrap();
 
         stream.write_samples(&input).unwrap();
-        stream.finalize_samples().unwrap();
+        stream.finalize().unwrap();
 
         let mut actual = Vec::new();
         let mut read_buffer = vec![0.0; 5];
@@ -798,7 +798,7 @@ mod tests {
         let second = vec![0.2f32; chunk];
 
         stream.write_samples(&first).unwrap();
-        stream.finalize_samples().unwrap();
+        stream.finalize().unwrap();
 
         // Start a new stream; this should reset core history and sample counters.
         stream.write_samples(&second).unwrap();
@@ -818,7 +818,7 @@ mod tests {
         stream.write_samples(&input).unwrap();
         assert!(!stream.is_done());
 
-        stream.finalize_samples().unwrap();
+        stream.finalize().unwrap();
         assert!(!stream.is_done());
 
         let _ = drain_stream(&mut stream, 11);
