@@ -227,7 +227,7 @@ where
         std::time::Duration::from_secs_f64(input_frames as f64 / f64::from(input_sample_rate_hz))
     }
 
-    pub fn fill_local_read_buffer(&mut self) {
+    fn fill_local_read_buffer(&mut self) {
         // If the local read buffer is less than half full, fill it.
         if self.local_read_buffer.len() <= LOCAL_READ_BUFFER_SIZE / 2 {
             // Check how many samples we can read from the ring buffer.
@@ -294,6 +294,22 @@ where
             // If we're not abandoned, we're underrun.
             return Some(T::neg_zero());
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn peek_sample(&mut self) -> Option<T> {
+        let peaked = self.out_consumer.peek().ok()?;
+        match peaked {
+            Packet::Sample(sample) => Some(*sample),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sample_is_underrun(sample: T) -> bool {
+        sample.is_zero() && sample.is_sign_negative()
     }
 
     fn track_sample_read_for_wake(&mut self, samples_read: usize) {

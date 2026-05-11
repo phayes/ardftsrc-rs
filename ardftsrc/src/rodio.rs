@@ -1,4 +1,4 @@
-use crate::{Config, RealtimeResampler, Error};
+use crate::{Config, Error, RealtimeResampler};
 use num_traits::Float;
 use realfft::FftNum;
 
@@ -8,8 +8,7 @@ where
 {
     inner: S,
     resampler: RealtimeResampler<T>,
-    fast_start: bool,
-    fast_start_finished: bool,
+    config: Config,
     stream_input_ended: bool,
     just_seeked: bool,
     samples_this_span: u64,
@@ -24,60 +23,61 @@ where
 {
     fn new_typed(inner: S, config: Config) -> Result<Self, Error> {
         let fast_start = config.rodio_fast_start;
-        let resampler = RealtimeResampler::new(config)?;
+        let resampler = RealtimeResampler::new(config.clone())?;
         let span_format_in = resampler.span_format_in();
         let span_format_out = resampler.span_format_out();
         let span_ratio = span_format_in.sample_rate as f64 / span_format_out.sample_rate as f64;
 
-        Ok(Self {
+        let mut rodio_resampler = Self {
             inner,
             resampler,
-            fast_start,
-            fast_start_finished: false,
+            config,
             stream_input_ended: false,
             just_seeked: false,
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
-        })
+        };
+
+        if fast_start {
+            rodio_resampler.fast_start();
+        }
+
+        Ok(rodio_resampler)
     }
 
-    #[inline]
-    pub fn set_span_ratio(&mut self) {
+    fn set_span_ratio(&mut self) {
         let span_format_in = self.resampler.span_format_in();
         let span_format_out = self.resampler.span_format_out();
         self.span_ratio = span_format_in.sample_rate as f64 / span_format_out.sample_rate as f64;
     }
 
-    pub fn new_span(&mut self) {
-        self.resampler.new_span(
-            self.inner.sample_rate().get() as usize,
-            self.inner.channels().get() as usize,
-        );
-        self.samples_this_span = 0;
-        self.output_samples_this_span = 0;
-        self.set_span_ratio();
-    }
-
-    #[inline]
-    fn is_underrun(&self, sample: Option<T>) -> bool {
-        match sample {
-            Some(sample) => sample.is_zero() && sample.is_sign_negative(),
-            None => false,
+    fn maybe_new_span(&mut self) {
+        let span_format_in = self.resampler.span_format_in();
+        if self.inner.sample_rate().get() != span_format_in.sample_rate
+            || self.inner.channels().get() != span_format_in.channels as u16
+        {
+            self.resampler.new_span(
+                self.inner.sample_rate().get() as usize,
+                self.inner.channels().get() as usize,
+            );
+            self.samples_this_span = 0;
+            self.output_samples_this_span = 0;
+            self.set_span_ratio();
         }
     }
 
-    /// Estimate the number of input samples to pull this tick.
     #[inline]
+    #[must_use]
+    pub fn sample_is_underrun(sample: T) -> bool {
+        sample.is_zero() && sample.is_sign_negative()
+    }
+
+    /// Estimate the number of input samples to pull this tick.
     fn calculate_inner_pulls(&mut self) -> u64 {
         // If the inner stream is ended, return zero.
         if self.stream_input_ended {
             return 0;
-        }
-
-        // If we are in fast start mode, try to prime the resampler with initial samples to get it up to speed.
-        if self.fast_start && !self.fast_start_finished {
-            return self.resampler.initial_sample_delay() as u64;
         }
 
         // Otherwise, calculate the number of input samples to pull to keep output production approximately aligned with input consumption given the current span ratio.
@@ -88,15 +88,37 @@ where
         inner_pulls
     }
 
+    fn fast_start(&mut self) {
+        let num_in_samples = self.resampler.initial_sample_delay() as u64;
+
+        // Write the initial samples to the resampler.
+        for _ in 0..num_in_samples {
+            self.inner.next().map(|sample| self.resampler.write_sample(num_traits::cast(sample).unwrap()));
+        }
+
+        // Peak and read the initial samples from the resampler.
+        let mut sample = None;
+        let mut spins: u32 = 0;
+        while sample.is_none() {
+            sample = self.resampler.peek_sample();
+            if sample.is_some() {
+                break;
+            }
+            sample = self.resampler.read_sample();
+            spins += 1;
+            if spins > 100 {
+                std::thread::yield_now();
+                spins = 0;
+            }
+            std::hint::spin_loop();
+        }
+    }
+
+    #[inline]
     fn next_sample(&mut self) -> Option<T> {
         // If we just seeked, we may already be in a new span.
         if self.just_seeked {
-            let span_format_in = self.resampler.span_format_in();
-            if self.inner.sample_rate().get() != span_format_in.sample_rate
-                || self.inner.channels().get() != span_format_in.channels as u16
-            {
-                self.new_span();
-            }
+            self.maybe_new_span();
             self.just_seeked = false;
         }
 
@@ -123,24 +145,12 @@ where
             }
 
             if new_span_after_next {
-                self.new_span();
+                self.maybe_new_span();
             }
         }
 
         // Read the sample
-        let mut output_sample = self.resampler.read_sample();
-
-        // If we are in fast start mode, read output until we stop getting underruns.
-        while self.fast_start && !self.fast_start_finished && self.is_underrun(output_sample) {
-            output_sample = self.resampler.read_sample();
-        }
-        if self.fast_start && !self.fast_start_finished {
-            self.fast_start_finished = true;
-            self.samples_this_span = 0;
-            self.output_samples_this_span = 0;
-        }
-
-        output_sample
+        self.resampler.read_sample()
     }
 }
 
@@ -193,7 +203,7 @@ where
 
     fn total_duration(&self) -> Option<core::time::Duration> {
         self.inner.total_duration().map(|inner_duration| {
-            if self.fast_start {
+            if self.config.rodio_fast_start {
                 inner_duration
             } else {
                 inner_duration + self.resampler.initial_sample_delay_duration()
