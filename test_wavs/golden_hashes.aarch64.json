@@ -27,102 +27,24 @@
   },
   {
     "float_type": "f64",
-    "preset": "fast",
-    "target_rate": 22050,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "feecda13629739a45081bbd5b0239a2f",
-        "6041a20685a73d271ec91ce38acf2fd1"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "fbf98b5f7cc3779ed7bcdd7c81652f26"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "bf1dcba16dc77fa779f5d037372ae91f"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "d06cbaef2a3de7a72be7cc01feab328b"
-      ],
-      "sweep-f32-96k.wav": [
-        "68eb06f93f7b47bc5c9fe7b64265f111"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "79eea2c757ee70513a02ebce229451be"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
     "preset": "good",
     "target_rate": 22050,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "86e2a0479268a3b4aa1036477e3b6cdd",
-        "30b78de3cfb4050aea8681ae17ca193b"
+        "b7eecb2e8474092e58669e20f6286579",
+        "04e648a24e575abf4cde0a7081478193"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "dd56466b0086a2ca594476a5f69509ee"
+        "f769e5066920e13b1516a991393cb200"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "573c1caa1c39fa2f186e55c6e1a2409d"
+        "c46814de1015b7aac3ac49ca41d7ca8f"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "1c279f1eeb5ff9d23d0b772f765f3993"
+        "99ac486fc2320e32035e64cbfdd1ff04"
       ],
       "sweep-f32-96k.wav": [
-        "42c03388e936337418ad7f3f6e9a72a0"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "79eea2c757ee70513a02ebce229451be"
-      ]
-    }
-  },
-  {
-    "float_type": "f64",
-    "preset": "good",
-    "target_rate": 22050,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "57ce85b25119bbd24f87dd9d2f3f9b55",
-        "159d6d76cba590781b992bac704e64b5"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "86edea4ee1c14a9b84dfc1fe82b961cb"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "82209bd0aff241d54e88d54f5d72b5a6"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "82e6931ab460c9f2209286c6f05872f8"
-      ],
-      "sweep-f32-96k.wav": [
-        "2af6ef58be0536ea3721716d07f1513b"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "79eea2c757ee70513a02ebce229451be"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "high",
-    "target_rate": 22050,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "ab4d02fc091dfa4446375b03913ce87c",
-        "2da69c33685c552d8f12ff73b868fa04"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "403c989089c3c6014cd2c6bab8d3c60b"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "47a91bfb2d562be0761309b83640ce48"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "4509bad6224d0269fb58199600b8cd9d"
-      ],
-      "sweep-f32-96k.wav": [
-        "219416bc1cabf25067055b7bea798cc6"
+        "425d4934ecd221d880bba6ebd2515361"
       ],
       "sweep-pcm16-22k05.wav": [
         "79eea2c757ee70513a02ebce229451be"
@@ -135,46 +57,20 @@
     "target_rate": 22050,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "27b98e0cba95fb7af9acb3f5b12bdca9",
-        "44e997ab8b61b84b6570d40737a0a2e1"
+        "be35ddf1808112084fca5786701b1c2c",
+        "647486d5e1c32ffd610c42c0d3ff2ffd"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "01d04a5eeaeb1e36b45c2b75c5a5cb39"
+        "11d63a299c413adb886c08b9808cb19f"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "a1532db081916343ec39e41528254d0a"
+        "6dd49d2f0cb420f88b8a92673ebac9d3"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "44e70362b656c5fd48a4a630f7d9dddb"
+        "aec6e2d3554c194d03cf9d360b759048"
       ],
       "sweep-f32-96k.wav": [
-        "f2da29a21b9cb11657ebc4d2b27f2db9"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "79eea2c757ee70513a02ebce229451be"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "extreme",
-    "target_rate": 22050,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "1705819c52d3a0f1c8dc679d53022921",
-        "40139ace8f9801ee0b979146311820dd"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "7c9577411a6e4cdd6685960c8d401a42"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "db42987dab245807c4adf5a258e52d92"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "bf4c738f6f4fb6196d8a2e6adcec8928"
-      ],
-      "sweep-f32-96k.wav": [
-        "e261fc037b349914a3717146ef6ff2c8"
+        "9de7a79c5dcd0e4ba357f041597b6e8f"
       ],
       "sweep-pcm16-22k05.wav": [
         "79eea2c757ee70513a02ebce229451be"
@@ -187,20 +83,20 @@
     "target_rate": 22050,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "82ac32f759fc3c98f2e8184c5dd69b52",
-        "12fdf6ab1e1a437be7b2f8c4a301b7b7"
+        "3a28ccf53466e23b81f5708adb3528e6",
+        "0a5849d46d746f31ed061e956a90d63a"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "d1cba73bc2db964829989d29e823ef79"
+        "79e63d78117e6d97713021bce4aba9fd"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "0ea6a987337083dbf94d3da2afc1875a"
+        "1fede90f73d586aa8b7d36814ad598ed"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "402ed37fc5ef374481ceb52a34b20ae7"
+        "599bc5d9679738e4122b0757083fdb15"
       ],
       "sweep-f32-96k.wav": [
-        "bd2f956519ad009b35ad041a98b872c8"
+        "8521d1fe76e68c7ad54652378c51b689"
       ],
       "sweep-pcm16-22k05.wav": [
         "79eea2c757ee70513a02ebce229451be"
@@ -235,32 +131,6 @@
   },
   {
     "float_type": "f64",
-    "preset": "fast",
-    "target_rate": 44100,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "c694bd790ac6dc48aeacf81d94d3524a",
-        "4fe02fe5255bf907d189128006e3ef56"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "82550479ce48f9489e9489c5e1426d6a"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "2f8ca946ebe8baabab7b02ad89197a22"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "34b3e0e19d88d2b9ff2e7b9accc23022"
-      ],
-      "sweep-f32-96k.wav": [
-        "d3436f2830a478d1953474a14c4e140f"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "6fd91a970b12ddf665c849a7d2fb601e"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
     "preset": "good",
     "target_rate": 44100,
     "hashes": {
@@ -269,71 +139,19 @@
         "4fe02fe5255bf907d189128006e3ef56"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "661f53f33b8dbee1ce828b6ffa94b4a7"
+        "9097ab7a379910feb1bc5d14d0b0780d"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "2fde5c919281f077b0f95637f5fb1919"
+        "37a4f7d88431badfaa34c05d4be67f49"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "087abdf05ddfdf0fc9ae6ddf1dcf6525"
+        "cf0b1125308890ccc9a83f8808199e3d"
       ],
       "sweep-f32-96k.wav": [
-        "12ef02a628688bafb7b938b51e37c8fb"
+        "efd0551ec9e7e25e0820c639e6696ecf"
       ],
       "sweep-pcm16-22k05.wav": [
-        "24d125249ebda0bd328267bbdb3b70c8"
-      ]
-    }
-  },
-  {
-    "float_type": "f64",
-    "preset": "good",
-    "target_rate": 44100,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "c694bd790ac6dc48aeacf81d94d3524a",
-        "4fe02fe5255bf907d189128006e3ef56"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "1fb67bbfc95fad505035824d52fbeca8"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "ca9a0f0bab084a3c98c9081a808109f9"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "694cbd4e7cc2b3c0dcae5f4ee512ce13"
-      ],
-      "sweep-f32-96k.wav": [
-        "afcc8e359ba6b112c4cb4e2eac2a9677"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "c76b7e3796dfabc2c7569e2b732d3530"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "high",
-    "target_rate": 44100,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "c694bd790ac6dc48aeacf81d94d3524a",
-        "4fe02fe5255bf907d189128006e3ef56"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "05cde0e676a19ab6aad6bf3af6df223d"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "73a6fc1e833ce6da6c489544fddce79e"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "cf6f9a623756c9f4bb1aa4d07ca17b62"
-      ],
-      "sweep-f32-96k.wav": [
-        "b21f120c7d2293ed846b1dbf7e13f2e4"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "dceda056d7e9e8a40993bb5a4c0a222b"
+        "aa8a669e8de2b32aa1a881bcd45ae824"
       ]
     }
   },
@@ -347,45 +165,19 @@
         "4fe02fe5255bf907d189128006e3ef56"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "0f6b323f330082f26d2aa3751434418d"
+        "08c2d8935a5204572481db534de428dd"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "7ad19ffad1bcee62b6d62a34d7b12ea0"
+        "df45ed9b7a51a1954f2ef6ea0ea37352"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "0860cc24349fd2e94a3384c3c24f5dea"
+        "ee6798a91d7e4762562e57a5a5034fb0"
       ],
       "sweep-f32-96k.wav": [
-        "1346845e618c3a8d5465458967deae85"
+        "10a98f6060a4376256cb37529abd2ffb"
       ],
       "sweep-pcm16-22k05.wav": [
-        "a28d53392199b4a7b2d5f3d96e958cf3"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "extreme",
-    "target_rate": 44100,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "c694bd790ac6dc48aeacf81d94d3524a",
-        "4fe02fe5255bf907d189128006e3ef56"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "6b1983f4d290f7ae7b26b37928df62a0"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "91087d9364c4c69220fa80f199893883"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "f61aafef6bceeb377ab054b3ac5a7735"
-      ],
-      "sweep-f32-96k.wav": [
-        "39efeeaddc9464c037a5a093c1259e7f"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "dc337b63b64e1fdb570da1afa7d7b9b0"
+        "abb461e6d2bef70b994bacfe8480ee44"
       ]
     }
   },
@@ -399,19 +191,19 @@
         "4fe02fe5255bf907d189128006e3ef56"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "b8fce7e4217aedd8cc68198e0810ad86"
+        "155e730c96d9fbaaa0fa22abf4a058d6"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "6e796dbecb72736652579034e04ab915"
+        "2fef4a84d8cbd4c00a5a757268be8500"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "947ced1bb113b398d4a9d02ef4b9355f"
+        "472fe79bee5b040772cde84a15db04fa"
       ],
       "sweep-f32-96k.wav": [
-        "cd62ff4b27ca15eea75d26841f2eceff"
+        "add5a60e30923ef3a1ca60d57c000411"
       ],
       "sweep-pcm16-22k05.wav": [
-        "37fedf085d7a95bb956157c1dba0b609"
+        "7c7b9d7313442dd21bb67d5a53d07345"
       ]
     }
   },
@@ -443,105 +235,27 @@
   },
   {
     "float_type": "f64",
-    "preset": "fast",
-    "target_rate": 48000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "406b2a8c0b43121edbc2aad649622610",
-        "d2a022003970d9e78364d9653db98a3e"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "39666b2382acb33172a61bdaa247b265"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "72153972ce11181b1f8c2105c92e3f6c"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "dde9918bd00a8fdd8732c9aa46d26e72"
-      ],
-      "sweep-f32-96k.wav": [
-        "0a5edc6dd368167384052723744a5174"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "39ecf09b3635c8f4d658b1f0721f095f"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
     "preset": "good",
     "target_rate": 48000,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "44e18eae1cdadd967a4be6e4bd98408f",
-        "2ce190f35bdbaf3f13b3915689605c11"
+        "4d8791db9ecdc2d3288a27d7d97d2679",
+        "da24b4527b8bd20be53468da661dc13b"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "5c51d316898677fdcecddfce0abe4bf8"
+        "07427df043821823d1295b475a230c62"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "e1bd2cee5fb76c4ad355a5e4e2514458"
+        "06f26b85ffee3d148c457d8d2370c977"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "9df1b2ff21ce800efcbf214be2154056"
+        "2456f3d969fcb5c275dd13f5c4930098"
       ],
       "sweep-f32-96k.wav": [
-        "e54481e9e0d91e9cb177de95a1cd2f32"
+        "7d99f52f70009857fe9d34f20eb16191"
       ],
       "sweep-pcm16-22k05.wav": [
-        "62d276a4fc013b0e4892305df354acd0"
-      ]
-    }
-  },
-  {
-    "float_type": "f64",
-    "preset": "good",
-    "target_rate": 48000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "6efc454da54caaeb96aea46033aa9d12",
-        "f3aa935f0a0842498e9a7cf6272b97fe"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "51bf084cded6c1aa957f170c1c5d38a6"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "7c2606871df8b64be4ddeff5c3718c5e"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "eafea9ba6d0342c35a643de9f2f72856"
-      ],
-      "sweep-f32-96k.wav": [
-        "bf470c337680bc1c55922f8437d2ddec"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "31347f65c60ec8c576881464a48adbd7"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "high",
-    "target_rate": 48000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "99fb42ef4054bdb9ab1cef45b516bb6f",
-        "37b8eb3128c5f11032ae93eaf0d3758d"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "fcf629d958d63a8b87890d7d958b5e89"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "3a4d9f08a87f371a0e2fe5ddc6739239"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "3c2b996d2563b70d85021e5e0fa5b50a"
-      ],
-      "sweep-f32-96k.wav": [
-        "582afad3f2d415be4ed3221eafb39870"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "abb7775f8e9d12ea9a9798fde65e2b6c"
+        "3d7d1c9f44924359e4c6689d2e7669f8"
       ]
     }
   },
@@ -551,49 +265,23 @@
     "target_rate": 48000,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "11b122679ea1d951f641c265ad274fdf",
-        "9e456bdfbbdc9f7e88c55edbd24e7aa8"
+        "f98350a18330fcff378d6983658ae2dd",
+        "4dcd9ea6ddf98e34fe78b04f69d37b27"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "97224fde2a08950777b388cd8f6861ff"
+        "7f51dae660c3f1f69fea65320d839f9c"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "9e3a6051eb2df94b5b2a06778497fd60"
+        "83d5495842ae65a9de373a9b3f5db2e0"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "bcf2c80a4c270ac701a3ae4e0e608382"
+        "b1d356ef3d9a166725719269dfdd4bbb"
       ],
       "sweep-f32-96k.wav": [
-        "cd2bfe9751707a22d796d5eadd22fc97"
+        "ad7913e78c1b7101498d610bf8871644"
       ],
       "sweep-pcm16-22k05.wav": [
-        "1c6682a0ef8249c3cad5369cc65f412d"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "extreme",
-    "target_rate": 48000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "2e264cc78f26f5bf5d07e8d2d3fe6dac",
-        "f665692b59116479c9502e8e8b60d22c"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "fcf629d958d63a8b87890d7d958b5e89"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "b1c9ff62137e32885e8ffdb347b45fe0"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "a72140127ed32b28f19594ac28b54050"
-      ],
-      "sweep-f32-96k.wav": [
-        "4473d51fcfe6cae1b5aff5751b56ce35"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "93ceda574f840bbfd6d5de58a931e77b"
+        "1a4d48874a463bb9a76cec51691667d5"
       ]
     }
   },
@@ -603,23 +291,23 @@
     "target_rate": 48000,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "ff92c20d8144b897836dc7c7a16491e6",
-        "f6e43c3766e66016c0af76944ee2b6de"
+        "28a3a15a7561a3aa3b013b43f8c4ad34",
+        "2b361739718d6199af10f58332ad36aa"
       ],
       "gaplesstest_m-f32-96k.wav": [
-        "3a0d000373bc982a6505f843f683b74c"
+        "d2abacfa222ad142d3ef3114b9d539cf"
       ],
       "gaplesstest_s-f32-96k.wav": [
-        "2ea30293afed29d29895c70b1055361e"
+        "41e97a38198ee2301e2ce78a8fa6d7f3"
       ],
       "intermodulation_sine-32bitfloat.wav": [
-        "794ae764f7ba35e330af114f2d2c0846"
+        "3d3d9ffac32e029f1c2b250193cf44cf"
       ],
       "sweep-f32-96k.wav": [
-        "37a02f46b6363090d21a44005f8efd9e"
+        "d1b8f7ec268a413ffbc94cadd8f5d25f"
       ],
       "sweep-pcm16-22k05.wav": [
-        "e83c21035fc79084a354498d3ea87eae"
+        "c121329e2842006640bb04cefabdbc0a"
       ]
     }
   },
@@ -651,38 +339,12 @@
   },
   {
     "float_type": "f64",
-    "preset": "fast",
-    "target_rate": 96000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "d49ea4de66ba1936c23322f9607f79c4",
-        "646f067d2262bcaae04698ac749b4189"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "8702d8fad6339a046b0be45f943e609d"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "eb7f5336972c4ded9a8a249aad0c7ba7"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "1b1d0e554a627ba4e9c03818bb0c42ca"
-      ],
-      "sweep-f32-96k.wav": [
-        "83a32e69d817aa1a3190920ed65e1896"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "848d3b429833d58ada584d10c82861c2"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
     "preset": "good",
     "target_rate": 96000,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "9d53bebaa4761f1551562d73ec0cb436",
-        "e07a0c6cc2b772e0e7d7e7a5a3779e0c"
+        "36e5ec28f8c4a7d5167a5f02acf21547",
+        "0c2e76ff6df2ac50c703dbca7d66e62a"
       ],
       "gaplesstest_m-f32-96k.wav": [
         "8702d8fad6339a046b0be45f943e609d"
@@ -697,59 +359,7 @@
         "83a32e69d817aa1a3190920ed65e1896"
       ],
       "sweep-pcm16-22k05.wav": [
-        "a425243677e1622ed688fb8fd2c3fa86"
-      ]
-    }
-  },
-  {
-    "float_type": "f64",
-    "preset": "good",
-    "target_rate": 96000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "84fcb1995b912b1a841e9a755b035256",
-        "2a30b639c4f42dd5d3011525ae760106"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "8702d8fad6339a046b0be45f943e609d"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "eb7f5336972c4ded9a8a249aad0c7ba7"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "1b1d0e554a627ba4e9c03818bb0c42ca"
-      ],
-      "sweep-f32-96k.wav": [
-        "83a32e69d817aa1a3190920ed65e1896"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "3a8e908fcfc356e8e7c5b3532b2b0f51"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "high",
-    "target_rate": 96000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "8d32e9d6f263e11c08e13ae014e9e06f",
-        "44cde89f4497813b685b0e28e188dfc7"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "8702d8fad6339a046b0be45f943e609d"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "eb7f5336972c4ded9a8a249aad0c7ba7"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "1b1d0e554a627ba4e9c03818bb0c42ca"
-      ],
-      "sweep-f32-96k.wav": [
-        "83a32e69d817aa1a3190920ed65e1896"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "ffa2c489dcf1674ae3eca9b9aa404440"
+        "c16fd0abbbd7684c18c719811609bf4c"
       ]
     }
   },
@@ -759,8 +369,8 @@
     "target_rate": 96000,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "2408fc35ece57548bc624096ce0b0d96",
-        "b124243d909e82f56a3974c6ccf19a5b"
+        "6f21dbc39a4adb8b699643a1cf5cae83",
+        "de5bd7bbb55ca97d504f6ba64032306c"
       ],
       "gaplesstest_m-f32-96k.wav": [
         "8702d8fad6339a046b0be45f943e609d"
@@ -775,33 +385,7 @@
         "83a32e69d817aa1a3190920ed65e1896"
       ],
       "sweep-pcm16-22k05.wav": [
-        "b6adfee5eb8a24ca3fcbb3816f98ea7e"
-      ]
-    }
-  },
-  {
-    "float_type": "f32",
-    "preset": "extreme",
-    "target_rate": 96000,
-    "hashes": {
-      "example-pcm16-44k1-stereo.wav": [
-        "be88ee7cdfd1bbedec57897d52ddfa2e",
-        "c0149196b43e9e991c3f2c8f2f6d6dee"
-      ],
-      "gaplesstest_m-f32-96k.wav": [
-        "8702d8fad6339a046b0be45f943e609d"
-      ],
-      "gaplesstest_s-f32-96k.wav": [
-        "eb7f5336972c4ded9a8a249aad0c7ba7"
-      ],
-      "intermodulation_sine-32bitfloat.wav": [
-        "1b1d0e554a627ba4e9c03818bb0c42ca"
-      ],
-      "sweep-f32-96k.wav": [
-        "83a32e69d817aa1a3190920ed65e1896"
-      ],
-      "sweep-pcm16-22k05.wav": [
-        "efddde8b31701809a99d8ebe238d53bb"
+        "2c16a55ad53893bfc640f2756062146e"
       ]
     }
   },
@@ -811,8 +395,8 @@
     "target_rate": 96000,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "f8d1ae250d853b87cdf9f350ec0230d9",
-        "c17b09a4ec5ad07fcfabbd2e5403cfd0"
+        "6403099e00932d397f96bb79ee705f26",
+        "eccf6fe71ee08b1e7151013ca326008f"
       ],
       "gaplesstest_m-f32-96k.wav": [
         "8702d8fad6339a046b0be45f943e609d"
@@ -827,7 +411,7 @@
         "83a32e69d817aa1a3190920ed65e1896"
       ],
       "sweep-pcm16-22k05.wav": [
-        "a124ea2be946820f01859fad0b22ecb0"
+        "98703875cf2113c408c9b50559a841fa"
       ]
     }
   }

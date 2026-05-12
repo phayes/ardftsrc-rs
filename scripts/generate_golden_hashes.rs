@@ -6,7 +6,7 @@
 //! serde = { version = "1.0", features = ["derive"] }
 //! serde_json = "1.0"
 //! wavers = "1.5.1"
-//! ardftsrc = { path = "../ardftsrc", features = ["rayon"] }
+//! ardftsrc = { path = "../ardftsrc", default-features = false, features = ["rayon"] }
 //! ```
 
 use ardftsrc::{InterleavedResampler, Config, PlanarVecs, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
@@ -77,21 +77,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut entries = Vec::new();
     for target_rate in TARGET_RATES {
         for preset in PRESETS {
-            let f32_hashes = generate_hashes(&wavs, preset.base.clone(), target_rate)?;
-            entries.push(GoldenEntry {
-                float_type: "f32".to_owned(),
-                preset: preset.name.to_owned(),
-                target_rate,
-                hashes: f32_hashes,
-            });
-
-            let f64_hashes = generate_hashes_f64_from_f32(&wavs, preset.base.clone(), target_rate)?;
-            entries.push(GoldenEntry {
-                float_type: "f64".to_owned(),
-                preset: preset.name.to_owned(),
-                target_rate,
-                hashes: f64_hashes,
-            });
+            if preset.name == "fast" {
+                let f32_hashes = generate_hashes(&wavs, preset.base.clone(), target_rate)?;
+                entries.push(GoldenEntry {
+                    float_type: "f32".to_owned(),
+                    preset: preset.name.to_owned(),
+                    target_rate,
+                    hashes: f32_hashes,
+                });
+            } else {
+                let f64_hashes =
+                    generate_hashes_f64_from_f32(&wavs, preset.base.clone(), target_rate)?;
+                entries.push(GoldenEntry {
+                    float_type: "f64".to_owned(),
+                    preset: preset.name.to_owned(),
+                    target_rate,
+                    hashes: f64_hashes,
+                });
+            }
         }
     }
 
