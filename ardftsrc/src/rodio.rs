@@ -41,6 +41,9 @@ where
     samples_this_span: u64,
     output_samples_this_span: u64,
     span_ratio: f64,
+
+    #[cfg(any(feature = "tracing", debug_assertions))]
+    underrun_count: u64,
 }
 
 impl<S, T> RodioResampler<S, T>
@@ -64,6 +67,9 @@ where
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
+            
+            #[cfg(any(feature = "tracing", debug_assertions))]
+            underrun_count: 0,
         };
 
         if fast_start {
@@ -183,7 +189,26 @@ where
         }
 
         // Read the sample
-        self.resampler.read_sample()
+        let sample = self.resampler.read_sample();
+
+        // Track underruns for debugging.
+        #[cfg(any(feature = "tracing", debug_assertions))]
+        {
+            if let Some(sample) = sample {
+                if Self::sample_is_underrun(sample) {
+                    if self.underrun_count == 0 {
+                        tracing::warn!("ardftsrc-rs: rodio resampler - underrun detected");
+                    }
+                    self.underrun_count += 1;
+                }
+                else if self.underrun_count > 0 {
+                    tracing::warn!("ardftsrc-rs: rodio resampler - underrun resolved after {} samples", self.underrun_count);
+                    self.underrun_count = 0;
+                }
+            }
+        }
+
+        sample
     }
 }
 

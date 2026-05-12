@@ -15,6 +15,7 @@ audio-core = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
 rtrb = { version = "0.3.4", optional = true }
 rodio = { version = "0.22", default-features = false, optional = true }
+tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
 audioadapter-buffers.workspace = true
@@ -41,6 +42,7 @@ realtime = ["dep:rtrb"]
 rodio = ["dep:rodio", "realtime"]
 rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
+tracing = ["dep:tracing"]
 
  # Rodio features (examples only)
 rodio-playback= ["rodio/playback"]
