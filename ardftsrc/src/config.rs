@@ -173,16 +173,18 @@ pub struct Config {
     /// Number of interleaved audio channels.
     pub channels: usize,
 
-    // Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
-    // but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
-    //
-    // Default value is 1878 (same quality as PRESET_GOOD).
-    //
-    // Value guide:
-    //  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    //  - `1878` (PRESET_GOOD):      Good balanced quality, appropriate for realtime applications where high quality is desired. (Default)
-    //  - `73622` (PRESET_HIGH):     High quality, good for offline resampling, also marginally appropriate for realtime applications where quality is critical.
-    //  - `524514` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications.
+    /// Set the overall "quality" of the resampler.
+    ///  
+    /// Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
+    /// but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
+    ///
+    /// Default value is 1878 (same quality as PRESET_GOOD).
+    ///
+    /// Value guide:
+    ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
+    ///  - `1878` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
+    ///  - `73622` (PRESET_HIGH):     High quality, good for offline resampling, also marginally appropriate for realtime applications where quality is critical.
+    ///  - `524514` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications.
     pub quality: usize,
 
     /// Normalized filter bandwidth in the range `[0.0, 1.0]`.
@@ -219,7 +221,7 @@ pub struct Config {
     /// Positive values rotate higher bins forward; negative values apply the conjugate rotation.
     /// `0.0` disables phase rotation.
     ///
-    /// This can help with pre-ringing artifacts.
+    /// Setting a negative phase value can help with pre-ringing artifacts.
     ///
     /// Default value is `0.0`.
     pub phase: f32,
@@ -289,30 +291,145 @@ impl Config {
         }
     }
 
-    /// Sets the input sample rate.
-    ///
-    /// Useful for completing a preset configuration before validation/stream creation.
+    /// Input audio sample rate in Hz.
     #[must_use]
     pub fn with_input_rate(mut self, input_sample_rate: usize) -> Self {
         self.input_sample_rate = input_sample_rate;
         self
     }
 
-    /// Sets the output sample rate.
-    ///
-    /// Useful for completing a preset configuration before validation/stream creation.
+    /// Output audio sample rate in Hz.
     #[must_use]
     pub fn with_output_rate(mut self, output_sample_rate: usize) -> Self {
         self.output_sample_rate = output_sample_rate;
         self
     }
 
-    /// Sets the number of interleaved channels.
-    ///
-    /// Useful for completing a preset configuration before validation/stream creation.
+    /// Number of interleaved audio channels.
     #[must_use]
     pub fn with_channels(mut self, channels: usize) -> Self {
         self.channels = channels;
+        self
+    }
+
+    /// Set the overall "quality" of the resampler.
+    /// 
+    /// Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
+    /// but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
+    ///
+    /// Default value is 1878 (same quality as PRESET_GOOD).
+    ///
+    /// Value guide:
+    ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
+    ///  - `1878` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
+    ///  - `73622` (PRESET_HIGH):     High quality, good for offline resampling, also marginally appropriate for realtime applications where quality is critical.
+    ///  - `524514` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications.
+    #[must_use]
+    pub fn with_quality(mut self, quality: usize) -> Self {
+        self.quality = quality;
+        self
+    }
+
+    /// Normalized filter bandwidth in the range `[0.0, 1.0]`.
+    ///
+    /// Higher values preserve more high-frequency content but shorten the transition band.
+    ///
+    /// Value guide:
+    /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
+    /// - `0.95`: Balanced high-end retention for most cases.
+    /// - `0.97`: More aggressive high-end retention; Use with a higher "quality" setting.
+    /// - `0.99`: Very aggressive high-end retention; Only recommended when using a very high "quality" setting.
+    #[must_use]
+    pub fn with_bandwidth(mut self, bandwidth: f32) -> Self {
+        self.bandwidth = bandwidth;
+        self
+    }
+
+    /// Frequency taper profile used around the cutoff region.
+    ///
+    /// - `Planck`: Uses a Planck taper transition.
+    /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
+    ///
+    /// Default value is `Cosine(3.4375)`, which was arrived at through testing
+    /// various values on the HydrogenAudio SRC test suite.
+    ///
+    /// Lower `alpha` values result in a smoother transition, while higher values
+    /// produce a sharper transition.
+    ///
+    /// Value guide for `Cosine(alpha)`:
+    /// - `1.5`: Very smooth transition; may increase audible near-Nyquist artifacts.
+    /// - `2.5`: Smooth and less aggressive shaping.
+    /// - `3.5`: Good balance between smoothness and selectivity.
+    /// - `4.0`: Sharper shaping; can trade smoothness for selectivity.
+    #[must_use]
+    pub fn with_taper_type(mut self, taper_type: TaperType) -> Self {
+        self.taper_type = taper_type;
+        self
+    }
+
+    /// Phase: Frequency-dependent phase rotation in the range `[-1.0, 1.0]`.
+    ///
+    /// Positive values rotate higher bins forward; negative values apply the conjugate rotation.
+    /// `0.0` disables phase rotation.
+    ///
+    /// Setting a negative phase value can help with pre-ringing artifacts.
+    ///
+    /// Default value is `0.0`.
+    #[must_use]
+    pub fn with_phase(mut self, phase: f32) -> Self {
+        self.phase = phase;
+        self
+    }
+
+    /// Scales the phase rotation angle in the range `[0.0, 100.0]`.
+    ///
+    /// `0.0` disables phase rotation. The default value is `50.0`.
+    #[must_use]
+    pub fn with_phase_intensity(mut self, phase_intensity: f32) -> Self {
+        self.phase_intensity = phase_intensity;
+        self
+    }
+
+    /// The range of input sample rates that the realtime resampler will support.
+    ///
+    /// This is used in combination with `realtime_max_channels` to set the size of the ringer buffers for off-thread realtime resampling.
+    /// The default value (22.05KHz - 192KHz at 7.1 surround) is very generous in what it supports, but uses about 8MB of memory.
+    /// To reduce memory usage, you can set this to a narrower range, or reduce the number of channels supported.
+    ///
+    /// Because this range sets the buffer size and is not a hard limit, it will often support values outside the range (eg using the default config, 22.05KHz -> 384Khz stereo will work fine).
+    /// Going above the range (eg using the default config, but resampling 22.05KHz -> 384Khz 13.1 surround) will not error, but will cause underruns and crackling (negative-zero samples on `read_sample()``).
+    ///
+    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
+    #[must_use]
+    pub fn with_realtime_input_range(mut self, realtime_input_range: std::ops::Range<usize>) -> Self {
+        self.realtime_input_range = realtime_input_range;
+        self
+    }
+
+    /// The maximum number of channels that the realtime resampler will support. See `realtime_input_range`.
+    ///
+    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
+    #[must_use]
+    pub fn with_realtime_max_channels(mut self, realtime_max_channels: usize) -> Self {
+        self.realtime_max_channels = realtime_max_channels;
+        self
+    }
+
+    /// For `RodioResampler`, this setting controls whether to use a fast start mode.
+    ///
+    /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
+    /// This is only appropriate to use when the inner sounce can handle rapid calls to `next()`. For example, this will
+    /// generally work on buffered streams or audio files, but not on live microphones.
+    ///
+    ///   - Set to "true" if the inner source is something like a buffered stream or audio file.
+    ///   - Set to "false" if the inner source is very realtime (e.g. a live microphone).
+    ///
+    /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
+    ///
+    /// This setting is only for `RodioResampler`, it has no effect on other resamplers.
+    #[must_use]
+    pub fn with_rodio_fast_start(mut self, rodio_fast_start: bool) -> Self {
+        self.rodio_fast_start = rodio_fast_start;
         self
     }
 
@@ -321,16 +438,16 @@ impl Config {
     /// Returns `Ok(())` when all values are in range, or a specific `Error` describing the first
     /// invalid field encountered.
     pub fn validate(&self) -> Result<(), Error> {
-        if self.input_sample_rate == 0 || self.output_sample_rate == 0 {
-            return Err(Error::InvalidSampleRate {
-                input: self.input_sample_rate,
-                output: self.output_sample_rate,
-            });
-        }
-
         // Special "you didnt configure your preset message"
         if self.input_sample_rate == 0 && self.output_sample_rate == 0 && self.channels == 0 {
             return Err(Error::PresetNotConfigured);
+        }
+
+        if self.input_sample_rate == 0 {
+            return Err(Error::MustSetInputSampleRate);
+        }
+        if self.output_sample_rate == 0 {
+            return Err(Error::MustSetOutputSampleRate);
         }
 
         if self.channels == 0 {
@@ -798,7 +915,12 @@ mod tests {
     fn rejects_invalid_values() {
         assert!(matches!(
             Config::new(0, 48_000, 2).validate(),
-            Err(Error::InvalidSampleRate { .. })
+            Err(Error::MustSetInputSampleRate)
+        ));
+
+        assert!(matches!(
+            Config::new(48_000, 0, 2).validate(),
+            Err(Error::MustSetOutputSampleRate)
         ));
 
         assert!(matches!(

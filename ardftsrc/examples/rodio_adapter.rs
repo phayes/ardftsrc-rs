@@ -1,5 +1,5 @@
 use ardftsrc::PRESET_FAST;
-use ardftsrc::rodio::RodioResampler;
+use ardftsrc::RodioResampler;
 use rodio::Source;
 use std::error::Error;
 use std::num::NonZero;

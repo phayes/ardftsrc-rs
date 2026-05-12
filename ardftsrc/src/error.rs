@@ -1,8 +1,10 @@
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Error {
-    /// Input or output sample rate is zero.
-    #[error("input and output sample rates must both be greater than zero, got {input} and {output}")]
-    InvalidSampleRate { input: usize, output: usize },
+    #[error("input sample rate must be set (non-zero); use with_input_rate()")]
+    MustSetInputSampleRate,
+
+    #[error("output sample rate must be set (non-zero); use with_output_rate()")]
+    MustSetOutputSampleRate,
 
     /// Channel count is zero.
     #[error("channel count must be greater than zero, got {0}")]

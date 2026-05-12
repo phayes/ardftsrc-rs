@@ -1,4 +1,4 @@
-use ardftsrc::{Config, rodio::RodioResampler};
+use ardftsrc::{Config, RodioResampler};
 use rodio::Source;
 use std::error::Error;
 use std::num::NonZero;
