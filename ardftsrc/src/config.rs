@@ -1,8 +1,30 @@
 use num_traits::Float;
 
-/// Low-latency preset tuned for realtime workloads.
+/// Low-latency, lower-quality preset.
 ///
 /// You may prefer using a sinc resampler (eg. rubato) instead.
+///
+/// **HydrogenAudio SRC quality results f32**
+/// - Overall Score: 67.98%
+/// - Spectrogram Score: 50.66%
+/// - Aliasing Score: 100%
+/// - Nyquist Filter Score: 89.1%
+/// - Intermodulation Distortion Score: 35.66%
+/// - Impulse Frequency Score: 50.76%
+/// - Pre-ringing Score: 26.67%
+/// - Gapless Sine Score: 45.58%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0>
+///
+/// **HydrogenAudio SRC quality results f64**
+/// - Overall Score: 92.69%
+/// - Spectrogram Score: 91.34%
+/// - Aliasing Score: 100%
+/// - Nyquist Filter Score: 87.96%
+/// - Intermodulation Distortion Score: 100%
+/// - Impulse Frequency Score: 96.28%
+/// - Pre-ringing Score: 26.79%
+/// - Gapless Sine Score: 55.61%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0>
 ///
 /// # Example
 ///
@@ -22,7 +44,18 @@ pub const PRESET_FAST: Config = Config {
     ..Config::DEFAULT
 };
 
-/// Balanced preset for good realtime quality.
+/// Balanced preset for good realtime quality. ***You should probably use this one.***
+///
+/// **HydrogenAudio SRC quality results f64**
+/// - Overall Score: 97.45%
+/// - Spectrogram Score: 95.61%
+/// - Aliasing Score: 100%
+/// - Nyquist Filter Score: 93.59%
+/// - Intermodulation Distortion Score: 100%
+/// - Impulse Frequency Score: 99.5%
+/// - Pre-ringing Score: 21.24%
+/// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0>
 ///
 /// # Example
 /// ```rust
@@ -43,6 +76,17 @@ pub const PRESET_GOOD: Config = Config {
 
 /// High quality preset suitable for offline processing or realtime applications where quality is critical.
 ///
+/// **HydrogenAudio SRC quality results f64**
+/// - Overall Score: 99.26%
+/// - Spectrogram Score: 99.41%
+/// - Aliasing Score: 100%
+/// - Nyquist Filter Score: 99.08%
+/// - Intermodulation Distortion Score: 98.41%
+/// - Impulse Frequency Score: 98.74%
+/// - Pre-ringing Score: 17.87%
+/// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0>
+///
 /// # Example
 /// ```rust
 /// let config = ardftsrc::PRESET_HIGH
@@ -61,6 +105,17 @@ pub const PRESET_HIGH: Config = Config {
 };
 
 /// Maximum quality preset, optimized for offline processing. Not recommended for realtime applications.
+///
+/// **HydrogenAudio SRC quality results f64**
+/// - Overall Score: 99.70%
+/// - Spectrogram Score: 99.64%
+/// - Aliasing Score: 100%
+/// - Nyquist Filter Score: 99.64%
+/// - Intermodulation Distortion Score: 100%
+/// - Impulse Frequency Score: 99.03%
+/// - Pre-ringing Score: 17.74%
+/// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0>
 ///
 /// # Example
 /// ```rust
@@ -158,6 +213,10 @@ pub struct Config {
     /// - `4.0`: Sharper shaping; can trade smoothness for selectivity.
     pub taper_type: TaperType,
 
+
+    /// Phase
+    pub phase: f32,
+
     /// The range of input sample rates that the realtime resampler will support.
     ///
     /// This is used in combination with `realtime_max_channels` to set the size of the ringer buffers for off-thread realtime resampling.
@@ -198,6 +257,7 @@ impl Config {
         quality: 1878,
         bandwidth: 0.9114534,
         taper_type: TaperType::Cosine(3.4375),
+        phase: 0.0,
         realtime_input_range: 22_050..192_000,
         realtime_max_channels: 8,
         rodio_fast_start: false,
@@ -365,6 +425,7 @@ pub struct DerivedConfig<T> {
     pub(crate) cutoff_bins: usize,
     pub(crate) taper_bins: usize,
     pub(crate) taper: Vec<T>,
+    pub(crate) phase: T,
 }
 
 impl<T> DerivedConfig<T>
@@ -402,6 +463,8 @@ where
             config.taper_type,
         );
 
+        let phase = T::from(config.phase).unwrap_or_else(T::zero);
+
         Self {
             input_sample_rate: config.input_sample_rate,
             output_sample_rate: config.output_sample_rate,
@@ -414,6 +477,7 @@ where
             cutoff_bins,
             taper_bins,
             taper,
+            phase
         }
     }
 
