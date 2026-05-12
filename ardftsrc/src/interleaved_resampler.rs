@@ -5,6 +5,22 @@ use realfft::FftNum;
 
 use crate::{Config, Error, PlanarResampler, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
 
+/// Chunked sample-rate converter for interleaved audio buffers.
+///
+/// Use this resampler when you can control both read and write buffer sizes. Query
+/// `input_buffer_size()` and `output_buffer_size()`, then size your input and output
+/// slices to those values. 
+///
+/// 1. Construct with `InterleavedResampler::new(config)`.
+/// 2. Query `input_buffer_size()` and `output_buffer_size()`.
+/// 3. Call `process_chunk(...)` for each full interleaved chunk.
+/// 4. Call `process_chunk_final(...)` once for the final chunk (it may be undersized).
+/// 5. Call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
+///
+/// To end a stream early, call `reset()`.
+///
+/// Internally, ardftsrc processes planar channels. This type is intended for callers that
+/// already work with interleaved audio and provides an optimized de-interleave/re-interleave path.
 pub struct InterleavedResampler<T = f64>
 where
     T: Float + FftNum,

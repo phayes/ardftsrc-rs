@@ -5,6 +5,21 @@ use realfft::FftNum;
 
 use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
 
+/// Chunked sample-rate converter for planar audio buffers.
+///
+/// Use this resampler when you can control both read and write buffer sizes, and your audio is already in planar format. 
+/// Query `input_buffer_size()` and `output_buffer_size()`, then size your input and output
+/// channel slices to those values. 
+///
+/// 1. Construct with `PlanarResampler::new(config)`.
+/// 2. Query `input_buffer_size()` and `output_buffer_size()`.
+/// 3. Call `process_chunk(...)` for each full planar chunk.
+/// 4. Call `process_chunk_final(...)` once for the final chunk (it may be undersized).
+/// 5. Call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
+///
+/// To end a stream early, call `reset()`.
+///
+/// This is the most direct chunked path because ardftsrc internally processes planar channels.
 pub struct PlanarResampler<T = f64>
 where
     T: Float + FftNum,
@@ -37,34 +52,38 @@ where
         &self.config
     }
 
-    /// Returns the total number of interleaved input samples processed.
+    /// Returns the total number of input samples processed across all channels.
     #[inline]
     pub fn input_sample_processed(&self) -> usize {
         self.cores.iter().map(ArdftsrcCore::input_sample_processed).sum()
     }
 
-    /// Returns the total number of interleaved output samples processed.
+    /// Returns the total number of output samples processed across all channels.
     #[inline]
     pub fn output_sample_processed(&self) -> usize {
         self.cores.iter().map(ArdftsrcCore::output_sample_processed).sum()
     }
 
-    /// Returns the required `input` length (interleaved samples) for each `process_chunk()` call.
+    /// Returns the required total `input` length for each `process_chunk()` call.
+    ///
+    /// Divide by channel count to get the required frame count per channel.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
     #[must_use]
     #[inline]
-    pub fn input_chunk_size(&self) -> usize {
+    pub fn input_buffer_size(&self) -> usize {
         self.derived.input_chunk_frames * self.config.channels
     }
 
-    /// Returns the recommended per-call `output` capacity in interleaved samples.
+    /// Returns the recommended total per-call `output` capacity.
+    ///
+    /// Divide by channel count to get the recommended frame capacity per channel.
     ///
     /// For chunked streaming, size output slices passed to `process_chunk()` and
     /// `process_chunk_final()` to at least this value.
     #[must_use]
     #[inline]
-    pub fn output_chunk_size(&self) -> usize {
+    pub fn output_buffer_size(&self) -> usize {
         self.derived.output_chunk_frames * self.config.channels
     }
 
@@ -89,7 +108,7 @@ where
         (input_size * self.config.output_sample_rate).div_ceil(self.config.input_sample_rate)
     }
 
-    /// Resamples a complete interleaved input buffer and returns all output samples.
+    /// Resamples complete planar channel inputs and returns all output samples.
     ///
     /// This is a convenience wrapper around the streaming API.
     ///
@@ -134,15 +153,17 @@ where
         }
     }
 
-    /// Processes an interleaved chunk.
+    /// Processes a planar chunk.
     ///
-    /// `input` must contain exactly `input_buffer_size()` samples (all channels, interleaved),
-    /// and `output` should provide at least `output_buffer_size()` capacity.
+    /// `input` must provide one slice per channel, each with exactly
+    /// `input_buffer_size() / channels` samples. `output` should provide one mutable slice per
+    /// channel, each with at least `output_buffer_size() / channels` capacity.
     ///
     /// The method returns the actual sample count written for this chunk, which may be smaller
     /// (for example while startup delay is being trimmed).
     ///
-    /// Returns the number of samples written to the output buffer.
+    /// Returns the number of samples written to the output buffer across all channels. Divide by channel
+    /// count to get frames written per channel.
     pub fn process_chunk<'a>(&mut self, input: &[&[T]], output: &mut [&mut [T]]) -> Result<usize, Error> {
         // Output buffer must be at least the size of the output chunk (but can be larger).
         self.ensure_input_buffer_shape(input, false)?;
@@ -164,11 +185,16 @@ where
     /// Processes the final chunk, which may be shorter than the regular chunk size.
     ///
     /// Call this exactly once at end-of-stream for the trailing partial chunk (it may be empty if
-    /// input length is an exact multiple of `input_buffer_size()`). After this call, no further
-    /// chunk-processing calls should be made; call `finalize()` to drain remaining delayed tail.
-    /// Size `output` to at least `output_buffer_size()`.
+    /// each channel length is an exact multiple of `input_buffer_size() / channels`). After this
+    /// call, no further chunk-processing calls should be made; call `finalize()` to drain
+    /// remaining delayed tail.
     ///
-    /// Returns the number of samples written to the output buffer.
+    /// `input` must provide one slice per channel, each with at most
+    /// `input_buffer_size() / channels` samples. `output` should provide one mutable slice per
+    /// channel, each with at least `output_buffer_size() / channels` capacity.
+    ///
+    /// Returns the total number of samples written across all output channels. Divide by channel
+    /// count to get frames written per channel.
     pub fn process_chunk_final<'a>(&mut self, input: &[&[T]], output: &mut [&mut [T]]) -> Result<usize, Error> {
         // Output buffer must be at least the size of the output chunk (but can be larger).
         self.ensure_input_buffer_shape(input, true)?;
@@ -216,7 +242,11 @@ where
     /// stream. If `process_chunk_final()` was not called, this treats the last accepted full chunk
     /// as terminal input.
     ///
-    /// Returns the number of samples written to the output buffer. Divide by the channel count to get the number of samples written per channel.
+    /// `output` must provide one mutable slice per channel, each with at least
+    /// `output_buffer_size() / channels` capacity.
+    ///
+    /// Returns the total number of samples written across all output channels. Divide by channel
+    /// count to get frames written per channel.
     pub fn finalize<'a>(&mut self, output: &mut [&mut [T]]) -> Result<usize, Error> {
         // Ensure the output buffer is large enough.
         self.ensure_output_buffer_shape(output)?;
@@ -419,7 +449,7 @@ where
     where
         T: Send + Sync,
     {
-        let context_chunk_size = self.input_chunk_size() / self.config.channels;
+        let context_chunk_size = self.input_buffer_size() / self.config.channels;
 
         #[cfg(feature = "rayon")]
         {
@@ -547,11 +577,11 @@ mod tests {
     use dasp_signal::Signal;
 
     fn input_chunk_frames(resampler: &PlanarResampler<f32>) -> usize {
-        resampler.input_chunk_size() / resampler.config().channels
+        resampler.input_buffer_size() / resampler.config().channels
     }
 
     fn output_chunk_frames(resampler: &PlanarResampler<f32>) -> usize {
-        resampler.output_chunk_size() / resampler.config().channels
+        resampler.output_buffer_size() / resampler.config().channels
     }
 
     fn deinterleave_samples(samples: &[f32], channels: usize) -> Result<Vec<Vec<f32>>, Error> {
@@ -668,11 +698,11 @@ mod tests {
             resampler.post(deinterleave_samples(post, channels).unwrap()).unwrap();
         }
 
-        let input_buffer_size = resampler.input_chunk_size();
+        let input_buffer_size = resampler.input_buffer_size();
         let full_chunks = input.len() / input_buffer_size;
         let has_partial = !input.len().is_multiple_of(input_buffer_size);
         let output_blocks = full_chunks + usize::from(has_partial) + 1;
-        let mut output = vec![0.0; output_blocks * resampler.output_chunk_size()];
+        let mut output = vec![0.0; output_blocks * resampler.output_buffer_size()];
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
@@ -801,7 +831,7 @@ mod tests {
     #[test]
     fn expected_output_size_matches_frame_count_conversion() {
         let resampler = PlanarResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
-        let input_samples = resampler.input_chunk_size() * 2 + 14;
+        let input_samples = resampler.input_buffer_size() * 2 + 14;
         let input_frames = input_samples / resampler.config().channels;
 
         let expected_from_frames = resampler.expected_output_size(input_frames) * resampler.config().channels;
@@ -1003,7 +1033,7 @@ mod tests {
         let mut config = mono_config(44_100, 48_000);
         config.taper_type = TaperType::Cosine(1.55);
         let mut full_resampler = PlanarResampler::new(config.clone()).unwrap();
-        let context_len = full_resampler.input_chunk_size();
+        let context_len = full_resampler.input_buffer_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
         let output_sample_rate = config.output_sample_rate;
@@ -1057,7 +1087,7 @@ mod tests {
     fn split_resampling_is_worse_without_pre_post() {
         let config = mono_config(44_100, 48_000);
         let mut full_resampler = PlanarResampler::new(config.clone()).unwrap();
-        let context_len = full_resampler.input_chunk_size();
+        let context_len = full_resampler.input_buffer_size();
         let split_frames = 4 * config.input_sample_rate;
         let total_frames = split_frames * 3;
         let output_sample_rate = config.output_sample_rate;
@@ -1150,7 +1180,7 @@ mod tests {
     fn batch_gapless_matches_manual_pre_post() {
         let config = mono_config(44_100, 48_000);
         let batch = PlanarResampler::<f32>::new(config.clone()).unwrap();
-        let context_chunk_size = batch.input_chunk_size() / batch.config().channels;
+        let context_chunk_size = batch.input_buffer_size() / batch.config().channels;
         let track_frames = context_chunk_size * 2 + 17;
 
         let tracks: Vec<PlanarVecs<f32>> = (0..3)
@@ -1200,7 +1230,7 @@ mod tests {
     fn batch_matches_independent_process_all() {
         let config = mono_config(44_100, 48_000);
         let batch = PlanarResampler::<f32>::new(config.clone()).unwrap();
-        let chunk = batch.input_chunk_size() / batch.config().channels;
+        let chunk = batch.input_buffer_size() / batch.config().channels;
         let tracks: Vec<PlanarVecs<f32>> = vec![
             PlanarVecs::new(vec![
                 (0..(chunk + 17))
@@ -1252,7 +1282,7 @@ mod tests {
     #[test]
     fn stereo_channels_are_processed_independently() {
         let mut resampler = PlanarResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        let mut input = vec![0.0; resampler.input_chunk_size()];
+        let mut input = vec![0.0; resampler.input_buffer_size()];
         input[0] = 1.0;
 
         let output = process_all_samples(&mut resampler, &input).unwrap();
@@ -1280,11 +1310,11 @@ mod tests {
 
         let offline_output = process_all_samples(&mut offline, &input).unwrap();
 
-        let input_buffer_size = streaming.input_chunk_size();
+        let input_buffer_size = streaming.input_buffer_size();
         let full_chunks = input.len() / input_buffer_size;
         let has_partial = !input.len().is_multiple_of(input_buffer_size);
         let output_blocks = full_chunks + usize::from(has_partial) + 1;
-        let mut streaming_output = vec![0.0; output_blocks * streaming.output_chunk_size()];
+        let mut streaming_output = vec![0.0; output_blocks * streaming.output_buffer_size()];
         let mut written = 0;
         let mut offset = 0;
         while offset + input_buffer_size <= input.len() {
@@ -1340,8 +1370,8 @@ mod tests {
     #[test]
     fn input_sample_count_tracks_full_and_partial_stream_input() {
         let mut resampler = PlanarResampler::new(stereo_config(44_100, 48_000)).unwrap();
-        let mut output = vec![0.0; resampler.output_chunk_size()];
-        let full = vec![0.0; resampler.input_chunk_size()];
+        let mut output = vec![0.0; resampler.output_buffer_size()];
+        let full = vec![0.0; resampler.input_buffer_size()];
         let partial = vec![0.0; 10];
 
         assert_eq!(resampler.input_sample_processed(), 0);
