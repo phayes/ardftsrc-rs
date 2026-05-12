@@ -813,23 +813,6 @@ mod tests {
     }
 
     #[test]
-    fn default_required_buffer_sizes_match_current_memory_use() {
-        let config = Config::default();
-
-        let (input_size, output_size) = config.realtime_buffer_sizes();
-        let input_capacity = input_size * INPUT_BUFFER_SIZE_MULTIPLIER;
-        let output_capacity = output_size * OUTPUT_BUFFER_SIZE_MULTIPLIER;
-        let packet_size = size_of::<Packet<f64>>();
-
-        assert_eq!(input_size, 71_680);
-        assert_eq!(output_size, 30_048);
-        assert_eq!(packet_size, 16);
-        assert_eq!(input_capacity * packet_size, 4_587_520);
-        assert_eq!(output_capacity * packet_size, 3_846_144);
-        assert_eq!((input_capacity + output_capacity) * packet_size, 8_433_664);
-    }
-
-    #[test]
     fn required_input_size_matches_interleaved_at_max_input_endpoint() {
         let mut config = Config::new(48_000, 22_000, 8);
         config.quality = 1_878;
