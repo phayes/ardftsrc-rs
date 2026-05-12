@@ -247,11 +247,13 @@ pub struct Config {
     /// Going above the range (eg using the default config, but resampling 22.05KHz -> 384Khz 13.1 surround) will not error, but will cause underruns and crackling (negative-zero samples on `read_sample()``).
     ///
     /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
+    #[cfg(feature = "realtime")]
     pub realtime_input_range: std::ops::Range<usize>,
 
     /// The maximum number of channels that the realtime resampler will support. See `realtime_input_range`.
     ///
-    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
+    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).\
+    #[cfg(feature = "realtime")]
     pub realtime_max_channels: usize,
 
     /// For `RodioResampler`, this setting controls whether to use a fast start mode.
@@ -266,6 +268,7 @@ pub struct Config {
     /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
     ///
     /// This setting is only for `RodioResampler`, it has no effect on other resamplers.
+    #[cfg(feature = "rodio")]
     pub rodio_fast_start: bool,
 }
 
@@ -279,8 +282,11 @@ impl Config {
         taper_type: TaperType::Cosine(3.4375),
         phase: 0.0,
         phase_intensity: 50.0,
+        #[cfg(feature = "realtime")]
         realtime_input_range: 22_050..192_000,
+        #[cfg(feature = "realtime")]
         realtime_max_channels: 8,
+        #[cfg(feature = "rodio")]
         rodio_fast_start: false,
     };
 
@@ -405,6 +411,7 @@ impl Config {
     ///
     /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
     #[must_use]
+    #[cfg(feature = "realtime")]
     pub fn with_realtime_input_range(mut self, realtime_input_range: std::ops::Range<usize>) -> Self {
         self.realtime_input_range = realtime_input_range;
         self
@@ -414,6 +421,7 @@ impl Config {
     ///
     /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
     #[must_use]
+    #[cfg(feature = "realtime")]
     pub fn with_realtime_max_channels(mut self, realtime_max_channels: usize) -> Self {
         self.realtime_max_channels = realtime_max_channels;
         self
@@ -432,6 +440,7 @@ impl Config {
     ///
     /// This setting is only for `RodioResampler`, it has no effect on other resamplers.
     #[must_use]
+    #[cfg(feature = "rodio")]
     pub fn with_rodio_fast_start(mut self, rodio_fast_start: bool) -> Self {
         self.rodio_fast_start = rodio_fast_start;
         self
