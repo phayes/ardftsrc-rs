@@ -2,6 +2,33 @@ use crate::{Config, Error, RealtimeResampler};
 use num_traits::Float;
 use realfft::FftNum;
 
+/// Wrap a `rodio::Source` and resample it in realtime in your rodio pipeline. Requires the `rodio` feature.
+///
+/// When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use `config.with_rodio_fast_start(true)`, which will 
+/// avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
+/// do not enable fast-start.
+///
+/// Additional configuration settings are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
+/// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous. 
+///
+/// # Example:
+/// ```rust
+/// let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
+/// let mixer = stream.mixer();
+///
+/// let tone = rodio::source::SignalGenerator::new(
+///     NonZero::new(44_100 as u32).unwrap(),
+///     400, // 400 Hz
+///     rodio::source::Function::Sine,
+/// )
+/// .take_duration(Duration::from_secs(3.0));
+///
+/// let config = PRESET_FAST.with_channels(1).with_input_rate(44_100).with_output_rate(48_000);
+/// let resampled_tone = RodioResampler::new(tone, config)?;
+///
+/// mixer.add(resampled_tone);
+/// thread::sleep(Duration::from_secs(4));
+///```
 pub struct RodioResampler<S: rodio::Source, T = f64>
 where
     T: Float + FftNum,

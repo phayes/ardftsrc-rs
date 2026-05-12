@@ -5,7 +5,7 @@
 
 A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Rate Converter (ARDFTSRC) algorithm.
 
-`ardftsrc` is a streaming audio sample-rate converter for interleaved audio streams, and is appropriate for both realtime and offline resampling. 
+`ardftsrc` is a streaming audio sample-rate converter, and is appropriate for both realtime and offline resampling. 
 
 Generally `ardftsrc` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
@@ -119,88 +119,41 @@ set before `process_chunk_final(...)`.
 This enables live gapless handoff: while track A is streaming, once track B is known you can
 call `post(...)` on A with B's head samples so A's stop-edge uses real next-track context.
 
-## Realtime Resampler
+## Realtime Resampling / Rodio integration
 
-Enable the `realtime` feature to use `RealtimeResampler` for live resampling. It accepts interleaved samples one-at-a-time and runs the chunk resampler on a worker thread.
-
-1. Call `write_sample(...)` with each incoming interleaved sample and `read_sample(...)` at your output cadence.
-2. For multichannel streams, samples must be written interleaved.
-3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
-4. Call `finalize()` at end-of-stream, then keep calling `read_sample(...)` until it returns `None`.
-
-`RealtimeResampler` has some startup delay and will emit `Some(-0.0)` (negative-zero silence) until the off-thread resampler
-is warmed up and producing samples. You may do nothing (it will play as silence), or check (`x.is_zero() && x.is_sign_negative()`)
- for this specific circumstance. In subjective playback experiments this brief silence is not noticable and subjectively reads as instataneous. 
-
-If you are wiring `RealtimeResampler` into your own realtime audio pipeline, you'll want to keep proper pacing ratios between input and output samples, 
-see the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback, 
-or very slow sponse to seeking, those are both symtoms of bad pacing. 
-
-### Spans
-
-Streaming sources sometimes change format while they are still producing samples. For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono. The realtime resampler models those format regions as spans. You can start a new span with `new_span()`. When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next.
-
-Input spans and output spans are non-synchronous. After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
-
-```rust
-#[cfg(feature = "realtime")]
-fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Result<Vec<f32>, ardftsrc::Error> {
-    use ardftsrc::{PRESET_GOOD, RealtimeResampler};
-
-    // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
-    // Both spans are resampled to the same 48 kHz output rate.
-    assert!(span_1_input.len().is_multiple_of(2));
-
-    let config = PRESET_GOOD
-        .with_input_rate(44_100)
-        .with_output_rate(48_000)
-        .with_channels(2);
-
-    let mut resampler = RealtimeResampler::<f32>::new(config)?;
-    let mut output = Vec::<f32>::new();
-
-    // This intentionally writes one sample at a time. Larger slices are more efficient,
-    // but single-sample writes are valid.
-    for sample in span_1_input {
-        resampler.write_sample(sample);
-
-        if let Some(sample) = resampler.read_sample() {
-            output.push(sample);
-        }
-
-        if resampler.current_span_len() == Some(0) {
-            // New span detected, maybe switch channel count in output.
-        }
-    }
-
-    resampler.new_span(48_000, 1);
-
-    for sample in span_2_input {
-        resampler.write_sample(sample);
-
-        if let Some(sample) = resampler.read_sample() {
-            output.push(sample);
-        }
-
-        if resampler.current_span_len() == Some(0) {
-            // New span detected, maybe switch channel count in output.
-        }
-    }
-
-    // Finalization can produce delayed tail output, so keep reading until the stream is drained.
-    resampler.finalize();
-    while let Some(sample) = resampler.read_sample() {
-        output.push(sample);
-    }
-
-    resampler.shutdown()?;
-    Ok(output)
-}
-```
+ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via `RodioResampler` (`rodio` feature) and the ability to build your own custom realtime audio resampling pipline via `RealtimeResampler` (`realtime` feature). 
 
 ### Rodio integration
 
 Enable the `rodio` feature to use `rodio::RodioResampler` to wrap a `rodio::Source` and resample it in realtime in your rodio pipeline.
+
+When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use `config.with_rodio_fast_start(true)`, which will 
+avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
+do not enable fast-start.
+
+Additional configuration settings are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
+know ahead-of-time the shape of the input sample-rate and channel count. It is recommended to not change these settings - the default values are quite generous. 
+
+# Example:
+```rust
+let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
+let mixer = stream.mixer();
+
+let tone = rodio::source::SignalGenerator::new(
+    NonZero::new(44_100 as u32).unwrap(),
+    400, // 400 Hz
+    rodio::source::Function::Sine,
+)
+.take_duration(Duration::from_secs(3.0));
+
+let config = PRESET_FAST.with_channels(1).with_input_rate(44_100).with_output_rate(48_000);
+let resampled_tone = RodioResampler::new(tone, config)?;
+
+mixer.add(resampled_tone);
+thread::sleep(Duration::from_secs(4));
+```
+
+More examples can be found:
 
 - Basic rodio example: [`examples/rodio_adapter.rs`](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/examples/rodio_adapter.rs)
 - Span-switching rodio example: [`examples/rodio_adapter_with_spans.rs`](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/examples/rodio_adapter_with_spans.rs)
@@ -333,7 +286,6 @@ AI use is allowed for the following:
 
 ### Development TODOs:
 
-1. Add support for `phase` config.
-2. Add `tanh` taper.
-3. Add bindings to other languages, python, ts (wasm) etc.
-4. Investigate why the optional audioadapter interface appears to be much slower than other paths.
+1. Add `tanh` taper.
+2. Add bindings to other languages, python, ts (wasm) etc.
+3. Investigate why the optional audioadapter interface appears to be much slower than other paths.

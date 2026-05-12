@@ -70,6 +70,9 @@ pub enum Packet<T: Float + Copy> {
 /// 2. For multichannel streams, samples must be written interleaved.
 /// 3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
 /// 4. Call `finalize()` at end-of-stream, then keep calling `read_sample(...)` until it returns `None`.
+/// 
+/// Additioonal configuration settings for realtime are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
+/// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous. 
 ///
 /// # Underruns
 /// 
