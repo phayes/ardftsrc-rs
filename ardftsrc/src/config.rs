@@ -163,6 +163,12 @@ impl Default for TaperType {
 
 #[derive(Debug, Clone, PartialEq)]
 /// Configures the ardftsrc resampler.
+/// 
+/// # Example
+///
+/// ```rust
+/// let config = ardftsrc::Config::new(44_100, 48_000, 2).with_phase(-0.5);
+/// ```
 pub struct Config {
     /// Input audio sample rate in Hz.
     pub input_sample_rate: usize,
