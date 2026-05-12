@@ -5,6 +5,21 @@ use audioadapter::Adapter;
 use audioadapter::AdapterMut;
 
 #[derive(Clone, Debug, PartialEq)]
+/// A channel-major container of audio samples with equal frame counts.
+///
+/// Each inner vector is one channel, and all channels must contain the same
+/// number of frames.
+///
+/// # Examples
+///
+/// ```
+/// use ardftsrc::PlanarVecs;
+///
+/// let planar = PlanarVecs::new(vec![vec![1_i16, 2], vec![3_i16, 4]])?;
+/// let interleaved = planar.interleave();
+///
+/// assert_eq!(interleaved, vec![1, 3, 2, 4]);
+/// ```
 pub struct PlanarVecs<T> {
     buf: Vec<Vec<T>>,
     frames: usize,
@@ -19,6 +34,9 @@ pub struct PlanarVecsIterMut<'a, T> {
 }
 
 impl<T> PlanarVecs<T> {
+    /// Builds a planar buffer from channel vectors.
+    ///
+    /// Returns an error when channels do not all have the same frame count.
     pub fn new(buf: Vec<Vec<T>>) -> Result<Self, Error> {
         let frames = buf.first().map_or(0, Vec::len);
         if let Some(channel) = buf.iter().find(|channel| channel.len() != frames) {
@@ -33,48 +51,58 @@ impl<T> PlanarVecs<T> {
 
     #[must_use]
     #[inline]
+    /// Returns the number of channels.
     pub fn channels(&self) -> usize {
         self.buf.len()
     }
 
     #[must_use]
     #[inline]
+    /// Returns the number of frames per channel.
     pub fn frames(&self) -> usize {
         self.frames
     }
 
     #[must_use]
     #[inline]
+    /// Returns `true` when there are no channels or no frames.
     pub fn is_empty(&self) -> bool {
         self.buf.is_empty() || self.frames == 0
     }
 
     #[must_use]
     #[inline]
+    /// Returns an immutable view of a channel by index.
     pub fn get_channel(&self, index: usize) -> Option<&[T]> {
         self.buf.get(index).map(Vec::as_slice)
     }
 
     #[must_use]
     #[inline]
+    /// Returns a mutable view of a channel by index.
     pub fn get_channel_mut(&mut self, index: usize) -> Option<&mut [T]> {
         self.buf.get_mut(index).map(Vec::as_mut_slice)
     }
 
     #[must_use]
     #[inline]
+    /// Returns the underlying channel vectors as a slice.
     pub fn as_slice(&self) -> &[Vec<T>] {
         &self.buf
     }
 
     #[must_use]
     #[inline]
+    /// Consumes `self` and returns the underlying channel vectors.
     pub fn into_inner(self) -> Vec<Vec<T>> {
         self.buf
     }
 
     #[must_use]
     #[inline]
+    /// Removes and returns the last channel.
+    ///
+    /// When the last channel is removed, the frame count is reset to `0`.
     pub fn pop_channel(&mut self) -> Option<Vec<T>> {
         let channel = self.buf.pop();
         if self.buf.is_empty() {
@@ -83,7 +111,7 @@ impl<T> PlanarVecs<T> {
         channel
     }
 
-    /// Returns a single interleaved buffer in frame-major order.
+    /// Returns an interleaved buffer in frame-major order.
     ///
     /// The returned layout is:
     /// `[L1, R1, L2, R2, ...]`

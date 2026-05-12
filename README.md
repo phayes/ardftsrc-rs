@@ -119,11 +119,11 @@ set before `process_chunk_final(...)`.
 This enables live gapless handoff: while track A is streaming, once track B is known you can
 call `post(...)` on A with B's head samples so A's stop-edge uses real next-track context.
 
-## Realtime Resampling / Rodio integration
+## Realtime Resampling
 
 ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via `RodioResampler` (`rodio` feature) and the ability to build your own custom realtime audio resampling pipline via `RealtimeResampler` (`realtime` feature). 
 
-### Rodio integration
+## Rodio integration
 
 Enable the `rodio` feature to use `rodio::RodioResampler` to wrap a `rodio::Source` and resample it in realtime in your rodio pipeline.
 
