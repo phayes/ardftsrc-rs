@@ -20,6 +20,14 @@ pub enum Error {
     #[error("bandwidth must be in the range 0.0..=1.0, got {0}")]
     InvalidBandwidth(f32),
 
+    /// Phase is outside the valid normalized range `[-1.0, 1.0]`.
+    #[error("phase must be finite and in the range -1.0..=1.0, got {0}")]
+    InvalidPhase(f32),
+
+    /// Phase intensity is outside the valid range `[0.0, 100.0]`.
+    #[error("phase intensity must be finite and in the range 0.0..=100.0, got {0}")]
+    InvalidPhaseIntensity(f32),
+
     /// Cosine taper alpha is non-finite or not greater than zero.
     #[error("alpha must be finite and greater than zero, got {0}")]
     InvalidAlpha(f32),

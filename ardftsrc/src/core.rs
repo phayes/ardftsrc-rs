@@ -393,10 +393,10 @@ where
         return Ok(&self.output_block[src_start..src_start + written_samples]);
     }
 
-    /// Returns true when rates match and FFT processing can be bypassed losslessly.
+    /// Returns true when rates match and no FFT-domain processing has been requested.
     #[inline]
     fn is_passthrough(&self) -> bool {
-        self.derived.input_sample_rate == self.derived.output_sample_rate
+        self.derived.input_sample_rate == self.derived.output_sample_rate && !self.derived.phase_enabled
     }
 
     /// Normalizes empty edge context vectors to `None`.
@@ -557,6 +557,12 @@ where
         self.forward
             .process(&mut self.scratch.rdft_in, &mut self.scratch.spectrum)
             .map_err(|err| Error::Fft(err.to_string()))?;
+
+        if self.derived.phase_enabled {
+            for (bin, phase) in self.scratch.spectrum.iter_mut().zip(self.derived.phase.iter()) {
+                *bin = *bin * *phase;
+            }
+        }
 
         let zero = Complex::new(T::zero(), T::zero());
         let bins = self

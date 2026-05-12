@@ -1,4 +1,5 @@
 use num_traits::Float;
+use realfft::num_complex::Complex;
 
 /// Low-latency, lower-quality preset.
 ///
@@ -213,9 +214,20 @@ pub struct Config {
     /// - `4.0`: Sharper shaping; can trade smoothness for selectivity.
     pub taper_type: TaperType,
 
-
-    /// Phase
+    /// Phase: Frequency-dependent phase rotation in the range `[-1.0, 1.0]`.
+    ///
+    /// Positive values rotate higher bins forward; negative values apply the conjugate rotation.
+    /// `0.0` disables phase rotation.
+    ///
+    /// This can help with pre-ringing artifacts.
+    ///
+    /// Default value is `0.0`.
     pub phase: f32,
+
+    /// Scales the phase rotation angle in the range `[0.0, 100.0]`.
+    ///
+    /// `0.0` disables phase rotation. The default value is `50.0`.
+    pub phase_intensity: f32,
 
     /// The range of input sample rates that the realtime resampler will support.
     ///
@@ -251,13 +263,14 @@ pub struct Config {
 
 impl Config {
     pub const DEFAULT: Self = Self {
-        input_sample_rate: 44_100,
-        output_sample_rate: 44_100,
+        input_sample_rate: 0,
+        output_sample_rate: 0,
         channels: 2,
         quality: 1878,
         bandwidth: 0.9114534,
         taper_type: TaperType::Cosine(3.4375),
         phase: 0.0,
+        phase_intensity: 50.0,
         realtime_input_range: 22_050..192_000,
         realtime_max_channels: 8,
         rodio_fast_start: false,
@@ -330,6 +343,14 @@ impl Config {
 
         if !(0.0..=1.0).contains(&self.bandwidth) || !self.bandwidth.is_finite() {
             return Err(Error::InvalidBandwidth(self.bandwidth));
+        }
+
+        if !(-1.0..=1.0).contains(&self.phase) || !self.phase.is_finite() {
+            return Err(Error::InvalidPhase(self.phase));
+        }
+
+        if !(0.0..=100.0).contains(&self.phase_intensity) || !self.phase_intensity.is_finite() {
+            return Err(Error::InvalidPhaseIntensity(self.phase_intensity));
         }
 
         if let TaperType::Cosine(alpha) = self.taper_type
@@ -425,7 +446,8 @@ pub struct DerivedConfig<T> {
     pub(crate) cutoff_bins: usize,
     pub(crate) taper_bins: usize,
     pub(crate) taper: Vec<T>,
-    pub(crate) phase: T,
+    pub(crate) phase: Vec<Complex<T>>,
+    pub(crate) phase_enabled: bool,
 }
 
 impl<T> DerivedConfig<T>
@@ -463,7 +485,10 @@ where
             config.taper_type,
         );
 
-        let phase = T::from(config.phase).unwrap_or_else(T::zero);
+        let phase_value = T::from(config.phase).unwrap_or_else(T::zero);
+        let phase_intensity = T::from(config.phase_intensity).unwrap_or_else(T::zero);
+        let phase = Self::build_phase(cutoff_bins, phase_value, phase_intensity);
+        let phase_enabled = !phase_value.is_zero() && !phase_intensity.is_zero();
 
         Self {
             input_sample_rate: config.input_sample_rate,
@@ -477,8 +502,28 @@ where
             cutoff_bins,
             taper_bins,
             taper,
-            phase
+            phase,
+            phase_enabled,
         }
+    }
+
+    /// Builds the per-bin unit complex phase rotation used before tapering.
+    fn build_phase(bins: usize, phase: T, phase_intensity: T) -> Vec<Complex<T>> {
+        if bins == 0 {
+            return Vec::new();
+        }
+
+        let magnitude = phase.abs();
+        let sign = if phase < T::zero() { -T::one() } else { T::one() };
+        let denominator = T::from(bins).unwrap_or_else(T::one);
+
+        (0..bins)
+            .map(|idx| {
+                let x = T::from(idx).unwrap_or_else(T::zero) / denominator;
+                let angle = (magnitude * x).asin() * phase_intensity * sign;
+                Complex::new(angle.cos(), angle.sin())
+            })
+            .collect()
     }
 
     fn build_taper(
@@ -787,6 +832,86 @@ mod tests {
             non_finite_alpha.validate(),
             Err(Error::InvalidAlpha(alpha)) if alpha.is_nan()
         ));
+
+        for phase in [-1.0, 0.0, 1.0] {
+            let config = Config {
+                phase,
+                ..Config::default()
+            };
+            assert!(config.validate().is_ok());
+        }
+
+        for phase in [-1.0001, 1.0001] {
+            let config = Config {
+                phase,
+                ..Config::default()
+            };
+            assert!(matches!(config.validate(), Err(Error::InvalidPhase(value)) if value == phase));
+        }
+
+        let non_finite_phase = Config {
+            phase: f32::NAN,
+            ..Config::default()
+        };
+        assert!(matches!(
+            non_finite_phase.validate(),
+            Err(Error::InvalidPhase(phase)) if phase.is_nan()
+        ));
+
+        for phase_intensity in [0.0, Config::DEFAULT.phase_intensity, 100.0] {
+            let config = Config {
+                phase_intensity,
+                ..Config::default()
+            };
+            assert!(config.validate().is_ok());
+        }
+
+        for phase_intensity in [-0.0001, 100.0001] {
+            let config = Config {
+                phase_intensity,
+                ..Config::default()
+            };
+            assert!(matches!(config.validate(), Err(Error::InvalidPhaseIntensity(value)) if value == phase_intensity));
+        }
+
+        let non_finite_phase_intensity = Config {
+            phase_intensity: f32::NAN,
+            ..Config::default()
+        };
+        assert!(matches!(
+            non_finite_phase_intensity.validate(),
+            Err(Error::InvalidPhaseIntensity(phase_intensity)) if phase_intensity.is_nan()
+        ));
+    }
+
+    #[test]
+    fn phase_table_uses_c_rotation_formula() {
+        let phase_intensity = Config::DEFAULT.phase_intensity;
+        let identity = DerivedConfig::<f32>::build_phase(4, 0.0, phase_intensity);
+        assert_eq!(identity.len(), 4);
+        assert!(identity.iter().all(|phase| phase.re == 1.0 && phase.im == 0.0));
+
+        let zero_intensity = DerivedConfig::<f32>::build_phase(4, 0.5, 0.0);
+        assert!(zero_intensity.iter().all(|phase| phase.re == 1.0 && phase.im == 0.0));
+
+        let positive = DerivedConfig::<f32>::build_phase(4, 0.5, phase_intensity);
+        let negative = DerivedConfig::<f32>::build_phase(4, -0.5, phase_intensity);
+
+        assert_eq!(positive[0].re, 1.0);
+        assert_eq!(positive[0].im, 0.0);
+
+        let expected_angle = (0.5f32 * (1.0 / 4.0)).asin() * phase_intensity;
+        assert!((positive[1].re - expected_angle.cos()).abs() < 1e-6);
+        assert!((positive[1].im - expected_angle.sin()).abs() < 1e-6);
+
+        for (pos, neg) in positive.iter().zip(negative.iter()) {
+            let magnitude = (pos.re * pos.re + pos.im * pos.im).sqrt();
+            assert!(pos.re.is_finite());
+            assert!(pos.im.is_finite());
+            assert!((magnitude - 1.0).abs() < 1e-6);
+            assert!((pos.re - neg.re).abs() < 1e-6);
+            assert!((pos.im + neg.im).abs() < 1e-6);
+        }
     }
 
     #[test]

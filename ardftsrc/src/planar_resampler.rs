@@ -297,10 +297,11 @@ where
         Ok(())
     }
 
-    /// Returns true when rates match and FFT processing can be bypassed losslessly.
+    /// Returns true when rates match and no FFT-domain processing has been requested.
     #[inline]
     fn is_passthrough(&self) -> bool {
         self.config.input_sample_rate == self.config.output_sample_rate
+            && (self.config.phase == 0.0 || self.config.phase_intensity == 0.0)
     }
 
     /// Sets previous-track context.

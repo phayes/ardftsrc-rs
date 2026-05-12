@@ -305,10 +305,11 @@ where
         Ok(())
     }
 
-    /// Returns true when rates match and FFT processing can be bypassed losslessly.
+    /// Returns true when rates match and no FFT-domain processing has been requested.
     #[inline]
     fn is_passthrough(&self) -> bool {
         self.config.input_sample_rate == self.config.output_sample_rate
+            && (self.config.phase == 0.0 || self.config.phase_intensity == 0.0)
     }
 
     /// Sets previous-track context.
@@ -657,6 +658,28 @@ mod tests {
     }
 
     #[test]
+    fn same_rate_nonzero_phase_uses_fft_path() {
+        let mut config = mono_config(48_000, 48_000);
+        config.phase = 0.5;
+        let mut resampler = InterleavedResampler::new(config).unwrap();
+        let input: Vec<f32> = (0..input_chunk_frames(&resampler) * 2 + 7)
+            .map(|frame| (frame as f32 * 0.013).cos())
+            .collect();
+
+        let output = process_all_samples(&mut resampler, &input).unwrap();
+
+        assert_eq!(output.len(), input.len());
+        assert!(output.iter().all(|sample| sample.is_finite()));
+        assert!(
+            output
+                .iter()
+                .zip(input.iter())
+                .any(|(left, right)| (left - right).abs() > 1e-6)
+        );
+        assert!(resampler.output_delay_frames() > 0);
+    }
+
+    #[test]
     fn impulse_output_is_finite() {
         let mut resampler = InterleavedResampler::new(mono_config(44_100, 48_000)).unwrap();
         let mut input = vec![0.0; input_chunk_frames(&resampler)];
@@ -666,6 +689,41 @@ mod tests {
 
         assert_eq!(output.len(), resampler.expected_output_size(input.len()));
         assert!(output.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn nonzero_phase_changes_resampled_output() {
+        let mut baseline_config = mono_config(44_100, 48_000);
+        baseline_config.phase = 0.0;
+        let mut explicit_zero_config = baseline_config.clone();
+        explicit_zero_config.phase = 0.0;
+        let mut shifted_config = baseline_config.clone();
+        shifted_config.phase = 0.5;
+
+        let mut baseline = InterleavedResampler::new(baseline_config).unwrap();
+        let input_frames = input_chunk_frames(&baseline) * 2 + 17;
+        let input: Vec<f32> = (0..input_frames)
+            .map(|frame| {
+                let t = frame as f32;
+                (t * 0.017).sin() * 0.2 + (t * 0.071).cos() * 0.05
+            })
+            .collect();
+        let baseline_output = process_all_samples(&mut baseline, &input).unwrap();
+
+        let mut explicit_zero = InterleavedResampler::new(explicit_zero_config).unwrap();
+        let explicit_zero_output = process_all_samples(&mut explicit_zero, &input).unwrap();
+        assert_eq!(explicit_zero_output, baseline_output);
+
+        let mut shifted = InterleavedResampler::new(shifted_config).unwrap();
+        let shifted_output = process_all_samples(&mut shifted, &input).unwrap();
+        assert_eq!(shifted_output.len(), baseline_output.len());
+        assert!(shifted_output.iter().all(|sample| sample.is_finite()));
+        assert!(
+            shifted_output
+                .iter()
+                .zip(baseline_output.iter())
+                .any(|(shifted, baseline)| (shifted - baseline).abs() > 1e-6)
+        );
     }
 
     #[test]
