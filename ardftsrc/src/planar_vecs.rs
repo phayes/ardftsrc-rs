@@ -3,6 +3,7 @@ use crate::Error;
 use audioadapter::Adapter;
 #[cfg(feature = "audioadapter")]
 use audioadapter::AdapterMut;
+use num_traits::cast;
 
 #[derive(Clone, Debug, PartialEq)]
 /// A channel-major container of audio samples with equal frame counts.
@@ -15,10 +16,10 @@ use audioadapter::AdapterMut;
 /// ```
 /// use ardftsrc::PlanarVecs;
 ///
-/// let planar = PlanarVecs::new(vec![vec![1_i16, 2], vec![3_i16, 4]])?;
+/// let planar = PlanarVecs::<f32>::new(vec![vec![1.0, 2.0], vec![3.0, 4.0]]).unwrap();
 /// let interleaved = planar.interleave();
 ///
-/// assert_eq!(interleaved, vec![1, 3, 2, 4]);
+/// assert_eq!(interleaved, vec![1.0, 3.0, 2.0, 4.0]);
 /// ```
 pub struct PlanarVecs<T> {
     buf: Vec<Vec<T>>,
@@ -117,6 +118,8 @@ impl<T> PlanarVecs<T> {
     /// `[L1, R1, L2, R2, ...]`
     ///
     /// For example, channels `[[1, 2], [3, 4]]` become `[1, 3, 2, 4]`.
+    /// 
+    /// See also `interleave_into()` for converting to a different sample type (eg `f64` -> `f32`) while interleaving.
     pub fn interleave(&self) -> Vec<T>
     where
         T: Clone,
@@ -126,6 +129,35 @@ impl<T> PlanarVecs<T> {
         for frame in 0..self.frames {
             for channel in &self.buf {
                 interleaved.push(channel[frame].clone());
+            }
+        }
+
+        interleaved
+    }
+}
+
+impl<T> PlanarVecs<T>
+where
+    T: Clone + num_traits::NumCast,
+{
+    /// Returns an interleaved buffer converted to `S` in frame-major order.
+    ///
+    /// This is useful when output needs a different sample type, such as
+    /// converting internal `f64` samples into `f32` playback samples.
+    ///
+    /// Panics when a sample cannot be represented in `S`.
+    pub fn interleave_into<S>(&self) -> Vec<S>
+    where
+        S: num_traits::NumCast,
+    {
+        let mut interleaved = Vec::with_capacity(self.channels() * self.frames());
+
+        for frame in 0..self.frames {
+            for channel in &self.buf {
+                let sample = channel[frame].clone();
+                interleaved.push(
+                    cast(sample).expect("interleave_into target type cannot represent source sample"),
+                );
             }
         }
 
@@ -268,5 +300,12 @@ mod tests {
         let interleaved = planar.interleave();
         let popped = planar.pop_channel().expect("mono has one channel");
         assert_eq!(interleaved, popped);
+    }
+
+    #[test]
+    fn interleave_into_converts_sample_type() {
+        let planar = PlanarVecs::new(vec![vec![1.5_f64, 2.25], vec![3.75, 4.5]]).unwrap();
+        let interleaved: Vec<f32> = planar.interleave_into();
+        assert_eq!(interleaved, vec![1.5_f32, 3.75, 2.25, 4.5]);
     }
 }

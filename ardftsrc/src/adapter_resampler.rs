@@ -7,6 +7,7 @@ use crate::{Config, Error, PlanarResampler, PlanarVecs, config::DerivedConfig, c
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
+/// `audioadapter` integration. Currently has performance issues - not recommended.
 pub struct AdapterResampler<T = f64>
 where
     T: Float + FftNum + Sample,

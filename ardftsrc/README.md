@@ -136,21 +136,24 @@ know ahead-of-time the shape of the input sample-rate and channel count. It is r
 
 # Example:
 ```rust
-let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
-let mixer = stream.mixer();
+#[cfg(feature = "realtime")]
+{
+    let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
+    let mixer = stream.mixer();
 
-let tone = rodio::source::SignalGenerator::new(
-    NonZero::new(44_100 as u32).unwrap(),
-    400, // 400 Hz
-    rodio::source::Function::Sine,
-)
-.take_duration(Duration::from_secs(3.0));
+    let tone = rodio::source::SignalGenerator::new(
+        NonZero::new(44_100 as u32).unwrap(),
+        400, // 400 Hz
+        rodio::source::Function::Sine,
+    )
+    .take_duration(Duration::from_secs(3.0));
 
-let config = PRESET_FAST.with_channels(1).with_input_rate(44_100).with_output_rate(48_000);
-let resampled_tone = RodioResampler::new(tone, config)?;
+    let config = PRESET_FAST.with_channels(1).with_input_rate(44_100).with_output_rate(48_000);
+    let resampled_tone = RodioResampler::new(tone, config)?;
 
-mixer.add(resampled_tone);
-thread::sleep(Duration::from_secs(4));
+    mixer.add(resampled_tone);
+    std::thread::sleep(Duration::from_secs(4));
+}
 ```
 
 More examples can be found:
@@ -222,13 +225,13 @@ let config = ardftsrc::PRESET_GOOD
 
 | Flag           | Enables                                                                           | Default |
 | -------------- | --------------------------------------------------------------------------------- | ------- |
-| `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
-| `realtime`     | `RealtimeResampler` streaming API backed by lock-free ring buffers                | No      |
-| `rayon`        | Parallel processing (channel and track parallelism)                               | No      |
 | `rodio`        | [`rodio`](https://crates.io/crates/rodio) integration via `rodio::RodioResampler` | No      |
+| `rayon`        | Parallelized resampling (`batch()` and `process_all()` APIs)                      | No      |
+| `realtime`     | `RealtimeResampler` streaming API backed by off-thread resampling                 | No      |
 | `avx`          | FFT AVX SIMD                                                                      | Yes     |
 | `sse`          | FFT SSE SIMD                                                                      | Yes     |
 | `neon`         | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
 | `wasm_simd`    | FFT WebAssembly SIMD                                                              | Yes     |
+| `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
