@@ -1,8 +1,11 @@
+/// Errors returned by the resampler and streaming APIs when configuration or I/O is invalid.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Error {
+    /// Input sample rate was not set or is zero before an operation that requires it.
     #[error("input sample rate must be set (non-zero); use with_input_rate()")]
     MustSetInputSampleRate,
 
+    /// Output sample rate was not set or is zero before an operation that requires it.
     #[error("output sample rate must be set (non-zero); use with_output_rate()")]
     MustSetOutputSampleRate,
 
@@ -60,11 +63,7 @@ pub enum Error {
 
     /// Additional input was submitted after final input was already provided.
     #[error("stream has already been finalized")]
-    StreamAlreadyFinalized,
-
-    /// Flush was requested more than once.
-    #[error("stream has already been flushed")]
-    AlreadyFlushed,
+    AlreadyFinalized,
 
     /// FFT backend reported an internal failure.
     #[error("FFT backend error: {0}")]
@@ -76,10 +75,13 @@ pub enum Error {
     )]
     PresetNotConfigured,
 
-    /// The background streaming worker thread panicked.
+    /// In either `RealtimeResampler` or `RodioResampler`, the background streaming worker thread panicked.
     #[error("streaming worker thread panicked: {0}")]
+    #[cfg(feature = "realtime")]
     WorkerThreadPanic(String),
 
+    /// In either `RealtimeResampler` or `RodioResampler`, spawning the realtime background worker thread failed (for example, platform limits or resource exhaustion).
     #[error("failed to launch realtime worker thread: {0}")]
+    #[cfg(feature = "realtime")]
     FailedToLaunchWorkerThread(String),
 }

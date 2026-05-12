@@ -1376,7 +1376,7 @@ mod tests {
         assert_eq!(finalize_samples_chunk(&mut resampler, &mut output).unwrap(), 0);
         assert!(matches!(
             finalize_samples_chunk(&mut resampler, &mut output),
-            Err(Error::AlreadyFlushed)
+            Err(Error::AlreadyFinalized)
         ));
     }
 }

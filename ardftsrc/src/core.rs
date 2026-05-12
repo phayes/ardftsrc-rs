@@ -259,7 +259,7 @@ where
     /// Returns a reference to the finalize output samples.
     pub fn finalize<'a>(&'a mut self) -> Result<&'a [T], Error> {
         if self.finalized {
-            return Err(Error::AlreadyFlushed);
+            return Err(Error::AlreadyFinalized);
         }
         self.final_input_seen = true;
 
@@ -340,7 +340,7 @@ where
         let input_samples = input.len();
 
         if self.final_input_seen {
-            return Err(Error::StreamAlreadyFinalized);
+            return Err(Error::AlreadyFinalized);
         }
 
         // Shortcut for passthrough mode.
