@@ -136,7 +136,7 @@ know ahead-of-time the shape of the input sample-rate and channel count. It is r
 
 # Example:
 ```rust
-#[cfg(feature = "realtime")]
+#[cfg(feature = "rodio")]
 {
     let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
     let mixer = stream.mixer();
