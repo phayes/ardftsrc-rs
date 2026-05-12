@@ -570,7 +570,7 @@ fn launch_thread<T: Float + FftNum>(
                 // Output is full, yeild the thread and continue the loop.
                 packet_output_buffer_slice = remaining_part;
                 
-                #[cfg(any(feature = "tracing", debug_assertions))]
+                #[cfg(all(feature = "tracing", debug_assertions))]
                 tracing::trace!("ardftsrc-rs: resampling worker yielding thread");
                 
                 std::thread::yield_now();
@@ -710,13 +710,13 @@ fn launch_thread<T: Float + FftNum>(
                         let idle_duration = std::time::Instant::now().duration_since(idle_start);
 
                         if idle_duration.as_millis() > IDLE_PARK_THRESHOLD_MS as u128 {
-                            #[cfg(any(feature = "tracing", debug_assertions))]
+                            #[cfg(all(feature = "tracing", debug_assertions))]
                             tracing::trace!("ardftsrc-rs: resampling worker parking thread");
                             
                             std::thread::park();
                         }
                         else if idle_duration.as_millis() > IDLE_YIELD_THRESHOLD_MS as u128 {
-                            #[cfg(any(feature = "tracing", debug_assertions))]
+                            #[cfg(all(feature = "tracing", debug_assertions))]
                             tracing::trace!("ardftsrc-rs: resampling worker yielding thread");
 
                             std::thread::yield_now();

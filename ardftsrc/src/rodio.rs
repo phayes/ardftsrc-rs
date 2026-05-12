@@ -42,7 +42,7 @@ where
     output_samples_this_span: u64,
     span_ratio: f64,
 
-    #[cfg(any(feature = "tracing", debug_assertions))]
+    #[cfg(all(feature = "tracing", debug_assertions))]
     underrun_count: u64,
 }
 
@@ -68,7 +68,7 @@ where
             output_samples_this_span: 0,
             span_ratio,
             
-            #[cfg(any(feature = "tracing", debug_assertions))]
+            #[cfg(all(feature = "tracing", debug_assertions))]
             underrun_count: 0,
         };
 
@@ -192,7 +192,7 @@ where
         let sample = self.resampler.read_sample();
 
         // Track underruns for debugging.
-        #[cfg(any(feature = "tracing", debug_assertions))]
+        #[cfg(all(feature = "tracing", debug_assertions))]
         {
             if let Some(sample) = sample {
                 if Self::sample_is_underrun(sample) {
