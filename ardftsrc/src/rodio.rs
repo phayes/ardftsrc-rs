@@ -112,7 +112,7 @@ where
     }
 
     fn fast_start(&mut self) {
-        let num_in_samples = self.resampler.initial_sample_delay() as u64;
+        let num_in_samples = self.resampler.initial_input_sample_delay() as u64;
 
         // Write the initial samples to the resampler.
         for _ in 0..num_in_samples {

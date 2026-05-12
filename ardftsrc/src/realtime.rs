@@ -62,6 +62,98 @@ pub enum Packet<T: Float + Copy> {
     EndOfStream,
 }
 
+/// Realtime reasampler for live audio streams. Requires the `realtime` feature. If you're looking for **rodio** support, see `RodioResampler`. 
+/// 
+/// The real-time resampler allow you to plug ardftsrc into your own realtime audio pipeline. It accepts interleaved samples one-at-a-time and runs the chunk resampler on a worker thread.
+/// 
+/// 1. Call `write_sample(...)` with each incoming interleaved sample and `read_sample(...)` at your output cadence.
+/// 2. For multichannel streams, samples must be written interleaved.
+/// 3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
+/// 4. Call `finalize()` at end-of-stream, then keep calling `read_sample(...)` until it returns `None`.
+///
+/// # Underruns
+/// 
+/// If the resampler is underrunning, it will emit `Some(-0.0)` (negative-zero silence). 
+/// You may do nothing (it will play as silence), or check if a sample is an underrun with `RealtimeResampler::sample_is_underrun()`.
+/// 
+/// # Startup Delay
+/// 
+/// `RealtimeResampler` has some startup delay and will emit underruns until the off-thread resampler is warmed up and producing samples. 
+/// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding through
+/// the initial underrun samples. First check `RealtimeResampler::initial_input_sample_delay()` to see how many samples are needed to prime the resampler, and pull that number of samples
+/// from upstream. See the [RodioResampler::fast_start() source code](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this.
+///
+/// # Pacing
+/// 
+/// If you are wiring `RealtimeResampler` into your own realtime audio pipeline, you'll want to keep proper pacing ratios between input and output samples.
+/// See the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback, 
+/// or very slow sponse to seeking, those are both symtoms of bad pacing. 
+///
+/// ### Spans
+///
+/// Streaming sources sometimes change format while they are still producing samples.
+/// For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono.
+/// The realtime resampler models those format regions as spans. You can start a new span with `new_span()`.
+/// When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next.
+///
+/// Input spans and output spans are non-synchronous. After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
+///
+/// # Example
+/// ```rust
+/// #[cfg(feature = "realtime")]
+/// fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Result<Vec<f32>, ardftsrc::Error> {
+///     use ardftsrc::{PRESET_GOOD, RealtimeResampler};
+///
+///     // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
+///     // Both spans are resampled to the same 48 kHz output rate.
+///     assert!(span_1_input.len().is_multiple_of(2));
+///
+///     let config = PRESET_GOOD
+///         .with_input_rate(44_100)
+///         .with_output_rate(48_000)
+///         .with_channels(2);
+///
+///     let mut resampler = RealtimeResampler::<f32>::new(config)?;
+///     let mut output = Vec::<f32>::new();
+///
+///     // This intentionally writes one sample at a time. Larger slices are more efficient,
+///     // but single-sample writes are valid.
+///     for sample in span_1_input {
+///         resampler.write_sample(sample);
+///
+///         if let Some(sample) = resampler.read_sample() {
+///             output.push(sample);
+///         }
+///
+///         if resampler.current_span_len() == Some(0) {
+///             // New span detected, maybe switch channel count in output.
+///         }
+///     }
+///
+///     resampler.new_span(48_000, 1);
+///
+///     for sample in span_2_input {
+///         resampler.write_sample(sample);
+///
+///         if let Some(sample) = resampler.read_sample() {
+///             output.push(sample);
+///         }
+///
+///         if resampler.current_span_len() == Some(0) {
+///             // New span detected, maybe switch channel count in output.
+///         }
+///     }
+///
+///     // Finalization can produce delayed tail output, so keep reading until the stream is drained.
+///     resampler.finalize();
+///     while let Some(sample) = resampler.read_sample() {
+///         output.push(sample);
+///     }
+///
+///     resampler.shutdown()?;
+///     Ok(output)
+/// }
+/// ```
 pub struct RealtimeResampler<T = f64>
 where
     T: Float + FftNum,
@@ -213,7 +305,7 @@ where
     /// Get the initial sample delay.
     #[inline]
     #[must_use]
-    pub fn initial_sample_delay(&self) -> usize {
+    pub fn initial_input_sample_delay(&self) -> usize {
         self.initial_sample_delay
     }
 

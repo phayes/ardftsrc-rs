@@ -64,3 +64,6 @@ required-features = ["rodio-playback"]
 [[example]]
 name = "rodio_adapter_with_spans"
 required-features = ["rodio-playback"]
+
+[package.metadata.docs.rs]
+all-features = true

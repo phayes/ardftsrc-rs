@@ -291,7 +291,7 @@ where
 
     fn finalize_samples(&mut self) -> Result<(), Error> {
         if self.samples_finalized {
-            return Err(Error::StreamAlreadyFinalized);
+            return Err(Error::AlreadyFinalized);
         }
 
         if !self.samples_pending_input.len().is_multiple_of(self.config().channels) {

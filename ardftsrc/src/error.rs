@@ -1,4 +1,4 @@
-/// Errors returned by the resampler and streaming APIs when configuration or I/O is invalid.
+/// Ardftsrc error types.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Error {
     /// Input sample rate was not set or is zero before an operation that requires it.
