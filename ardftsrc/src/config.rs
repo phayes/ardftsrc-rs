@@ -929,24 +929,32 @@ mod tests {
         ));
 
         let config = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             bandwidth: f32::NAN,
             ..Config::default()
         };
         assert!(matches!(config.validate(), Err(Error::InvalidBandwidth(_))));
 
         let zero_alpha = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             taper_type: TaperType::Cosine(0.0),
             ..Config::default()
         };
         assert!(matches!(zero_alpha.validate(), Err(Error::InvalidAlpha(0.0))));
 
         let negative_alpha = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             taper_type: TaperType::Cosine(-1.0),
             ..Config::default()
         };
         assert!(matches!(negative_alpha.validate(), Err(Error::InvalidAlpha(-1.0))));
 
         let non_finite_alpha = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             taper_type: TaperType::Cosine(f32::NAN),
             ..Config::default()
         };
@@ -957,6 +965,8 @@ mod tests {
 
         for phase in [-1.0, 0.0, 1.0] {
             let config = Config {
+                input_sample_rate: 48_000,
+                output_sample_rate: 48_000,
                 phase,
                 ..Config::default()
             };
@@ -965,6 +975,8 @@ mod tests {
 
         for phase in [-1.0001, 1.0001] {
             let config = Config {
+                input_sample_rate: 48_000,
+                output_sample_rate: 48_000,
                 phase,
                 ..Config::default()
             };
@@ -972,6 +984,8 @@ mod tests {
         }
 
         let non_finite_phase = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             phase: f32::NAN,
             ..Config::default()
         };
@@ -982,6 +996,8 @@ mod tests {
 
         for phase_intensity in [0.0, Config::DEFAULT.phase_intensity, 100.0] {
             let config = Config {
+                input_sample_rate: 48_000,
+                output_sample_rate: 48_000,
                 phase_intensity,
                 ..Config::default()
             };
@@ -990,6 +1006,8 @@ mod tests {
 
         for phase_intensity in [-0.0001, 100.0001] {
             let config = Config {
+                input_sample_rate: 48_000,
+                output_sample_rate: 48_000,
                 phase_intensity,
                 ..Config::default()
             };
@@ -997,6 +1015,8 @@ mod tests {
         }
 
         let non_finite_phase_intensity = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             phase_intensity: f32::NAN,
             ..Config::default()
         };
@@ -1039,6 +1059,8 @@ mod tests {
     #[test]
     fn rejects_quality_above_8192_for_f32_derived_config() {
         let config = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             quality: 8193,
             ..Config::default()
         };
@@ -1051,6 +1073,8 @@ mod tests {
     #[test]
     fn allows_quality_8192_for_f32_derived_config() {
         let config = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             quality: 8192,
             ..Config::default()
         };
@@ -1060,6 +1084,8 @@ mod tests {
     #[test]
     fn allows_high_quality_for_f64_derived_config() {
         let config = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
             quality: 65_536,
             ..Config::default()
         };
