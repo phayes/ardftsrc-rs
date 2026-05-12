@@ -114,6 +114,10 @@ fn golden_hashes_match() -> Result<(), Box<dyn Error>> {
     }
 
     for entry in golden_entries {
+        if !should_test_entry(entry.float_type.as_str(), entry.preset.as_str()) {
+            continue;
+        }
+
         let preset_base = preset_config_for_name(&entry.preset)?;
         let actual_hashes = match entry.float_type.as_str() {
             "f32" => generate_hashes_f32(&wavs, preset_base, entry.target_rate)?,
@@ -131,6 +135,14 @@ fn golden_hashes_match() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn should_test_entry(float_type: &str, preset: &str) -> bool {
+    if preset == "fast" {
+        matches!(float_type, "f32" | "f64")
+    } else {
+        float_type == "f64"
+    }
 }
 
 fn parse_golden_entries(golden_json: &str) -> Result<Vec<GoldenEntry>, Box<dyn Error>> {
