@@ -278,9 +278,7 @@ impl Config {
         rodio_fast_start: false,
     };
 
-    /// Builds a config with explicit sample rates/channel count and default quality settings.
-    ///
-    /// Returns a new `Config` value; semantic validation is deferred to `validate`.
+    /// Builds a config with explicit sample rates/channel count and default (PRESET_GOOD) quality settings.
     #[must_use]
     pub fn new(input_sample_rate: usize, output_sample_rate: usize, channels: usize) -> Self {
         Self {
@@ -482,7 +480,7 @@ impl Config {
     /// Computes derived FFT/chunk geometry from validated user configuration.
     ///
     /// Returns `DerivedConfig` for processing, or an error if validation fails.
-    pub fn derive_config<T>(&self) -> Result<DerivedConfig<T>, Error>
+    pub(crate) fn derive_config<T>(&self) -> Result<DerivedConfig<T>, Error>
     where
         T: Float,
     {
@@ -498,10 +496,11 @@ impl Config {
         Ok(DerivedConfig::from_config(self))
     }
 
-    // Returns the required input and output buffer sizes for realtime resampling.
-    //
-    // Returns (input_buffer_size, output_buffer_size)
-    pub fn realtime_buffer_sizes(&self) -> (usize, usize) {
+    /// Returns the required input and output buffer sizes for realtime resampling.
+    ///
+    /// Returns (input_buffer_size, output_buffer_size)
+    #[cfg(feature = "realtime")]
+    pub(crate) fn realtime_buffer_sizes(&self) -> (usize, usize) {
         let quality = self.quality;
         let fixed_output_rate = self.output_sample_rate;
         let min_input_rate = self.realtime_input_range.start;
