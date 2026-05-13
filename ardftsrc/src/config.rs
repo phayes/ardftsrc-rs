@@ -163,7 +163,7 @@ impl Default for TaperType {
 
 #[derive(Debug, Clone, PartialEq)]
 /// Configures the ardftsrc resampler.
-/// 
+///
 /// # Example
 ///
 /// ```rust
@@ -323,7 +323,7 @@ impl Config {
     }
 
     /// Set the overall "quality" of the resampler.
-    /// 
+    ///
     /// Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
     /// but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
     ///

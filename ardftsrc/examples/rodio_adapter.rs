@@ -1,6 +1,6 @@
 use ardftsrc::PRESET_FAST;
 use ardftsrc::RodioResampler;
-use rodio::{cpal::BufferSize, Source};
+use rodio::{Source, cpal::BufferSize};
 use std::error::Error;
 use std::num::NonZero;
 use std::thread;

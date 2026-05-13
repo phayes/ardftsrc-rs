@@ -54,7 +54,12 @@ where
         let span_ratio = resampler.input_sample_rate() as f64 / resampler.output_sample_rate() as f64;
 
         #[cfg(feature = "tracing")]
-        tracing::trace!("Creating resampler. Input rate: {}, Output rate: {} (ratio: {})", resampler.input_sample_rate(), resampler.output_sample_rate(), span_ratio);
+        tracing::trace!(
+            "Creating resampler. Input rate: {}, Output rate: {} (ratio: {})",
+            resampler.input_sample_rate(),
+            resampler.output_sample_rate(),
+            span_ratio
+        );
 
         let mut rodio_resampler = Self {
             inner,
@@ -76,14 +81,6 @@ where
 
     fn set_span_ratio(&mut self) {
         self.span_ratio = self.resampler.input_sample_rate() as f64 / self.resampler.output_sample_rate() as f64;
-
-        #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "resampling: {} -> {} (ratio: {})",
-            self.resampler.input_sample_rate(),
-            self.resampler.output_sample_rate(),
-            self.span_ratio
-        );
     }
 
     fn maybe_new_input_span(&mut self) {
@@ -100,6 +97,15 @@ where
             self.samples_this_span = 0;
             self.output_samples_this_span = 0;
             self.set_span_ratio();
+
+            #[cfg(feature = "tracing")]
+            tracing::trace!(
+                "new input span started: {} -> {} (ratio: {})",
+                self.resampler.input_sample_rate(),
+                input_sample_rate,
+                input_channels,
+                self.span_ratio,
+            );
         }
     }
 
@@ -118,6 +124,7 @@ where
         inner_pulls
     }
 
+    // Pull a sample from the inner source and write it to the resampler.
     fn pull_inner_sample(&mut self, count_samples: bool) {
         // Check for a new span on each pull since downsampling can consume >1 input sample per output.
         let new_span_after_next = self.inner.current_span_len() == Some(1);
@@ -147,10 +154,9 @@ where
         }
     }
 
+    // Fast-start the resampler by pulling samples from the inner source until the resampler is primed.
     fn fast_start(&mut self) {
-        let (_input_buffer_size, output_buffer_size) = self.config.realtime_buffer_sizes();
-        // Write the initial samples to the resampler. `output_buffer_size * 2` is sized to StreamingSpan: samples_pending_output: VecDeque::with_capacity(output_chunk_size * 2)
-        while self.resampler.num_samples_ready() < output_buffer_size {
+        while !self.resampler.is_primed() {
             if self.stream_input_ended {
                 break;
             }

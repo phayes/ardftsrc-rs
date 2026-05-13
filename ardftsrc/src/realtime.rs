@@ -147,29 +147,26 @@ where
             return true;
         }
 
-        let chunks_processed: usize = self
-            .spans
-            .spans
-            .iter()
-            .map(|span| span.chunks_processed)
-            .sum();
+        let chunks_processed: usize = self.spans.spans.iter().map(|span| span.chunks_processed).sum();
 
         self.is_primed = chunks_processed >= 2;
         self.is_primed
     }
 
     /// Estimates the number of input samples required to prime the resampler.
-    /// 
+    ///
     /// This can be innacurate if there is a span transition during the priming process.
     pub fn estimate_priming_samples(&self) -> usize {
         self.active_input_span().input_buffer_size() * 2
     }
 
     /// Estimates the duration required to prime the resampler.
-    /// 
+    ///
     /// This can be innacurate if there is a span transition during the priming process.
     pub fn estimate_priming_duration(&self) -> std::time::Duration {
-        std::time::Duration::from_secs_f64(self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64 * 1000.0)
+        std::time::Duration::from_secs_f64(
+            self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64 * 1000.0,
+        )
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -257,7 +254,7 @@ where
     pub fn is_done(&self) -> bool {
         self.spans.spans.len() == 1 && self.spans.spans.front().is_some_and(StreamingSpan::is_drained)
     }
-    
+
     pub fn is_finalized(&self) -> bool {
         self.spans.is_finalized()
     }

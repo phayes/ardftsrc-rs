@@ -7,9 +7,9 @@ use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore
 
 /// Chunked sample-rate converter for planar audio buffers.
 ///
-/// Use this resampler when you can control both read and write buffer sizes, and your audio is already in planar format. 
+/// Use this resampler when you can control both read and write buffer sizes, and your audio is already in planar format.
 /// Query `input_buffer_size()` and `output_buffer_size()`, then size your input and output
-/// channel slices to those values. 
+/// channel slices to those values.
 ///
 /// 1. Construct with `PlanarResampler::new(config)`.
 /// 2. Query `input_buffer_size()` and `output_buffer_size()`.

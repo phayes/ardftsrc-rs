@@ -118,7 +118,7 @@ impl<T> PlanarVecs<T> {
     /// `[L1, R1, L2, R2, ...]`
     ///
     /// For example, channels `[[1, 2], [3, 4]]` become `[1, 3, 2, 4]`.
-    /// 
+    ///
     /// See also `interleave_into()` for converting to a different sample type (eg `f64` -> `f32`) while interleaving.
     pub fn interleave(&self) -> Vec<T>
     where
@@ -155,9 +155,7 @@ where
         for frame in 0..self.frames {
             for channel in &self.buf {
                 let sample = channel[frame].clone();
-                interleaved.push(
-                    cast(sample).expect("interleave_into target type cannot represent source sample"),
-                );
+                interleaved.push(cast(sample).expect("interleave_into target type cannot represent source sample"));
             }
         }
 
