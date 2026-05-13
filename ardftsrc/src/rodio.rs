@@ -4,12 +4,12 @@ use realfft::FftNum;
 
 /// Wrap a `rodio::Source` and resample it in realtime in your rodio pipeline. Requires the `rodio` feature.
 ///
-/// When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use `config.with_rodio_fast_start(true)`, which will 
-/// avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
+/// When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use `config.with_rodio_fast_start(true)`, which will
+/// avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar,
 /// do not enable fast-start.
 ///
 /// Additional configuration settings are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
-/// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous. 
+/// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous.
 ///
 /// # Example:
 /// ```rust
@@ -41,9 +41,6 @@ where
     samples_this_span: u64,
     output_samples_this_span: u64,
     span_ratio: f64,
-
-    #[cfg(all(feature = "tracing", debug_assertions))]
-    underrun_count: u64,
 }
 
 impl<S, T> RodioResampler<S, T>
@@ -67,9 +64,6 @@ where
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
-            
-            #[cfg(all(feature = "tracing", debug_assertions))]
-            underrun_count: 0,
         };
 
         if fast_start {
@@ -100,12 +94,6 @@ where
         }
     }
 
-    #[inline]
-    #[must_use]
-    pub fn sample_is_underrun(sample: T) -> bool {
-        sample.is_zero() && sample.is_sign_negative()
-    }
-
     /// Estimate the number of input samples to pull this tick.
     fn calculate_inner_pulls(&mut self) -> u64 {
         // If the inner stream is ended, return zero.
@@ -128,8 +116,9 @@ where
         // If input is none, end the stream, but keep reading until the resampler is drained.
         match self.inner.next() {
             Some(sample) => {
-                self.resampler.write_sample(num_traits::cast(sample).unwrap());
-                self.samples_this_span += 1;
+                if self.resampler.write_sample(num_traits::cast(sample).unwrap()) {
+                    self.samples_this_span += 1;
+                }
             }
             None => {
                 if !self.stream_input_ended {
@@ -149,20 +138,28 @@ where
 
         // Write the initial samples to the resampler.
         for _ in 0..num_in_samples {
+            if self.stream_input_ended {
+                break;
+            }
             self.pull_inner_sample();
         }
 
-        // Peak and read the initial samples from the resampler.
-        let mut sample = None;
+        // Treat the pre-pulled input as intentional lead so normal pacing preserves it.
+        self.output_samples_this_span = (self.samples_this_span as f64 / self.span_ratio).ceil() as u64;
+
+        // Wait until the worker has produced output without consuming the startup backlog.
         let mut spins: u32 = 0;
-        while sample.is_none() {
-            sample = self.resampler.peek_sample();
-            if let Some(sample) = sample {
-                if !Self::sample_is_underrun(sample) {
-                    break;
+        loop {
+            if let Some(sample) = self.resampler.peek_sample() {
+                if !RealtimeResampler::sample_is_underrun(sample) {
+                    return;
                 }
             }
-            sample = self.resampler.read_sample();
+
+            if self.stream_input_ended {
+                return;
+            }
+
             spins += 1;
             if spins > 100 {
                 std::thread::yield_now();
@@ -189,26 +186,7 @@ where
         }
 
         // Read the sample
-        let sample = self.resampler.read_sample();
-
-        // Track underruns for debugging.
-        #[cfg(all(feature = "tracing", debug_assertions))]
-        {
-            if let Some(sample) = sample {
-                if Self::sample_is_underrun(sample) {
-                    if self.underrun_count == 0 {
-                        tracing::warn!("ardftsrc-rs: rodio resampler - underrun detected");
-                    }
-                    self.underrun_count += 1;
-                }
-                else if self.underrun_count > 0 {
-                    tracing::warn!("ardftsrc-rs: rodio resampler - underrun resolved after {} samples", self.underrun_count);
-                    self.underrun_count = 0;
-                }
-            }
-        }
-
-        sample
+        self.resampler.read_sample()
     }
 }
 
@@ -278,5 +256,33 @@ where
         self.stream_input_ended = false;
         self.just_seeked = true;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PRESET_GOOD;
+    use std::num::NonZero;
+
+    #[test]
+    fn fast_start_preserves_pre_pulled_input_as_pacing_lead() {
+        let tone = rodio::source::SignalGenerator::new(
+            NonZero::new(44_100).expect("constant non-zero sample rate"),
+            440.0,
+            rodio::source::Function::Sine,
+        );
+
+        let config = PRESET_GOOD
+            .with_channels(2)
+            .with_input_rate(44_100)
+            .with_output_rate(96_000)
+            .with_rodio_fast_start(true);
+
+        let mut resampler = RodioResampler::new(tone, config).expect("resampler should construct");
+
+        assert_eq!(resampler.samples_this_span, 12_348);
+        assert_eq!(resampler.output_samples_this_span, 26_880);
+        assert_eq!(resampler.calculate_inner_pulls(), 1);
     }
 }

@@ -2,12 +2,12 @@ use num_traits::Float;
 use realfft::FftNum;
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use crate::{Config, Error, offthread::OffThreadStreamingResampler};
+use crate::{offthread::OffThreadStreamingResampler, Config, Error};
 
 // PERFORMANCE TUNING PARAMETERS
 //
@@ -208,6 +208,9 @@ where
     // Track the total number of input samples written to the resampler.
     // This is used to determine if we need to prime output with silence.
     total_input_samples_written: usize,
+
+    #[cfg(all(feature = "tracing", debug_assertions))]
+    underrun_count: u64,
 }
 
 impl<T> Drop for RealtimeResampler<T>
@@ -262,6 +265,9 @@ where
             initial_sample_delay: 0,
             total_input_samples_written: 0,
             local_read_buffer: VecDeque::with_capacity(LOCAL_READ_BUFFER_SIZE),
+
+            #[cfg(all(feature = "tracing", debug_assertions))]
+            underrun_count: 0,
         };
         instance.set_samples_per_wake();
         instance.set_initial_sample_delay();
@@ -353,6 +359,7 @@ where
     pub fn read_sample(&mut self) -> Option<T> {
         // If we are still priming the resampler, return negative-zero silence.
         if self.total_input_samples_written < self.initial_sample_delay {
+            // Initial startup silence is expected and should not be reported as an underrun.
             return Some(T::neg_zero());
         }
 
@@ -368,7 +375,7 @@ where
                         *current_span_len -= 1;
                     }
                     self.track_sample_read_for_wake(1);
-                    Some(sample)
+                    self.track_underrun(Some(sample))
                 }
                 Packet::NewSpanPending(n) => {
                     self.current_span_len = Some(n);
@@ -387,8 +394,31 @@ where
             }
 
             // If we're not abandoned, we're underrun.
-            return Some(T::neg_zero());
+            return self.track_underrun(Some(T::neg_zero()));
         }
+    }
+
+    #[inline]
+    fn track_underrun(&mut self, sample: Option<T>) -> Option<T> {
+        #[cfg(all(feature = "tracing", debug_assertions))]
+        {
+            if let Some(sample) = sample {
+                if Self::sample_is_underrun(sample) {
+                    if self.underrun_count == 0 {
+                        tracing::warn!("ardftsrc-rs: realtime resampler - underrun detected");
+                    }
+                    self.underrun_count += 1;
+                } else if self.underrun_count > 0 {
+                    tracing::warn!(
+                        "ardftsrc-rs: realtime resampler - underrun resolved after {} samples",
+                        self.underrun_count
+                    );
+                    self.underrun_count = 0;
+                }
+            }
+        }
+
+        sample
     }
 
     #[inline]
@@ -422,6 +452,8 @@ where
         let packet = Packet::Sample(sample);
         let res = self.in_producer.push(packet);
         if res.is_err() {
+            #[cfg(all(feature = "tracing", debug_assertions))]
+            tracing::warn!("ardftsrc-rs: failed to push sample to input ring buffer - it is full");
             return false;
         }
 
@@ -549,6 +581,9 @@ fn launch_thread<T: Float + FftNum>(
             channels: streaming_sampler.output_channels() as u8,
         };
 
+        // Track instances where we might yield so we can trace them (and not spam every loop iteration)
+        let mut output_buffer_is_full = false;
+
         let mut write_output_packets = |output_slice: &[T], out_producer: &mut Producer<Packet<T>>, in_consumer: &mut Consumer<Packet<T>>| {
             packet_output_buffer.clear();
             packet_output_buffer.extend(output_slice.iter().map(|s| Packet::Sample(*s)));
@@ -559,6 +594,7 @@ fn launch_thread<T: Float + FftNum>(
                 let (_written_part, remaining_part) = out_producer.push_partial_slice(&packet_output_buffer_slice);
 
                 if remaining_part.is_empty() {
+                    output_buffer_is_full = false;
                     break;
                 }
 
@@ -569,10 +605,15 @@ fn launch_thread<T: Float + FftNum>(
 
                 // Output is full, yeild the thread and continue the loop.
                 packet_output_buffer_slice = remaining_part;
-                
+
                 #[cfg(all(feature = "tracing", debug_assertions))]
-                tracing::trace!("ardftsrc-rs: resampling worker yielding thread");
-                
+                {
+                    if !output_buffer_is_full {
+                        output_buffer_is_full = true;
+                        tracing::trace!("ardftsrc-rs: output buffer is full, yielding thread");
+                    }
+                }
+
                 std::thread::yield_now();
             }
         };
@@ -638,8 +679,13 @@ fn launch_thread<T: Float + FftNum>(
                     // If so, push the end of stream packet and return, exiting the thread.
                     if samples_read == 0 {
                         if streaming_sampler.is_done() {
-                            let _ = out_producer.push(Packet::EndOfStream);
-                            return Ok(());
+                            match out_producer.push(Packet::EndOfStream) {
+                                Ok(_) => return Ok(()),
+                                Err(_) => {
+                                    // Do nothing, we'll try again in the next iteration.
+                                    continue;
+                                }
+                            }
                         }
                     } else {
                         write_output_packets(&sample_output_buffer[..samples_read], &mut out_producer, &mut in_consumer);
@@ -677,8 +723,13 @@ fn launch_thread<T: Float + FftNum>(
                 }
             };
 
+            // We did some work, so we're not idle.
+            if did_input_work || did_output_work {
+                continue;
+            }
+
             // If we didn't do any work, either busy-wait, yield, or park the thread.
-            if !did_input_work && !did_output_work {
+            else {
                 // If the input is abandoned, exit the thread.
                 if in_consumer.is_abandoned() {
                     return Ok(());
@@ -689,10 +740,8 @@ fn launch_thread<T: Float + FftNum>(
                     match out_producer.push(Packet::EndOfStream) {
                         Ok(_) => return Ok(()),
                         Err(_) => {
-                            #[cfg(debug_assertions)]
-                            {
-                                // TODO: Log this, we will try again in the next iteration.
-                            }
+                            // Do nothing, we'll try again in the next iteration.
+                            continue;
                         }
                     }
                 }
@@ -712,13 +761,10 @@ fn launch_thread<T: Float + FftNum>(
                         if idle_duration.as_millis() > IDLE_PARK_THRESHOLD_MS as u128 {
                             #[cfg(all(feature = "tracing", debug_assertions))]
                             tracing::trace!("ardftsrc-rs: resampling worker parking thread");
-                            
+
                             std::thread::park();
                         }
                         else if idle_duration.as_millis() > IDLE_YIELD_THRESHOLD_MS as u128 {
-                            #[cfg(all(feature = "tracing", debug_assertions))]
-                            tracing::trace!("ardftsrc-rs: resampling worker yielding thread");
-
                             std::thread::yield_now();
                         }
                         else {
@@ -739,9 +785,12 @@ fn launch_thread<T: Float + FftNum>(
                     // We shouldn't be idling, but maybe we should at least yield the thread.
                     if current_output_samples < streaming_sampler.output_buffer_size() {
                         // if the output ring buffer has less than one buffer-worth of samples, busy wait so we dont underrun.
+                        #[cfg(all(feature = "tracing", debug_assertions))]
+                        tracing::trace!("ardftsrc-rs: output ring buffer has less than one buffer-worth of samples, busy waiting");
                         std::hint::spin_loop();
                     } else {
                         // We've got enough leeway to yield the thread.
+                        #[cfg(all(feature = "tracing", debug_assertions))]
                         std::thread::yield_now();
                     }
                 }
@@ -756,7 +805,6 @@ fn launch_thread<T: Float + FftNum>(
 mod tests {
     use super::*;
     use crate::InterleavedResampler;
-    use std::mem::size_of;
 
     fn endpoint_chunk_sizes(input_rate: usize, output_rate: usize, quality: usize, channels: usize) -> (usize, usize) {
         let mut a = input_rate;
@@ -832,6 +880,8 @@ mod tests {
             phase_intensity: config.phase_intensity,
             realtime_input_range: config.realtime_input_range.clone(),
             realtime_max_channels: config.realtime_max_channels,
+            #[cfg(feature = "rodio")]
+            rodio_fast_start: config.rodio_fast_start,
         };
         let interleaved = InterleavedResampler::<f32>::new(max_endpoint_config).unwrap();
 
@@ -858,6 +908,8 @@ mod tests {
             phase_intensity: config.phase_intensity,
             realtime_input_range: config.realtime_input_range.clone(),
             realtime_max_channels: config.realtime_max_channels,
+            #[cfg(feature = "rodio")]
+            rodio_fast_start: config.rodio_fast_start,
         };
         let offthread = OffThreadStreamingResampler::<f32>::new(min_endpoint_config).unwrap();
 
