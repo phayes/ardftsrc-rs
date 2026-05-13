@@ -21,8 +21,8 @@ mod test_utils;
 #[cfg(feature = "realtime")]
 mod realtime;
 
-#[cfg(feature = "realtime")]
-mod offthread;
+//#[cfg(feature = "realtime")]
+//mod offthread;
 
 #[cfg(feature = "realtime")]
 pub use realtime::RealtimeResampler;

@@ -51,7 +51,9 @@ where
     fn new_typed(inner: S, config: Config) -> Result<Self, Error> {
         let fast_start = config.rodio_fast_start;
         let resampler = RealtimeResampler::new(config.clone())?;
-        let span_ratio = resampler.input_sample_rate() as f64 / resampler.output_sample_rate() as f64;
+        let span_format_in = resampler.span_format_in();
+        let span_format_out = resampler.span_format_out();
+        let span_ratio = span_format_in.sample_rate as f64 / span_format_out.sample_rate as f64;
 
         let mut rodio_resampler = Self {
             inner,
@@ -63,7 +65,7 @@ where
             output_samples_this_span: 0,
             span_ratio,
         };
-        rodio_resampler.set_span_ratio();
+
         if fast_start {
             rodio_resampler.fast_start();
         }
@@ -72,28 +74,20 @@ where
     }
 
     fn set_span_ratio(&mut self) {
-        self.span_ratio = self.resampler.input_sample_rate() as f64 / self.resampler.output_sample_rate() as f64;
-
-        #[cfg(feature = "tracing")]
-        tracing::trace!(
-            "resampling: {} -> {} (ratio: {})",
-            self.resampler.input_sample_rate(),
-            self.resampler.output_sample_rate(),
-            self.span_ratio
-        );
+        let span_format_in = self.resampler.span_format_in();
+        let span_format_out = self.resampler.span_format_out();
+        self.span_ratio = span_format_in.sample_rate as f64 / span_format_out.sample_rate as f64;
     }
 
-    fn maybe_new_input_span(&mut self) {
-        let current_input_sample_rate = self.resampler.input_sample_rate();
-        let current_input_channels = self.resampler.input_channels();
-
-        let input_sample_rate = self.inner.sample_rate().get() as usize;
-        let input_channels = self.inner.channels().get() as usize;
-
-        if current_input_sample_rate != input_sample_rate || current_input_channels != input_channels {
-            self.resampler
-                .new_span(input_sample_rate, input_channels)
-                .expect("failed to create new input span - this is a bug in the ardftsrc crate");
+    fn maybe_new_span(&mut self) {
+        let span_format_in = self.resampler.span_format_in();
+        if self.inner.sample_rate().get() != span_format_in.sample_rate
+            || self.inner.channels().get() != span_format_in.channels as u16
+        {
+            self.resampler.new_span(
+                self.inner.sample_rate().get() as usize,
+                self.inner.channels().get() as usize,
+            );
             self.samples_this_span = 0;
             self.output_samples_this_span = 0;
             self.set_span_ratio();
@@ -122,36 +116,57 @@ where
         // If input is none, end the stream, but keep reading until the resampler is drained.
         match self.inner.next() {
             Some(sample) => {
-                self.resampler
-                    .write_samples(&[num_traits::cast(sample).unwrap()])
-                    .expect("failed to write sample");
-                if count_samples {
-                    self.samples_this_span += 1;
+                if self.resampler.write_sample(num_traits::cast(sample).unwrap()) {
+                    if count_samples {
+                        self.samples_this_span += 1;
+                    }
                 }
             }
             None => {
                 if !self.stream_input_ended {
                     self.stream_input_ended = true;
-                    self.resampler
-                        .finalize()
-                        .expect("failed to finalize resampler - this is a bug in the ardftsrc crate");
+                    self.resampler.finalize();
                 }
             }
         }
 
         if new_span_after_next {
-            self.maybe_new_input_span();
+            self.maybe_new_span();
         }
     }
 
     fn fast_start(&mut self) {
-        let (_input_buffer_size, output_buffer_size) = self.config.realtime_buffer_sizes();
-        // Write the initial samples to the resampler. `output_buffer_size * 2` is sized to StreamingSpan: samples_pending_output: VecDeque::with_capacity(output_chunk_size * 2)
-        while self.resampler.num_samples_ready() < output_buffer_size {
+        let num_in_samples = self.resampler.initial_input_sample_delay() as u64;
+
+        // Write the initial samples to the resampler.
+        for _ in 0..num_in_samples {
             if self.stream_input_ended {
                 break;
             }
             self.pull_inner_sample(false);
+        }
+
+        // Wait until the worker has produced output without consuming the startup backlog.
+        let mut spins: u32 = 0;
+        loop {
+            self.pull_inner_sample(false);
+            
+            if let Some(sample) = self.resampler.peek_sample() {
+                if !RealtimeResampler::sample_is_underrun(sample) {
+                    return;
+                }
+            }
+
+            if self.stream_input_ended {
+                return;
+            }
+
+            spins += 1;
+            if spins > 100 {
+                std::thread::yield_now();
+                spins = 0;
+            }
+            std::hint::spin_loop();
         }
     }
 
@@ -159,7 +174,7 @@ where
     fn next_sample(&mut self) -> Option<T> {
         // If we just seeked, we may already be in a new span.
         if self.just_seeked {
-            self.maybe_new_input_span();
+            self.maybe_new_span();
             self.just_seeked = false;
         }
 
@@ -216,11 +231,11 @@ where
     T: Float + FftNum,
 {
     fn sample_rate(&self) -> std::num::NonZero<u32> {
-        std::num::NonZero::new(self.resampler.output_sample_rate() as u32).unwrap()
+        std::num::NonZero::new(self.resampler.span_format_out.sample_rate as u32).unwrap()
     }
 
     fn channels(&self) -> std::num::NonZero<u16> {
-        std::num::NonZero::new(self.resampler.output_channels() as u16).unwrap()
+        std::num::NonZero::new(self.resampler.span_format_out.channels as u16).unwrap()
     }
 
     fn total_duration(&self) -> Option<core::time::Duration> {
@@ -228,21 +243,19 @@ where
             if self.config.rodio_fast_start {
                 inner_duration
             } else {
-                // TODO: inner_duration + self.resampler.initial_sample_delay_duration()
-                inner_duration
+                inner_duration + self.resampler.initial_sample_delay_duration()
             }
         })
     }
 
     fn current_span_len(&self) -> Option<usize> {
-        self.resampler.samples_left_in_span()
+        self.resampler.current_span_len()
     }
 
     fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {
         self.inner.try_seek(time)?;
         self.stream_input_ended = false;
         self.just_seeked = true;
-        self.maybe_new_input_span();
         Ok(())
     }
 }

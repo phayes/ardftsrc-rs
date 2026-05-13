@@ -173,47 +173,6 @@ https://src.hydrogenaudio.org/compareresults?id1=f5d9a9c0-0019-43d4-8b39-6dba547
 
 This was not benchmarked. It's stupidly slow, but it looks pretty!
 
-
-# Realtime Assessment
-
-FFT's are naturally bursty. This measures the amount of time required to process a full chunk.
-For live / realtime use, a resampler should ideally use a very small fraction of the total
-inter-sample budget (the peroid of the sample rate). 
-
-While ardftsrc-rs has enough *throughput* for realtime use, the burstly nature of FFT's
-means that it's chunk resamplers cannot be used for on-thread resampling between samples.
-
-Realtime use of ardftsrc-rs requires using `RealtimeResampler` to use off-thread resampling.
-Enable the `realtime` feature to use the real-time resampler. 
-
-*Chunk Resampler chunk time*
-
-| scenario               | preset | type | chunk time (µs) | budget (µs) |
-| :--------------------- | :----- | :--- | --------------: | ----------: |
-| 44.1 kHz -> 22.05 kHz  | fast   | f32  |          9.7287 |       45.35 |
-| 96 kHz -> 22.05 kHz    | fast   | f32  |          16.003 |       45.35 |
-| 22.05 kHz -> 48 kHz    | fast   | f32  |          9.5585 |       20.83 |
-| 44.1 kHz -> 48 kHz     | fast   | f32  |          12.318 |       20.83 |
-| 96 kHz -> 48 kHz       | fast   | f32  |          5.1023 |       20.83 |
-| 22.05 kHz -> 96 kHz    | fast   | f32  |          16.254 |       10.42 |
-| 44.1 kHz -> 96 kHz     | fast   | f32  |          18.751 |       10.42 |
-| 44.1 kHz -> 22.05 kHz  | fast   | f64  |          15.093 |       45.35 |
-| 96 kHz -> 22.05 kHz    | fast   | f64  |          23.123 |       45.35 |
-| 22.05 kHz -> 48 kHz    | fast   | f64  |          13.493 |       20.83 |
-| 44.1 kHz -> 48 kHz     | fast   | f64  |          17.217 |       20.83 |
-| 96 kHz -> 48 kHz       | fast   | f64  |          7.8326 |       20.83 |
-| 22.05 kHz -> 96 kHz    | fast   | f64  |          23.438 |       10.42 |
-| 44.1 kHz -> 96 kHz     | fast   | f64  |          26.005 |       10.42 |
-| 22.05 kHz -> 22.05 kHz | good   | f64  |          3.3358 |       45.35 |
-| 44.1 kHz -> 22.05 kHz  | good   | f64  |          200.15 |       45.35 |
-| 96 kHz -> 22.05 kHz    | good   | f64  |          101.87 |       45.35 |
-| 22.05 kHz -> 48 kHz    | good   | f64  |          58.623 |       20.83 |
-| 44.1 kHz -> 48 kHz     | good   | f64  |          73.415 |       20.83 |
-| 96 kHz -> 48 kHz       | good   | f64  |          103.49 |       20.83 |
-| 22.05 kHz -> 96 kHz    | good   | f64  |          102.54 |       10.42 |
-| 44.1 kHz -> 96 kHz     | good   | f64  |          111.33 |       10.42 |
-| 96 kHz -> 96 kHz       | good   | f64  |          3.3233 |       10.42 |
-
 # Misc Observations to follow up on:
 
 1. Rubato could benefit from a fast-path no-op for matching sample rates.
