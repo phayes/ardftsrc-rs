@@ -13,6 +13,7 @@ where
 {
     spans: SpanPool<T>,
     single_sample_read_buffer: [T; 1],
+    is_primed: bool,
 
     #[cfg(feature = "tracing")]
     underrun_count: usize,
@@ -28,6 +29,7 @@ where
     samples_input_chunk_buffer: Vec<T>,
     samples_output_chunk_buffer: Vec<T>,
     samples_finalized: bool,
+    chunks_processed: usize,
 }
 
 // TODO: Move various methods from RealtimeResampler to here
@@ -78,6 +80,10 @@ where
             self.spans.pop_front();
         }
     }
+
+    fn is_finalized(&self) -> bool {
+        self.spans.iter().all(|span| span.inner.is_finalized())
+    }
 }
 
 impl<T> RealtimeResampler<T>
@@ -89,6 +95,7 @@ where
         Ok(Self {
             spans: SpanPool::new(config)?,
             single_sample_read_buffer: [T::zero(); 1],
+            is_primed: false,
             #[cfg(feature = "tracing")]
             underrun_count: 0,
         })
@@ -122,6 +129,47 @@ where
     #[inline]
     pub fn num_samples_ready(&self) -> usize {
         self.active_output_span().samples_pending_output.len()
+    }
+
+    /// Returns true when the output buffer has enough samples for realtime `read_sample()` pulls.
+    #[must_use]
+    #[inline]
+    pub fn is_primed(&mut self) -> bool {
+        if self.is_primed {
+            return true;
+        }
+
+        if self.is_finalized() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!("RealtimeResampler finalized before bring fully primed");
+            dbg!("RealtimeResampler finalized before bring fully primed");
+            self.is_primed = true;
+            return true;
+        }
+
+        let chunks_processed: usize = self
+            .spans
+            .spans
+            .iter()
+            .map(|span| span.chunks_processed)
+            .sum();
+
+        self.is_primed = chunks_processed >= 2;
+        self.is_primed
+    }
+
+    /// Estimates the number of input samples required to prime the resampler.
+    /// 
+    /// This can be innacurate if there is a span transition during the priming process.
+    pub fn estimate_priming_samples(&self) -> usize {
+        self.active_input_span().input_buffer_size() * 2
+    }
+
+    /// Estimates the duration required to prime the resampler.
+    /// 
+    /// This can be innacurate if there is a span transition during the priming process.
+    pub fn estimate_priming_duration(&self) -> std::time::Duration {
+        std::time::Duration::from_secs_f64(self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64 * 1000.0)
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -209,6 +257,10 @@ where
     pub fn is_done(&self) -> bool {
         self.spans.spans.len() == 1 && self.spans.spans.front().is_some_and(StreamingSpan::is_drained)
     }
+    
+    pub fn is_finalized(&self) -> bool {
+        self.spans.is_finalized()
+    }
 
     /// Accepts interleaved streaming samples of any length.
     ///
@@ -224,14 +276,25 @@ where
     }
 
     pub fn read_sample(&mut self) -> Option<T> {
+        if self.is_done() {
+            return None;
+        }
+
+        if !self.is_primed() {
+            return Some(T::neg_zero());
+        }
+
         // Deconstruct self to avoid borrowing issues.
         let (single_sample_read_buffer, span_pool) = (&mut self.single_sample_read_buffer, &mut self.spans);
 
         let total_read = span_pool.read_samples(single_sample_read_buffer);
         if total_read == 0 {
             #[cfg(feature = "tracing")]
-            if self.underrun_count == 0 {
-                tracing::warn!("ardftsrc: RealtimeResampler underrun");
+            {
+                if self.underrun_count == 0 {
+                    tracing::warn!("ardftsrc: RealtimeResampler underrun");
+                    dbg!("underrun");
+                }
                 self.underrun_count += 1;
             }
 
@@ -243,6 +306,7 @@ where
                     "ardftsrc: RealtimeResampler underrun recovered after {} samples",
                     self.underrun_count
                 );
+                dbg!("underrun recovered", self.underrun_count);
                 self.underrun_count = 0;
             }
 
@@ -329,6 +393,7 @@ where
             samples_input_chunk_buffer: Vec::with_capacity(input_chunk_size),
             samples_output_chunk_buffer: vec![T::zero(); output_chunk_size],
             samples_finalized: false,
+            chunks_processed: 0,
         })
     }
 
@@ -355,6 +420,7 @@ where
         self.samples_pending_input.clear();
         self.samples_pending_output.clear();
         self.samples_finalized = false;
+        self.chunks_processed = 0;
     }
 
     fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
@@ -413,9 +479,9 @@ where
             let samples_written = self
                 .inner
                 .process_chunk(&self.samples_input_chunk_buffer, &mut self.samples_output_chunk_buffer)?;
-
             self.samples_pending_output
                 .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
+            self.chunks_processed += 1;
         }
 
         if finalize && !self.samples_pending_input.is_empty() {
@@ -432,13 +498,14 @@ where
 
             self.samples_pending_output
                 .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
+            self.chunks_processed += 1;
         }
 
         if finalize {
             let samples_written = self.inner.finalize(&mut self.samples_output_chunk_buffer)?;
-
             self.samples_pending_output
                 .extend(self.samples_output_chunk_buffer.iter().copied().take(samples_written));
+            self.chunks_processed += 1;
         }
 
         Ok(())

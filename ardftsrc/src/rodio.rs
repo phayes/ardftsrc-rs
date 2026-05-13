@@ -53,6 +53,9 @@ where
         let resampler = RealtimeResampler::new(config.clone())?;
         let span_ratio = resampler.input_sample_rate() as f64 / resampler.output_sample_rate() as f64;
 
+        #[cfg(feature = "tracing")]
+        tracing::trace!("Creating resampler. Input rate: {}, Output rate: {} (ratio: {})", resampler.input_sample_rate(), resampler.output_sample_rate(), span_ratio);
+
         let mut rodio_resampler = Self {
             inner,
             resampler,
@@ -228,8 +231,7 @@ where
             if self.config.rodio_fast_start {
                 inner_duration
             } else {
-                // TODO: inner_duration + self.resampler.initial_sample_delay_duration()
-                inner_duration
+                inner_duration + self.resampler.estimate_priming_duration()
             }
         })
     }

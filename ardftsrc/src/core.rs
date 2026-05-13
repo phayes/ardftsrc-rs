@@ -288,6 +288,12 @@ where
         Ok(&self.output_block[..written])
     }
 
+    #[must_use]
+    #[inline]
+    pub fn is_finalized(&self) -> bool {
+        self.finalized
+    }
+
     /// Returns expected total output samples once final stream extent is known.
     ///
     /// Before final input is seen, stream extent is unknown and this returns `None`.

@@ -9,7 +9,7 @@ use crate::{Config, Error, PlanarResampler, PlanarVecs, config::DerivedConfig, c
 ///
 /// Use this resampler when you can control both read and write buffer sizes. Query
 /// `input_buffer_size()` and `output_buffer_size()`, then size your input and output
-/// slices to those values. 
+/// slices to those values.
 ///
 /// 1. Construct with `InterleavedResampler::new(config)`.
 /// 2. Query `input_buffer_size()` and `output_buffer_size()`.
@@ -277,6 +277,10 @@ where
 
         // Return total written
         Ok(total_written)
+    }
+
+    pub fn is_finalized(&self) -> bool {
+        self.cores.iter().all(|core| core.is_finalized())
     }
 
     /// Validates channel alignment and chunk length for an `input` slice.
