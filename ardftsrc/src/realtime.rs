@@ -24,13 +24,13 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///
 /// Additioonal configuration settings for realtime are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
 /// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous.
-/// 
+///
 /// # Startup Delay
 ///
 /// `RealtimeResampler` has some startup delay and will emit negative-zero silence until the off-thread resampler is warmed up and producing samples.
 /// You can check `RealtimeResampler::is_primed()` to see if the resampler is ready to produce real samples.
 /// You can also check `RealtimeResampler::sample_is_initial_delay()` to see if a produced sample is negative-zero silence emitted during initial delay.
-/// 
+///
 /// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding until `RealtimeResampler::is_primed()` returns true.
 /// See the [RodioResampler::fast_start() source code](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this.
 ///
@@ -49,21 +49,21 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///
 /// Input spans and output spans are non-synchronous.
 /// After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
-/// 
+///
 /// ### Potential allocations on span boundaries
-/// 
+///
 /// Under ideal conditions (playing a single album back to back with no format changes between spans) the resampler will not allocate.
 /// However, the resampler may still perform transient allocations at span boundaries under the following conditions:
 ///   - Rapidly cycling through spans (eg. a user pressing next, next, next, next...)
 ///   - Playing a heterogeneous playlist with many different sample-rates and channel counts.
-/// 
+///
 /// In both of these allocation conditions, the allocation is transient at span boundary and transient allocations will eventually "settle down" and avoid allocations as the span pool is populated.
-/// 
-/// # Buffer Size 
-/// 
+///
+/// # Buffer Size
+///
 /// It is recommended to use a buffer before sending output samples to your DAC. Use a buffer size that is at least 2048 to 4096 frames.
 /// If you experience crackling, try increasing the buffer size. Marginal buffer capacity first shows up as small glitches on seek.
-/// 
+///
 /// # Example
 /// ```rust
 /// #[cfg(feature = "realtime")]
@@ -115,7 +115,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///     while let Some(sample) = resampler.read_sample() {
 ///         output.push(sample as f32);
 ///     }
-/// 
+///
 ///     Ok(output)
 /// }
 /// ```
@@ -182,7 +182,6 @@ where
         if self.is_finalized() {
             #[cfg(feature = "tracing")]
             tracing::trace!("RealtimeResampler finalized before bring fully primed");
-            dbg!("RealtimeResampler finalized before bring fully primed");
             self.is_primed = true;
             return true;
         }
@@ -210,12 +209,12 @@ where
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
-    /// 
+    ///
     /// Note: this allocates
     pub fn reset(&mut self) {
         let config = self.active_input_span().config().clone();
-        self.spans =
-            SpanPool::new(config, DEFAULT_CONCURRENT_SPANS).unwrap_or_else(|err| panic_err("Existing stream config became invalid", err));
+        self.spans = SpanPool::new(config, DEFAULT_CONCURRENT_SPANS)
+            .unwrap_or_else(|err| panic_err("Existing stream config became invalid", err));
         self.is_primed = false;
     }
 
@@ -416,7 +415,6 @@ where
     }
 }
 
-
 /// RealtimeSpan is a single span of audio.
 struct RealtimeSpan<T = f64>
 where
@@ -460,14 +458,16 @@ where
             #[cfg(feature = "tracing")]
             tracing::trace!("RealtimeSpan input chunk buffer is too small, resizing (allocates)");
 
-            self.samples_input_chunk_buffer.resize(self.inner.input_buffer_size(), T::zero());
+            self.samples_input_chunk_buffer
+                .resize(self.inner.input_buffer_size(), T::zero());
         }
 
         if self.samples_output_chunk_buffer.capacity() < self.inner.output_buffer_size() {
             #[cfg(feature = "tracing")]
             tracing::trace!("RealtimeSpan output chunk buffer is too small, resizing (allocates)");
 
-            self.samples_output_chunk_buffer.resize(self.inner.output_buffer_size(), T::zero());
+            self.samples_output_chunk_buffer
+                .resize(self.inner.output_buffer_size(), T::zero());
         }
     }
 
@@ -586,7 +586,6 @@ where
     }
 }
 
-
 /// SpanPool is a pool of spans that can be re-used, avoiding allocations.
 struct SpanPool<T = f64>
 where
@@ -600,7 +599,6 @@ impl<T> SpanPool<T>
 where
     T: Float + FftNum,
 {
-
     /// Creates a new span pool with the given config and number of spans.
     fn new(config: Config, num_spans: usize) -> Result<Self, Error> {
         let active_span = RealtimeSpan::new(config.clone())?;
@@ -616,7 +614,7 @@ where
     /// Reads up to `output.len()` interleaved samples from internally buffered output.
     ///
     /// Returns the number of samples copied into `output`.
-    /// 
+    ///
     /// This reads from the front of the queue, and will cross span boundaries as needed.
     pub fn read_samples(&mut self, output: &mut [T]) -> usize {
         let mut total_read = 0;
@@ -666,7 +664,7 @@ where
     }
 
     /// Creates a new span and adds it to the end of the queue.
-    /// 
+    ///
     /// Note: this may allocate if the span reserve pool is empty, or we cannot find a compatible span in the pool.
     fn new_span(&mut self, config: Config) -> &mut RealtimeSpan<T> {
         // Take a span from the pool if available, otherwise create a new one (allocates).
@@ -676,17 +674,20 @@ where
                 let mut span = span;
                 span.re_initialize();
                 span
-            },
+            }
             None => {
                 #[cfg(feature = "tracing")]
                 tracing::trace!("Could not find compatible span in pool, creating a new one (allocates)");
 
-                RealtimeSpan::new(config).unwrap_or_else(|e| panic_err("Failed to create new span in RealtimeResampler::new_span", e))
+                RealtimeSpan::new(config)
+                    .unwrap_or_else(|e| panic_err("Failed to create new span in RealtimeResampler::new_span", e))
             }
         };
 
         self.spans.push_back(span);
-        self.spans.back_mut().expect("New span should always be available, we just pushed it to the back of the queue.")
+        self.spans
+            .back_mut()
+            .expect("New span should always be available, we just pushed it to the back of the queue.")
     }
 
     // Finds a compatible span in the pool that we can re-use.
@@ -704,7 +705,6 @@ where
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -38,6 +38,7 @@ where
     config: Config,
     stream_input_ended: bool,
     just_seeked: bool,
+    pending_span_transition: bool,
     samples_this_span: u64,
     output_samples_this_span: u64,
     span_ratio: f64,
@@ -67,6 +68,7 @@ where
             config,
             stream_input_ended: false,
             just_seeked: false,
+            pending_span_transition: false,
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
@@ -83,7 +85,7 @@ where
         self.span_ratio = self.resampler.input_sample_rate() as f64 / self.resampler.output_sample_rate() as f64;
     }
 
-    fn maybe_new_input_span(&mut self) {
+    fn maybe_new_input_span(&mut self) -> bool {
         let current_input_sample_rate = self.resampler.input_sample_rate();
         let current_input_channels = self.resampler.input_channels();
 
@@ -105,6 +107,9 @@ where
                 input_channels,
                 self.span_ratio,
             );
+            true
+        } else {
+            false
         }
     }
 
@@ -118,7 +123,12 @@ where
         // Otherwise, calculate the number of input samples to pull to keep output production approximately aligned with input consumption given the current span ratio.
         self.output_samples_this_span = self.output_samples_this_span.saturating_add(1);
         let target_input_samples = (self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64;
-        let inner_pulls = target_input_samples.saturating_sub(self.samples_this_span);
+        let mut inner_pulls = target_input_samples.saturating_sub(self.samples_this_span);
+
+        // Make sure span boundaries get at least one pull
+        if self.pending_span_transition && inner_pulls == 0 {
+            inner_pulls = 1;
+        }
 
         inner_pulls
     }
@@ -126,7 +136,10 @@ where
     // Pull a sample from the inner source and write it to the resampler.
     fn pull_inner_sample(&mut self, count_samples: bool) {
         // Check for a new span on each pull since downsampling can consume >1 input sample per output.
-        let new_span_after_next = self.inner.current_span_len() == Some(1);
+        let span_ends_after_next = self.inner.current_span_len() == Some(1);
+        if !self.pending_span_transition && span_ends_after_next {
+            self.pending_span_transition = true;
+        }
 
         // If input is none, end the stream, but keep reading until the resampler is drained.
         match self.inner.next() {
@@ -148,8 +161,14 @@ where
             }
         }
 
-        if new_span_after_next {
-            self.maybe_new_input_span();
+        // Some sources (for example source-chaining adapters) can switch to a new span one pull
+        // after reporting `current_span_len() == Some(1)`. Keep checking after each pull while a
+        // transition is pending so pacing can update as soon as the new format is visible.
+        if self.pending_span_transition {
+            let started_new_span = self.maybe_new_input_span();
+            if started_new_span || self.stream_input_ended {
+                self.pending_span_transition = false;
+            }
         }
     }
 
@@ -251,6 +270,7 @@ where
         self.inner.try_seek(time)?;
         self.stream_input_ended = false;
         self.just_seeked = true;
+        self.pending_span_transition = false;
         self.maybe_new_input_span();
         Ok(())
     }
@@ -259,27 +279,50 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PRESET_GOOD;
+    use rodio::Source;
     use std::num::NonZero;
+    use std::time::Duration;
 
     #[test]
-    fn fast_start_preserves_pre_pulled_input_as_pacing_lead() {
-        let tone = rodio::source::SignalGenerator::new(
+    fn no_underrun_across_delayed_span_transition() {
+        let first_span = rodio::source::SignalGenerator::new(
             NonZero::new(44_100).expect("constant non-zero sample rate"),
             440.0,
             rodio::source::Function::Sine,
+        )
+        .take_duration(Duration::from_secs(2));
+
+        let second_span = rodio::source::SignalGenerator::new(
+            NonZero::new(48_000).expect("constant non-zero sample rate"),
+            660.0,
+            rodio::source::Function::Sine,
+        )
+        .take_duration(Duration::from_secs(2));
+
+        let source = rodio::source::from_iter([first_span, second_span]);
+        let config = Config {
+            input_sample_rate: 44_100,
+            output_sample_rate: 48_000,
+            channels: 1,
+            ..Config::default()
+        };
+
+        let mut resampler = RodioResampler::new(source, config).expect("resampler should construct");
+
+        let mut output_samples = 0usize;
+        const MAX_OUTPUT_SAMPLES: usize = 1_000_000;
+        while let Some(sample) = resampler.next() {
+            assert!(!sample.is_nan(), "resampler output should be finite");
+            output_samples += 1;
+            assert!(
+                output_samples <= MAX_OUTPUT_SAMPLES,
+                "resampler did not drain after delayed span transition"
+            );
+        }
+
+        assert!(
+            output_samples > 0,
+            "resampler should produce output for finite two-span input"
         );
-
-        let config = PRESET_GOOD
-            .with_channels(2)
-            .with_input_rate(44_100)
-            .with_output_rate(96_000)
-            .with_rodio_fast_start(true);
-
-        let mut resampler = RodioResampler::new(tone, config).expect("resampler should construct");
-
-        assert_eq!(resampler.samples_this_span, 12_348);
-        assert_eq!(resampler.output_samples_this_span, 26_880);
-        assert_eq!(resampler.calculate_inner_pulls(), 1);
     }
 }

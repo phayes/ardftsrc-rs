@@ -61,7 +61,7 @@ where
             output_staging,
         })
     }
-    
+
     /// Returns the configuration this instance was built with.
     #[must_use]
     pub fn config(&self) -> &Config {

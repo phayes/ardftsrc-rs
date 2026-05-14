@@ -37,7 +37,6 @@ pub use adapter_resampler::AdapterResampler;
 #[cfg(feature = "audioadapter")]
 pub use audioadapter;
 
-
 /// Create a new panic with a custom message explaining that this is a bug in the ardftsrc crate.
 #[track_caller]
 pub(crate) fn panic_msg(msg: &str) -> ! {
