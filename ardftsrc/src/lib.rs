@@ -37,6 +37,8 @@ pub use adapter_resampler::AdapterResampler;
 #[cfg(feature = "audioadapter")]
 pub use audioadapter;
 
+
+/// Create a new panic with a custom message explaining that this is a bug in the ardftsrc crate.
 #[track_caller]
 pub(crate) fn panic_msg(msg: &str) -> ! {
     panic!(
@@ -45,8 +47,7 @@ pub(crate) fn panic_msg(msg: &str) -> ! {
     );
 }
 
-/// Like [`panic_msg`], but appends an underlying [`std::error::Error`] after `context` (via [`Display`](std::fmt::Display)).
-#[track_caller]
+/// Create a new panic with a custom message and an underlying error explaining that this is a bug in the ardftsrc crate.
 pub(crate) fn panic_err(context: &str, err: impl std::error::Error) -> ! {
     panic!(
         "ardftsrc: {}: {}. This is a bug in the ardftsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues",

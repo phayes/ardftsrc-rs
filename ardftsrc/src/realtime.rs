@@ -10,81 +10,8 @@ use crate::{Config, Error, InterleavedResampler};
 // - Second full chunk
 pub(crate) const BUFFER_SIZE_MULTIPLIER: usize = 2;
 
-pub struct RealtimeResampler<T = f64>
-where
-    T: Float + FftNum,
-{
-    spans: SpanPool<T>,
-    single_sample_read_buffer: [T; 1],
-    is_primed: bool,
-}
-
-struct StreamingSpan<T = f64>
-where
-    T: Float + FftNum,
-{
-    inner: InterleavedResampler<T>,
-    samples_pending_input: VecDeque<T>,
-    samples_pending_output: VecDeque<T>,
-    samples_input_chunk_buffer: Vec<T>,
-    samples_output_chunk_buffer: Vec<T>,
-    samples_finalized: bool,
-    chunks_processed: usize,
-}
-
-// TODO: Move various methods from RealtimeResampler to here
-// TODO: Make SpanPool re-use spans instead of discarding them and creating new ones
-struct SpanPool<T = f64>
-where
-    T: Float + FftNum,
-{
-    spans: VecDeque<StreamingSpan<T>>,
-}
-
-impl<T> SpanPool<T>
-where
-    T: Float + FftNum,
-{
-    fn new(config: Config) -> Result<Self, Error> {
-        Ok(Self {
-            spans: VecDeque::from([StreamingSpan::new(config)?]),
-        })
-    }
-
-    /// Reads up to `output.len()` interleaved samples from internally buffered output.
-    ///
-    /// Returns the number of samples copied into `output`.
-    pub fn read_samples(&mut self, output: &mut [T]) -> usize {
-        let mut total_read = 0;
-
-        while total_read < output.len() {
-            self.drop_drained_front_spans();
-
-            let span = self
-                .spans
-                .front_mut()
-                .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"));
-            let read = span.read_samples(&mut output[total_read..]);
-            total_read += read;
-
-            if read == 0 {
-                break;
-            }
-        }
-
-        total_read
-    }
-
-    fn drop_drained_front_spans(&mut self) {
-        while self.spans.len() > 1 && self.spans.front().is_some_and(StreamingSpan::is_drained) {
-            self.spans.pop_front();
-        }
-    }
-
-    fn is_finalized(&self) -> bool {
-        self.spans.iter().all(|span| span.inner.is_finalized())
-    }
-}
+/// Number of concurrent spans that can be playing at the same time before we allocate.
+const DEFAULT_CONCURRENT_SPANS: usize = 4;
 
 /// Realtime reasampler for live audio streams. If you're looking for **rodio** support, see `RodioResampler`.
 ///
@@ -113,7 +40,7 @@ where
 /// See the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback,
 /// or a very slow response to seeking, those are both symtoms of bad pacing.
 ///
-/// ### Spans
+/// # Spans
 ///
 /// Streaming sources sometimes change format while they are still producing samples.
 /// For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono.
@@ -122,6 +49,15 @@ where
 ///
 /// Input spans and output spans are non-synchronous.
 /// After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
+/// 
+/// ### Potential allocations on span boundaries
+/// 
+/// Under ideal conditions (playing a single album back to back with no format changes between spans) the resampler will not allocate.
+/// However, the resampler may still perform transient allocations at span boundaries under the following conditions:
+///   - Rapidly cycling through spans (eg. a user pressing next, next, next, next...)
+///   - Playing a heterogeneous playlist with many different sample-rates and channel counts.
+/// 
+/// In both of these allocation conditions, the allocation is transient at span boundary and transient allocations will eventually "settle down" and avoid allocations as the span pool is populated.
 /// 
 /// # Buffer Size 
 /// 
@@ -183,6 +119,15 @@ where
 ///     Ok(output)
 /// }
 /// ```
+pub struct RealtimeResampler<T = f64>
+where
+    T: Float + FftNum,
+{
+    spans: SpanPool<T>,
+    single_sample_read_buffer: [T; 1],
+    is_primed: bool,
+}
+
 impl<T> RealtimeResampler<T>
 where
     T: Float + FftNum,
@@ -190,7 +135,7 @@ where
     /// Constructs a sample-streaming resampler from `config`.
     pub fn new(config: Config) -> Result<Self, Error> {
         Ok(Self {
-            spans: SpanPool::new(config)?,
+            spans: SpanPool::new(config, DEFAULT_CONCURRENT_SPANS)?,
             single_sample_read_buffer: [T::zero(); 1],
             is_primed: false,
         })
@@ -265,10 +210,12 @@ where
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
+    /// 
+    /// Note: this allocates
     pub fn reset(&mut self) {
         let config = self.active_input_span().config().clone();
         self.spans =
-            SpanPool::new(config).unwrap_or_else(|err| panic_err("Existing stream config became invalid", err));
+            SpanPool::new(config, DEFAULT_CONCURRENT_SPANS).unwrap_or_else(|err| panic_err("Existing stream config became invalid", err));
         self.is_primed = false;
     }
 
@@ -287,12 +234,15 @@ where
         next_config.input_sample_rate = input_sample_rate;
         next_config.channels = channels;
 
+        // Validate the config to catch any invalid settings.
+        next_config.validate()?;
+
         let active_span = self.active_input_span_mut();
         if !active_span.samples_finalized {
             active_span.finalize_samples()?;
         }
 
-        self.spans.spans.push_back(StreamingSpan::new(next_config)?);
+        self.spans.new_span(next_config);
         Ok(())
     }
 
@@ -348,7 +298,7 @@ where
     /// - all buffered input/output samples have been drained.
     #[must_use]
     pub fn is_done(&self) -> bool {
-        self.spans.spans.len() == 1 && self.spans.spans.front().is_some_and(StreamingSpan::is_drained)
+        self.spans.spans.len() == 1 && self.spans.spans.front().is_some_and(RealtimeSpan::is_drained)
     }
 
     pub fn is_finalized(&self) -> bool {
@@ -430,7 +380,7 @@ where
     /// Returns the input-active span (write side).
     ///
     /// This is always the newest queued span (`back`).
-    fn active_input_span(&self) -> &StreamingSpan<T> {
+    fn active_input_span(&self) -> &RealtimeSpan<T> {
         self.spans
             .spans
             .back()
@@ -440,7 +390,7 @@ where
     /// Returns a mutable reference to the input-active span (write side).
     ///
     /// This is always the newest queued span (`back`).
-    fn active_input_span_mut(&mut self) -> &mut StreamingSpan<T> {
+    fn active_input_span_mut(&mut self) -> &mut RealtimeSpan<T> {
         self.spans
             .spans
             .back_mut()
@@ -451,7 +401,7 @@ where
     ///
     /// This is normally the front span. If a queued transition is ready (`Some(0)`),
     /// reads are about to enter the next span and this reports that next span instead.
-    fn active_output_span(&self) -> &StreamingSpan<T> {
+    fn active_output_span(&self) -> &RealtimeSpan<T> {
         let output_span_index = usize::from(self.samples_left_in_span() == Some(0));
         self.spans
             .spans
@@ -466,24 +416,59 @@ where
     }
 }
 
-impl<T> StreamingSpan<T>
+
+/// RealtimeSpan is a single span of audio.
+struct RealtimeSpan<T = f64>
+where
+    T: Float + FftNum,
+{
+    inner: InterleavedResampler<T>,
+    samples_pending_input: VecDeque<T>,
+    samples_pending_output: VecDeque<T>,
+    samples_input_chunk_buffer: Vec<T>,
+    samples_output_chunk_buffer: Vec<T>,
+    samples_finalized: bool,
+    chunks_processed: usize,
+}
+
+impl<T> RealtimeSpan<T>
 where
     T: Float + FftNum,
 {
     fn new(config: Config) -> Result<Self, Error> {
         let inner = InterleavedResampler::new(config)?;
-        let input_chunk_size = inner.input_buffer_size();
-        let output_chunk_size = inner.output_buffer_size();
+
+        let input_buffer_size = inner.input_buffer_size();
+        let output_buffer_size = inner.output_buffer_size();
 
         Ok(Self {
             inner,
-            samples_pending_input: VecDeque::with_capacity(input_chunk_size * BUFFER_SIZE_MULTIPLIER),
-            samples_pending_output: VecDeque::with_capacity(output_chunk_size * BUFFER_SIZE_MULTIPLIER),
-            samples_input_chunk_buffer: Vec::with_capacity(input_chunk_size),
-            samples_output_chunk_buffer: vec![T::zero(); output_chunk_size],
+            samples_pending_input: VecDeque::with_capacity(input_buffer_size * BUFFER_SIZE_MULTIPLIER),
+            samples_pending_output: VecDeque::with_capacity(output_buffer_size * BUFFER_SIZE_MULTIPLIER),
+            samples_input_chunk_buffer: Vec::with_capacity(input_buffer_size),
+            samples_output_chunk_buffer: vec![T::zero(); output_buffer_size],
             samples_finalized: false,
             chunks_processed: 0,
         })
+    }
+
+    // Re-initializes the span with the given config.
+    pub fn re_initialize(&mut self) {
+        self.reset();
+
+        if self.samples_input_chunk_buffer.capacity() < self.inner.input_buffer_size() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!("RealtimeSpan input chunk buffer is too small, resizing (allocates)");
+
+            self.samples_input_chunk_buffer.resize(self.inner.input_buffer_size(), T::zero());
+        }
+
+        if self.samples_output_chunk_buffer.capacity() < self.inner.output_buffer_size() {
+            #[cfg(feature = "tracing")]
+            tracing::trace!("RealtimeSpan output chunk buffer is too small, resizing (allocates)");
+
+            self.samples_output_chunk_buffer.resize(self.inner.output_buffer_size(), T::zero());
+        }
     }
 
     #[must_use]
@@ -600,6 +585,126 @@ where
         Ok(())
     }
 }
+
+
+/// SpanPool is a pool of spans that can be re-used, avoiding allocations.
+struct SpanPool<T = f64>
+where
+    T: Float + FftNum,
+{
+    spans: VecDeque<RealtimeSpan<T>>,
+    pool: Vec<Option<RealtimeSpan<T>>>,
+}
+
+impl<T> SpanPool<T>
+where
+    T: Float + FftNum,
+{
+
+    /// Creates a new span pool with the given config and number of spans.
+    fn new(config: Config, num_spans: usize) -> Result<Self, Error> {
+        let active_span = RealtimeSpan::new(config.clone())?;
+
+        Ok(Self {
+            spans: VecDeque::from([active_span]),
+            pool: (0..num_spans)
+                .map(|_| Some(RealtimeSpan::new(config.clone()).unwrap()))
+                .collect(), // unwrap is fine because we tested the config with active_span creation.
+        })
+    }
+
+    /// Reads up to `output.len()` interleaved samples from internally buffered output.
+    ///
+    /// Returns the number of samples copied into `output`.
+    /// 
+    /// This reads from the front of the queue, and will cross span boundaries as needed.
+    pub fn read_samples(&mut self, output: &mut [T]) -> usize {
+        let mut total_read = 0;
+
+        while total_read < output.len() {
+            self.drop_drained_front_spans();
+
+            let span = self
+                .spans
+                .front_mut()
+                .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"));
+            let read = span.read_samples(&mut output[total_read..]);
+            total_read += read;
+
+            if read == 0 {
+                break;
+            }
+        }
+
+        total_read
+    }
+
+    /// Drops drained spans from the front of the queue and adds them back to the pool to be re-used.
+    fn drop_drained_front_spans(&mut self) {
+        while self.spans.len() > 1 && self.spans.front().is_some_and(RealtimeSpan::is_drained) {
+            let mut drained_span = self.spans.pop_front().unwrap();
+            drained_span.reset();
+            self.add_span_to_pool(drained_span);
+        }
+    }
+
+    /// Adds a span back into the reuse pool, preferring to fill an empty slot before growing the pool.
+    fn add_span_to_pool(&mut self, span: RealtimeSpan<T>) {
+        if let Some(empty_slot_index) = self.pool.iter().position(Option::is_none) {
+            self.pool[empty_slot_index] = Some(span);
+        } else {
+            #[cfg(feature = "tracing")]
+            tracing::trace!("Span pool is full, allocating more pool slots (allocates)");
+
+            self.pool.push(Some(span));
+        }
+    }
+
+    /// Check if all spans are finalized.
+    fn is_finalized(&self) -> bool {
+        self.spans.iter().all(|span| span.inner.is_finalized())
+    }
+
+    /// Creates a new span and adds it to the end of the queue.
+    /// 
+    /// Note: this may allocate if the span reserve pool is empty, or we cannot find a compatible span in the pool.
+    fn new_span(&mut self, config: Config) -> &mut RealtimeSpan<T> {
+        // Take a span from the pool if available, otherwise create a new one (allocates).
+        // This shouldn't panic as we've already validated the config before we ever got here.
+        let span = match self.find_compatible_span_in_pool(&config) {
+            Some(span) => {
+                let mut span = span;
+                span.re_initialize();
+                span
+            },
+            None => {
+                #[cfg(feature = "tracing")]
+                tracing::trace!("Could not find compatible span in pool, creating a new one (allocates)");
+
+                RealtimeSpan::new(config).unwrap_or_else(|e| panic_err("Failed to create new span in RealtimeResampler::new_span", e))
+            }
+        };
+
+        self.spans.push_back(span);
+        self.spans.back_mut().expect("New span should always be available, we just pushed it to the back of the queue.")
+    }
+
+    // Finds a compatible span in the pool that we can re-use.
+    fn find_compatible_span_in_pool(&mut self, config: &Config) -> Option<RealtimeSpan<T>> {
+        self.pool.iter_mut().find_map(|slot| {
+            let span = slot.as_ref()?;
+            if span.config().input_sample_rate == config.input_sample_rate
+                && span.config().output_sample_rate == config.output_sample_rate
+                && span.config().channels == config.channels
+            {
+                slot.take()
+            } else {
+                None
+            }
+        })
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

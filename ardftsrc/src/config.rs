@@ -237,18 +237,6 @@ pub struct Config {
     /// `0.0` disables phase rotation. The default value is `50.0`.
     pub phase_intensity: f32,
 
-    /// The range of input sample rates that the realtime resampler will support.
-    ///
-    /// This is used in combination with `realtime_max_channels` to set the size of allocated buffers. Moving outside these ranges will cause transient allocations on the audio thread during span transitions.
-    ///
-    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
-    pub realtime_input_range: std::ops::RangeInclusive<usize>,
-
-    /// The maximum number of channels that the realtime resampler will support without allocating. See `realtime_input_range`.
-    ///
-    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).\
-    pub realtime_max_channels: usize,
-
     /// For `RodioResampler`, this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
@@ -275,8 +263,6 @@ impl Config {
         taper_type: TaperType::Cosine(3.4375),
         phase: 0.0,
         phase_intensity: 50.0,
-        realtime_input_range: 22_050..=192_000,
-        realtime_max_channels: 8,
         #[cfg(feature = "rodio")]
         rodio_fast_start: false,
     };
@@ -391,31 +377,6 @@ impl Config {
         self
     }
 
-    /// The range of input sample rates that the realtime resampler will support.
-    ///
-    /// This is used in combination with `realtime_max_channels` to set the size of the ringer buffers for off-thread realtime resampling.
-    /// The default value (22.05KHz - 192KHz at 7.1 surround) is very generous in what it supports, but uses about 8MB of memory.
-    /// To reduce memory usage, you can set this to a narrower range, or reduce the number of channels supported.
-    ///
-    /// Because this range sets the buffer size and is not a hard limit, it will often support values outside the range (eg using the default config, 22.05KHz -> 384Khz stereo will work fine).
-    /// Going above the range (eg using the default config, but resampling 22.05KHz -> 384Khz 13.1 surround) will not error, but will cause underruns and crackling (negative-zero samples on `read_sample()``).
-    ///
-    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
-    #[must_use]
-    pub fn with_realtime_input_range(mut self, realtime_input_range: std::ops::RangeInclusive<usize>) -> Self {
-        self.realtime_input_range = realtime_input_range;
-        self
-    }
-
-    /// The maximum number of channels that the realtime resampler will support. See `realtime_input_range`.
-    ///
-    /// This setting is only for realtime resamplers (`RealtimeResampler`, `RodioResampler`), it has no effect on chunk resamplers (`InterleavedResampler` and `PlanarResampler`).
-    #[must_use]
-    pub fn with_realtime_max_channels(mut self, realtime_max_channels: usize) -> Self {
-        self.realtime_max_channels = realtime_max_channels;
-        self
-    }
-
     /// For `RodioResampler`, this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
@@ -498,51 +459,6 @@ impl Config {
         }
 
         Ok(DerivedConfig::from_config(self))
-    }
-
-    /// Returns the required input and output buffer sizes for realtime resampling.
-    ///
-    /// Returns (input_buffer_size, output_buffer_size)
-    pub(crate) fn realtime_buffer_sizes(&self) -> (usize, usize) {
-        let quality = self.quality;
-        let fixed_output_rate = self.output_sample_rate;
-        let min_input_rate = *self.realtime_input_range.start();
-        let max_input_rate = *self.realtime_input_range.end();
-
-        let mut a = max_input_rate;
-        let mut b = fixed_output_rate;
-        while b != 0 {
-            let r = a % b;
-            a = b;
-            b = r;
-        }
-        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
-        let input_common_divisor = a;
-        let mut input_chunk_frames = max_input_rate / input_common_divisor;
-        let output_chunk_frames_for_input = fixed_output_rate / input_common_divisor;
-        let input_denominator = input_chunk_frames.min(output_chunk_frames_for_input).max(1);
-        let input_factor = quality.div_ceil(input_denominator).next_multiple_of(2);
-        input_chunk_frames *= input_factor;
-
-        let mut a = min_input_rate;
-        let mut b = fixed_output_rate;
-        while b != 0 {
-            let r = a % b;
-            a = b;
-            b = r;
-        }
-        debug_assert!(a != 0, "expected non-zero gcd for input/output rates");
-        let output_common_divisor = a;
-        let input_chunk_frames_for_output = min_input_rate / output_common_divisor;
-        let mut output_chunk_frames = fixed_output_rate / output_common_divisor;
-        let output_denominator = input_chunk_frames_for_output.min(output_chunk_frames).max(1);
-        let output_factor = quality.div_ceil(output_denominator).next_multiple_of(2);
-        output_chunk_frames *= output_factor;
-
-        (
-            input_chunk_frames * self.realtime_max_channels,
-            output_chunk_frames * self.realtime_max_channels,
-        )
     }
 }
 
