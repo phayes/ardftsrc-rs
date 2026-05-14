@@ -19,4 +19,4 @@ jobs:
     - name: Check
       run: cargo check --verbose
     - name: Run tests
-      run: cargo test --workspace --no-default-features --features "avx,neon,sse,wasm_simd,rayon,realtime,audioadapter" --verbose
+      run: cargo test --workspace --no-default-features --features "avx,neon,sse,wasm_simd,rayon,audioadapter" --verbose
