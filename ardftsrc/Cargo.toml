@@ -66,4 +66,4 @@ name = "rodio_adapter_with_spans"
 required-features = ["rodio-playback", "tracing"]
 
 [package.metadata.docs.rs]
-features = ["rodio", "realtime"]
+features = ["rodio"]
