@@ -8,8 +8,8 @@ use realfft::FftNum;
 /// avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar,
 /// do not enable fast-start.
 ///
-/// Additional configuration settings are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
-/// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous.
+/// Be aware that because RodioResampler resamples on the audio thread, your cpal buffer size should be at least 2048 to 4096.
+/// If you experience crackling, try increasing the cpal buffer size. Marginal buffer capacity first shows up as small glitches on seek.
 ///
 /// # Example:
 /// ```rust

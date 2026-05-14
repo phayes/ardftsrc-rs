@@ -17,9 +17,6 @@ where
     spans: SpanPool<T>,
     single_sample_read_buffer: [T; 1],
     is_primed: bool,
-
-    #[cfg(feature = "tracing")]
-    underrun_count: usize,
 }
 
 struct StreamingSpan<T = f64>
@@ -100,24 +97,21 @@ where
 ///
 /// Additioonal configuration settings for realtime are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
 /// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous.
-///
-/// # Underruns
-///
-/// If the resampler is underrunning, it will emit `Some(-0.0)` (negative-zero silence).
-/// You may do nothing (it will play as silence), or check if a sample is an underrun with `RealtimeResampler::sample_is_underrun()`.
-///
+/// 
 /// # Startup Delay
 ///
-/// `RealtimeResampler` has some startup delay and will emit underruns until the off-thread resampler is warmed up and producing samples.
-/// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding through
-/// the initial underrun samples. First check `RealtimeResampler::initial_input_sample_delay()` to see how many samples are needed to prime the resampler, and pull that number of samples
-/// from upstream. See the [RodioResampler::fast_start() source code](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this.
+/// `RealtimeResampler` has some startup delay and will emit negative-zero silence until the off-thread resampler is warmed up and producing samples.
+/// You can check `RealtimeResampler::is_primed()` to see if the resampler is ready to produce real samples.
+/// You can also check `RealtimeResampler::sample_is_initial_delay()` to see if a produced sample is negative-zero silence emitted during initial delay.
+/// 
+/// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding until `RealtimeResampler::is_primed()` returns true.
+/// See the [RodioResampler::fast_start() source code](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this.
 ///
 /// # Pacing
 ///
 /// If you are wiring `RealtimeResampler` into your own realtime audio pipeline, you'll want to keep proper pacing ratios between input and output samples.
 /// See the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback,
-/// or very slow sponse to seeking, those are both symtoms of bad pacing.
+/// or a very slow response to seeking, those are both symtoms of bad pacing.
 ///
 /// ### Spans
 ///
@@ -126,8 +120,14 @@ where
 /// The realtime resampler models those format regions as spans. You can start a new span with `new_span()`.
 /// When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next.
 ///
-/// Input spans and output spans are non-synchronous. After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
-///
+/// Input spans and output spans are non-synchronous.
+/// After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
+/// 
+/// # Buffer Size 
+/// 
+/// It is recommended to use a buffer before sending output samples to your DAC. Use a buffer size that is at least 2048 to 4096 frames.
+/// If you experience crackling, try increasing the buffer size. Marginal buffer capacity first shows up as small glitches on seek.
+/// 
 /// # Example
 /// ```rust
 /// #[cfg(feature = "realtime")]
@@ -143,16 +143,16 @@ where
 ///         .with_output_rate(48_000)
 ///         .with_channels(2);
 ///
-///     let mut resampler = RealtimeResampler::<f32>::new(config)?;
+///     let mut resampler = RealtimeResampler::<f64>::new(config)?;
 ///     let mut output = Vec::<f32>::new();
 ///
 ///     // This intentionally writes one sample at a time. Larger slices are more efficient,
 ///     // but single-sample writes are valid.
 ///     for sample in span_1_input {
-///         resampler.write_sample(sample);
+///         resampler.write_sample(sample as f64);
 ///
 ///         if let Some(sample) = resampler.read_sample() {
-///             output.push(sample);
+///             output.push(sample as f32);
 ///         }
 ///
 ///         if resampler.current_span_len() == Some(0) {
@@ -163,10 +163,10 @@ where
 ///     resampler.new_span(48_000, 1);
 ///
 ///     for sample in span_2_input {
-///         resampler.write_sample(sample);
+///         resampler.write_sample(sample as f64);
 ///
 ///         if let Some(sample) = resampler.read_sample() {
-///             output.push(sample);
+///             output.push(sample as f32);
 ///         }
 ///
 ///         if resampler.current_span_len() == Some(0) {
@@ -177,10 +177,9 @@ where
 ///     // Finalization can produce delayed tail output, so keep reading until the stream is drained.
 ///     resampler.finalize();
 ///     while let Some(sample) = resampler.read_sample() {
-///         output.push(sample);
+///         output.push(sample as f32);
 ///     }
-///
-///     resampler.shutdown()?;
+/// 
 ///     Ok(output)
 /// }
 /// ```
@@ -194,8 +193,6 @@ where
             spans: SpanPool::new(config)?,
             single_sample_read_buffer: [T::zero(); 1],
             is_primed: false,
-            #[cfg(feature = "tracing")]
-            underrun_count: 0,
         })
     }
 
@@ -461,6 +458,11 @@ where
             .get(output_span_index)
             .or_else(|| self.spans.spans.front())
             .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"))
+    }
+
+    /// Returns true when the sample is negative-zero silence emitted during initial delay.
+    pub fn sample_is_initial_delay(sample: T) -> bool {
+        sample.is_zero() && sample.is_sign_negative()
     }
 }
 
