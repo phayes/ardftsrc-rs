@@ -40,7 +40,7 @@ pub use audioadapter;
 #[track_caller]
 pub(crate) fn panic_msg(msg: &str) -> ! {
     panic!(
-        "ardftsrc: {}. This is a bug in the ardfsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues",
+        "ardftsrc: {}. This is a bug in the ardftsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues",
         msg
     );
 }
@@ -49,7 +49,7 @@ pub(crate) fn panic_msg(msg: &str) -> ! {
 #[track_caller]
 pub(crate) fn panic_err(context: &str, err: impl std::error::Error) -> ! {
     panic!(
-        "ardftsrc: {}: {}. This is a bug in the ardfsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues",
+        "ardftsrc: {}: {}. This is a bug in the ardftsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues",
         context, err
     );
 }
