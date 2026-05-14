@@ -36,3 +36,10 @@ pub use adapter_resampler::AdapterResampler;
 // Re-export audioadapter for convenience.
 #[cfg(feature = "audioadapter")]
 pub use audioadapter;
+
+
+// Panic message
+
+pub(crate) fn panic_msg(msg: &str) -> String {
+    format!("ardftsrc: {msg}. This is a bug in the ardfsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues")
+}

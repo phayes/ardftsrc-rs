@@ -121,7 +121,7 @@ call `post(...)` on A with B's head samples so A's stop-edge uses real next-trac
 
 ## Realtime Resampling
 
-ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via `RodioResampler` (`rodio` feature) and the ability to build your own custom realtime audio resampling pipline via `RealtimeResampler` (`realtime` feature). 
+ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via `RodioResampler` (`rodio` feature) and the ability to build your own custom realtime audio resampling pipline via `RealtimeResampler`. 
 
 ## Rodio integration
 
@@ -227,7 +227,6 @@ let config = ardftsrc::PRESET_GOOD
 | -------------- | --------------------------------------------------------------------------------- | ------- |
 | `rodio`        | [`rodio`](https://crates.io/crates/rodio) integration via `rodio::RodioResampler` | No      |
 | `rayon`        | Parallelized resampling (`batch()` and `process_all()` APIs)                      | No      |
-| `realtime`     | `RealtimeResampler` streaming API backed by off-thread resampling                 | No      |
 | `avx`          | FFT AVX SIMD                                                                      | Yes     |
 | `sse`          | FFT SSE SIMD                                                                      | Yes     |
 | `neon`         | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
