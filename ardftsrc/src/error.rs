@@ -73,15 +73,5 @@ pub enum Error {
     #[error(
         "preset config must be configured before creating a stream. Use with_input_rate(), with_output_rate(), and with_channels() to configure the preset."
     )]
-    PresetNotConfigured,
-
-    /// In either `RealtimeResampler` or `RodioResampler`, the background streaming worker thread panicked.
-    #[error("streaming worker thread panicked: {0}")]
-    #[cfg(feature = "realtime")]
-    WorkerThreadPanic(String),
-
-    /// In either `RealtimeResampler` or `RodioResampler`, spawning the realtime background worker thread failed (for example, platform limits or resource exhaustion).
-    #[error("failed to launch realtime worker thread: {0}")]
-    #[cfg(feature = "realtime")]
-    FailedToLaunchWorkerThread(String),
+    PresetNotConfigured
 }

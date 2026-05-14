@@ -38,8 +38,7 @@ sse = ["realfft/sse"]
 wasm_simd = ["realfft/wasm_simd"]
 
 # Optional features (disabled by default)
-realtime = ["dep:rtrb"]
-rodio = ["dep:rodio", "realtime"]
+rodio = ["dep:rodio"]
 rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
 tracing = ["dep:tracing"]
@@ -61,11 +60,11 @@ harness = false
 
 [[example]]
 name = "rodio_adapter"
-required-features = ["rodio-playback"]
+required-features = ["rodio-playback", "tracing"]
 
 [[example]]
 name = "rodio_adapter_with_spans"
-required-features = ["rodio-playback"]
+required-features = ["rodio-playback", "tracing"]
 
 [package.metadata.docs.rs]
 features = ["rodio", "realtime"]

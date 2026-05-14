@@ -174,6 +174,7 @@ where
         let config = self.active_input_span().config().clone();
         self.spans = SpanPool::new(config)
             .expect("ardftsrc: Existing stream config became invalid. This is a bug in the ardftsrc crate.");
+        self.is_primed = false;
     }
 
     /// Starts a new input span while preserving output rate and quality settings.

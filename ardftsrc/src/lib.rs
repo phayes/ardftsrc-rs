@@ -7,25 +7,17 @@ mod interleaved_resampler;
 mod lpc;
 mod planar_resampler;
 mod planar_vecs;
+mod realtime;
 
 pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
 pub use error::Error;
 pub use interleaved_resampler::InterleavedResampler;
 pub use planar_resampler::PlanarResampler;
+pub use realtime::RealtimeResampler;
 pub use planar_vecs::PlanarVecs;
 
 #[cfg(test)]
 mod test_utils;
-
-// feature: realtime
-#[cfg(feature = "realtime")]
-mod realtime;
-
-//#[cfg(feature = "realtime")]
-//mod offthread;
-
-#[cfg(feature = "realtime")]
-pub use realtime::RealtimeResampler;
 
 // feature: rodio
 #[cfg(feature = "rodio")]

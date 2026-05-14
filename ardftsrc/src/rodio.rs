@@ -101,7 +101,6 @@ where
             #[cfg(feature = "tracing")]
             tracing::trace!(
                 "new input span started: {} -> {} (ratio: {})",
-                self.resampler.input_sample_rate(),
                 input_sample_rate,
                 input_channels,
                 self.span_ratio,
