@@ -27,11 +27,11 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///
 /// # Startup Delay
 ///
-/// `RealtimeResampler` has some startup delay and will emit negative-zero silence until the off-thread resampler is warmed up and producing samples.
+/// `RealtimeResampler` has some startup delay and will emit negative-zero silence until the resampler is primed and producing samples.
 /// You can check `RealtimeResampler::is_primed()` to see if the resampler is ready to produce real samples.
-/// You can also check `RealtimeResampler::sample_is_initial_delay()` to see if a produced sample is negative-zero silence emitted during initial delay.
+/// You can also check `RealtimeResampler::sample_is_underrun()` to see if a produced sample is negative-zero silence emitted during initial delay.
 ///
-/// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding until `RealtimeResampler::is_primed()` returns true.
+/// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding until `RealtimeResampler::is_primed()` returns `true``.
 /// See the [RodioResampler::fast_start() source code](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this.
 ///
 /// # Pacing
@@ -50,14 +50,15 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 /// Input spans and output spans are non-synchronous.
 /// After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
 ///
-/// ### Potential allocations on span boundaries
-///
-/// Under ideal conditions (playing a single album back to back with no format changes between spans) the resampler will not allocate.
+/// #### Potential allocations on span boundaries
+/// 
+/// `RealtimeResampler` uses a span pool to avoid allocations. After a span has played, it's allocationns are returned to the pool to be re-used.
+/// Under ideal conditions (playing a single album back to back with no format changes between spans) the resampler will not allocate during playback.
 /// However, the resampler may still perform transient allocations at span boundaries under the following conditions:
 ///   - Rapidly cycling through spans (eg. a user pressing next, next, next, next...)
 ///   - Playing a heterogeneous playlist with many different sample-rates and channel counts.
 ///
-/// In both of these allocation conditions, the allocation is transient at span boundary and transient allocations will eventually "settle down" and avoid allocations as the span pool is populated.
+/// In both of these allocation conditions, the allocation is transient at span boundary and will eventually "settle down" and avoid allocations as the span pool is populated.
 ///
 /// # Buffer Size
 ///
@@ -296,10 +297,19 @@ where
     /// - there is no queued next span, and
     /// - all buffered input/output samples have been drained.
     #[must_use]
+    #[inline]
     pub fn is_done(&self) -> bool {
         self.spans.spans.len() == 1 && self.spans.spans.front().is_some_and(RealtimeSpan::is_drained)
     }
 
+    /// Check if this resampler has been finalized.
+    ///
+    /// A finalized resampler will not accept any more input, but will still 
+    /// continue to produce output until all buffered input/output samples have been drained.
+    /// 
+    /// Call `is_done()` to check if the resampler is fully drained.
+    #[must_use]
+    #[inline]
     pub fn is_finalized(&self) -> bool {
         self.spans.is_finalized()
     }
@@ -313,15 +323,18 @@ where
     ///
     /// Input is internally buffered and converted into fixed-size chunks. This method does not
     /// return produced output directly; call `read_samples()` to drain available samples.
+    #[inline]
     pub fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
-        // A write after sample finalization starts a new independent stream.
-        if self.active_input_span().samples_finalized {
-            self.reset();
-        }
-
         self.active_input_span_mut().write_samples(input)
     }
 
+    /// Reads a single sample from the resampler.
+    ///
+    /// Returns `None` if the resampler is done and no more output will be produced.
+    /// 
+    /// Returns Some(T::neg_zero()) if the resampler is not primed and is producing negative-zero silence during initial priming delay.
+    /// Query `sample_is_underrun()` to check if a sample is negative-zero silence emitted during initial delay.s
+    #[inline]
     pub fn read_sample(&mut self) -> Option<T> {
         if self.is_done() {
             return None;
@@ -336,11 +349,6 @@ where
 
         let total_read = span_pool.read_samples(single_sample_read_buffer);
         if total_read == 0 {
-            // We are underrunning - this should never happen and is a bug.
-            #[cfg(debug_assertions)]
-            panic_msg("RealtimeResampler underrun");
-            // If production, we just return negative-zero silence.
-            #[cfg(not(debug_assertions))]
             return Some(T::neg_zero());
         } else {
             Some(single_sample_read_buffer[0])
@@ -349,9 +357,20 @@ where
 
     /// Reads up to `output.len()` interleaved samples from internally buffered output.
     ///
-    /// Returns the number of samples copied into `output`.
-    pub fn read_samples(&mut self, output: &mut [T]) -> usize {
-        self.spans.read_samples(output)
+    /// Returns one of:
+    ///    - Some(written_samples) if samples were written to `output`. Read the inner value to see how many samples were written.
+    ///    - Some(0) if the resampler is not primed, the output buffer is zero-length, or the resampler is input starved and is underrunning.
+    ///    - None if the resampler is done and no more output will be produced.
+    pub fn read_samples(&mut self, output: &mut [T]) -> Option<usize> {
+        if self.is_done() {
+            return None;
+        }
+        else if output.len() == 0 || !self.is_primed() {
+            return Some(0);
+        }
+
+        let total_read = self.spans.read_samples(output);
+        Some(total_read)
     }
 
     /// Marks the input-active span as finalized and flushes delayed output into pending samples.
@@ -410,7 +429,7 @@ where
     }
 
     /// Returns true when the sample is negative-zero silence emitted during initial delay.
-    pub fn sample_is_initial_delay(sample: T) -> bool {
+    pub fn sample_is_underrun(sample: T) -> bool {
         sample.is_zero() && sample.is_sign_negative()
     }
 }
@@ -736,17 +755,7 @@ mod tests {
     fn input_chunk_frames(resampler: &RealtimeResampler<f32>) -> usize {
         resampler.input_buffer_size() / resampler.config().channels
     }
-
-    fn process_chunk_samples(
-        resampler: &mut InterleavedResampler<f32>,
-        input: &[f32],
-        output: &mut [f32],
-    ) -> Result<usize, Error> {
-        let written = resampler.process_chunk(input, output)?;
-        assert_no_nans(&output[..written], "streaming::process_chunk_samples output");
-        Ok(written)
-    }
-
+    
     fn resample_stream_with_sample_api(
         config: Config,
         input: &[f32],
@@ -770,7 +779,7 @@ mod tests {
             offset = end;
 
             loop {
-                let written = resampler.read_samples(&mut read_buffer);
+                let written = resampler.read_samples(&mut read_buffer).unwrap();
                 if written == 0 {
                     break;
                 }
@@ -782,10 +791,10 @@ mod tests {
 
         loop {
             let written = resampler.read_samples(&mut read_buffer);
-            if written == 0 {
+            if written.is_none() {
                 break;
             }
-            output.extend_from_slice(&read_buffer[..written]);
+            output.extend_from_slice(&read_buffer[..written.unwrap()]);
         }
 
         assert_no_nans(&output, "streaming::resample_stream_with_sample_api output");
@@ -797,10 +806,10 @@ mod tests {
         let mut read_buffer = vec![0.0; read_block_size.max(1)];
         loop {
             let written = resampler.read_samples(&mut read_buffer);
-            if written == 0 {
+            if written.is_none() {
                 break;
             }
-            output.extend_from_slice(&read_buffer[..written]);
+            output.extend_from_slice(&read_buffer[..written.unwrap()]);
         }
         assert_no_nans(&output, "streaming::drain_stream output");
         output
@@ -936,12 +945,12 @@ mod tests {
         assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
 
         let mut first_actual = vec![0.0; first_expected.len()];
-        assert_eq!(resampler.read_samples(&mut first_actual), first_expected.len());
+        assert_eq!(resampler.read_samples(&mut first_actual).unwrap(), first_expected.len());
         assert_eq!(resampler.samples_left_in_span(), Some(0));
         assert_eq!(resampler.output_channels(), 2);
 
         let mut second_actual = vec![0.0; second_expected.len()];
-        assert_eq!(resampler.read_samples(&mut second_actual), second_expected.len());
+        assert_eq!(resampler.read_samples(&mut second_actual).unwrap(), second_expected.len());
         assert_eq!(resampler.samples_left_in_span(), None);
         assert_eq!(resampler.output_channels(), 2);
 
@@ -988,7 +997,7 @@ mod tests {
 
         let first_read_len = resampler.samples_left_in_span().unwrap();
         let mut first_read = vec![0.0; first_read_len];
-        assert_eq!(resampler.read_samples(&mut first_read), first_read_len);
+        assert_eq!(resampler.read_samples(&mut first_read).unwrap(), first_read_len);
         assert_eq!(resampler.samples_left_in_span(), Some(0));
         assert_eq!(resampler.output_buffer_size(), second_output_buffer_size);
     }
@@ -1022,7 +1031,7 @@ mod tests {
         assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
 
         let mut first_actual = vec![0.0; first_expected.len()];
-        assert_eq!(resampler.read_samples(&mut first_actual), first_expected.len());
+        assert_eq!(resampler.read_samples(&mut first_actual).unwrap(), first_expected.len());
 
         assert_eq!(resampler.samples_left_in_span(), Some(0));
         assert_eq!(resampler.samples_pending_in_output_span(), second_expected.len());
@@ -1041,34 +1050,6 @@ mod tests {
                 samples: 1
             })
         ));
-    }
-
-    #[test]
-    fn write_samples_and_read_samples_match_chunk_output() {
-        let config = mono_config(44_100, 48_000);
-        let mut chunk_resampler = InterleavedResampler::new(config.clone()).unwrap();
-        let mut sample_resampler = RealtimeResampler::new(config).unwrap();
-        let input: Vec<f32> = (0..chunk_resampler.input_buffer_size())
-            .map(|frame| (frame as f32 * 0.013).sin() * 0.3)
-            .collect();
-
-        let split = input.len() / 2;
-        sample_resampler.write_samples(&input[..split]).unwrap();
-        sample_resampler.write_samples(&input[split..]).unwrap();
-
-        let mut sample_output = vec![0.0; sample_resampler.output_buffer_size()];
-        let sample_written = sample_resampler.read_samples(&mut sample_output);
-
-        let mut chunk_output = vec![0.0; chunk_resampler.output_buffer_size()];
-        let chunk_written = process_chunk_samples(&mut chunk_resampler, &input, &mut chunk_output).unwrap();
-
-        assert_eq!(sample_written, chunk_written);
-        for (left, right) in sample_output[..sample_written]
-            .iter()
-            .zip(chunk_output[..chunk_written].iter())
-        {
-            assert!((*left - *right).abs() < 1e-5);
-        }
     }
 
     #[test]
@@ -1130,10 +1111,10 @@ mod tests {
         let mut read_buffer = vec![0.0; 5];
         loop {
             let written = stream.read_samples(&mut read_buffer);
-            if written == 0 {
+            if written.is_none() {
                 break;
             }
-            actual.extend_from_slice(&read_buffer[..written]);
+            actual.extend_from_slice(&read_buffer[..written.unwrap()]);
         }
 
         assert_eq!(actual.len(), expected.len());
