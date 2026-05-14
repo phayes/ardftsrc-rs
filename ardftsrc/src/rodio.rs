@@ -1,4 +1,4 @@
-use crate::{Config, Error, RealtimeResampler};
+use crate::{Config, Error, RealtimeResampler, panic_err, panic_msg};
 use num_traits::Float;
 use realfft::FftNum;
 
@@ -93,7 +93,7 @@ where
         if current_input_sample_rate != input_sample_rate || current_input_channels != input_channels {
             self.resampler
                 .new_span(input_sample_rate, input_channels)
-                .expect("failed to create new input span - this is a bug in the ardftsrc crate");
+                .unwrap_or_else(|err| panic_err("failed to create new input span", err));
             self.samples_this_span = 0;
             self.output_samples_this_span = 0;
             self.set_span_ratio();
@@ -133,7 +133,7 @@ where
             Some(sample) => {
                 self.resampler
                     .write_samples(&[num_traits::cast(sample).unwrap()])
-                    .expect("failed to write sample");
+                    .unwrap_or_else(|err| panic_err("failed to write sample", err));
                 if count_samples {
                     self.samples_this_span += 1;
                 }
@@ -143,7 +143,7 @@ where
                     self.stream_input_ended = true;
                     self.resampler
                         .finalize()
-                        .expect("failed to finalize resampler - this is a bug in the ardftsrc crate");
+                        .unwrap_or_else(|err| panic_err("failed to finalize resampler", err));
                 }
             }
         }
@@ -213,8 +213,10 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_sample()
-            .map(|sample| num_traits::cast(sample).expect("resampler sample should be representable as rodio sample"))
+        self.next_sample().map(|sample| {
+            num_traits::cast(sample)
+                .unwrap_or_else(|| panic_msg("resampler sample should be representable as rodio sample"))
+        })
     }
 }
 

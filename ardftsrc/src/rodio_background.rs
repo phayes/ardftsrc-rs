@@ -1,4 +1,4 @@
-use crate::{Config, Error, RealtimeResampler};
+use crate::{Config, Error, RealtimeResampler, panic_msg};
 use num_traits::Float;
 use realfft::FftNum;
 
@@ -221,7 +221,10 @@ where
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.next_sample()
-            .map(|sample| num_traits::cast(sample).expect("resampler sample should be representable as rodio sample"))
+            .map(|sample| {
+                num_traits::cast(sample)
+                    .unwrap_or_else(|| panic_msg("resampler sample should be representable as rodio sample"))
+            })
     }
 }
 

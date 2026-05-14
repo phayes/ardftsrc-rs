@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{Error, panic_msg};
 #[cfg(feature = "audioadapter")]
 use audioadapter::Adapter;
 #[cfg(feature = "audioadapter")]
@@ -155,7 +155,10 @@ where
         for frame in 0..self.frames {
             for channel in &self.buf {
                 let sample = channel[frame].clone();
-                interleaved.push(cast(sample).expect("interleave_into target type cannot represent source sample"));
+                interleaved.push(
+                    cast(sample)
+                        .unwrap_or_else(|| panic_msg("interleave_into target type cannot represent source sample")),
+                );
             }
         }
 

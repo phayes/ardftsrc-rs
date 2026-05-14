@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 
-use crate::{Config, Error, offthread::OffThreadStreamingResampler};
+use crate::{panic_msg, Config, Error, offthread::OffThreadStreamingResampler};
 
 // PERFORMANCE TUNING PARAMETERS
 //
@@ -370,7 +370,7 @@ where
                 let packets = self
                     .out_consumer
                     .read_chunk(want_samples)
-                    .expect("ardftsrc: failed to read samples despite checking for slots");
+                    .unwrap_or_else(|_| panic_msg("failed to read samples despite checking for slots"));
 
                 packets.into_iter().for_each(|packet| {
                     self.local_read_buffer.push_back(packet);
@@ -544,7 +544,7 @@ where
     pub fn wake_up(&mut self) {
         self.thread_handle
             .as_ref()
-            .expect("ardftsrc: thread handle should be set")
+            .unwrap_or_else(|| panic_msg("thread handle should be set"))
             .thread()
             .unpark();
         self.samples_written_since_wake = 0;
@@ -670,7 +670,7 @@ fn launch_thread<T: Float + FftNum>(
 
                 for packet in in_consumer
                     .read_chunk(num_packets)
-                    .expect("ardftsrc: failed to read input chunk despite checking for slots")
+                    .unwrap_or_else(|_| panic_msg("failed to read input chunk despite checking for slots"))
                 {
                     match packet {
                         Packet::EndOfStream => {
@@ -695,8 +695,8 @@ fn launch_thread<T: Float + FftNum>(
                         Packet::NewSpanPending(_) => {
                             // Ignore - we'll handle it on Packet::Format when the new span is actually announced.
                             #[cfg(debug_assertions)]
-                            panic!(
-                                "ardftsrc: NewSpanPending packet received. The input thread should not be sending this packet."
+                            panic_msg(
+                                "NewSpanPending packet received. The input thread should not be sending this packet.",
                             );
                         }
                     }

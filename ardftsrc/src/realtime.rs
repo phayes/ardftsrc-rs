@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
-
+use crate::{panic_err, panic_msg};
 use num_traits::Float;
 use realfft::FftNum;
+use std::collections::VecDeque;
 
 use crate::{Config, Error, InterleavedResampler};
 
@@ -66,7 +66,7 @@ where
             let span = self
                 .spans
                 .front_mut()
-                .expect("ardftsrc: StreamingResampler always has at least one span");
+                .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"));
             let read = span.read_samples(&mut output[total_read..]);
             total_read += read;
 
@@ -88,8 +88,6 @@ where
         self.spans.iter().all(|span| span.inner.is_finalized())
     }
 }
-
-
 
 /// Realtime reasampler for live audio streams. If you're looking for **rodio** support, see `RodioResampler`.
 ///
@@ -272,8 +270,8 @@ where
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
     pub fn reset(&mut self) {
         let config = self.active_input_span().config().clone();
-        self.spans = SpanPool::new(config)
-            .expect("ardftsrc: Existing stream config became invalid. This is a bug in the ardftsrc crate.");
+        self.spans =
+            SpanPool::new(config).unwrap_or_else(|err| panic_err("Existing stream config became invalid", err));
         self.is_primed = false;
     }
 
@@ -311,7 +309,7 @@ where
             self.spans
                 .spans
                 .front()
-                .expect("ardftsrc: StreamingResampler always has at least one span")
+                .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"))
                 .samples_pending_output
                 .len()
         })
@@ -394,7 +392,7 @@ where
         if total_read == 0 {
             // We are underrunning - this should never happen and is a bug.
             #[cfg(debug_assertions)]
-            panic!("ardftsrc: RealtimeResampler underrun");
+            panic_msg("RealtimeResampler underrun");
             // If production, we just return negative-zero silence.
             #[cfg(not(debug_assertions))]
             return Some(T::neg_zero());
@@ -439,7 +437,7 @@ where
         self.spans
             .spans
             .back()
-            .expect("ardftsrc: StreamingResampler always has at least one span")
+            .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"))
     }
 
     /// Returns a mutable reference to the input-active span (write side).
@@ -449,7 +447,7 @@ where
         self.spans
             .spans
             .back_mut()
-            .expect("ardftsrc: StreamingResampler always has at least one span")
+            .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"))
     }
 
     /// Returns the output-active span (read side).
@@ -462,7 +460,7 @@ where
             .spans
             .get(output_span_index)
             .or_else(|| self.spans.spans.front())
-            .expect("ardftsrc: StreamingResampler always has at least one span")
+            .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"))
     }
 }
 

@@ -13,8 +13,8 @@ pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, 
 pub use error::Error;
 pub use interleaved_resampler::InterleavedResampler;
 pub use planar_resampler::PlanarResampler;
-pub use realtime::RealtimeResampler;
 pub use planar_vecs::PlanarVecs;
+pub use realtime::RealtimeResampler;
 
 #[cfg(test)]
 mod test_utils;
@@ -37,9 +37,19 @@ pub use adapter_resampler::AdapterResampler;
 #[cfg(feature = "audioadapter")]
 pub use audioadapter;
 
+#[track_caller]
+pub(crate) fn panic_msg(msg: &str) -> ! {
+    panic!(
+        "ardftsrc: {}. This is a bug in the ardfsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues",
+        msg
+    );
+}
 
-// Panic message
-
-pub(crate) fn panic_msg(msg: &str) -> String {
-    format!("ardftsrc: {msg}. This is a bug in the ardfsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues")
+/// Like [`panic_msg`], but appends an underlying [`std::error::Error`] after `context` (via [`Display`](std::fmt::Display)).
+#[track_caller]
+pub(crate) fn panic_err(context: &str, err: impl std::error::Error) -> ! {
+    panic!(
+        "ardftsrc: {}: {}. This is a bug in the ardfsrc crate. Please file a bug report at https://github.com/phayes/ardftsrc-rs/issues",
+        context, err
+    );
 }

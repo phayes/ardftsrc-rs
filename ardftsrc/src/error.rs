@@ -73,5 +73,5 @@ pub enum Error {
     #[error(
         "preset config must be configured before creating a stream. Use with_input_rate(), with_output_rate(), and with_channels() to configure the preset."
     )]
-    PresetNotConfigured
+    PresetNotConfigured,
 }
