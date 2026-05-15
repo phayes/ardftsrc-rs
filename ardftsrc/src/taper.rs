@@ -243,8 +243,6 @@ fn build_cosine_taper<T: Float>(
 ///
 /// Returns passband unity bins, a trimmed descending Beta-CDF transition,
 /// and stopband zeros.
-///
-/// TODO: Validate alpha and beta are positive.
 fn build_beta_cdf_taper<T: Float>(
     input_fft_size: usize,
     cutoff_bin: usize,
