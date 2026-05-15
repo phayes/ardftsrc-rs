@@ -285,5 +285,5 @@ AI use is allowed for the following:
 ### Development TODOs:
 
 1. Add `tanh` taper.
-2. Add bindings to other languages, python, ts (wasm) etc.
+2. Add bindings to other languages, python, cpp, c, ts (wasm) etc.
 3. Investigate why the optional audioadapter interface appears to be much slower than other paths.
