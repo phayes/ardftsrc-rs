@@ -119,7 +119,7 @@ call `post(...)` on A with B's head samples so A's stop-edge uses real next-trac
 
 ## Realtime Resampling
 
-ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via [`RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) (`rodio` feature) and the ability to build your own custom realtime audio resampling pipline via [`RealtimeResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RealtimeResampler.html). 
+ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via [`RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) (`rodio` feature) and the ability to build your own custom realtime audio resampling pipeline via [`RealtimeResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RealtimeResampler.html). 
 
 ## Rodio integration
 
@@ -234,7 +234,7 @@ Runtime feature detection is in place for all SIMD except webassembly.
 
 The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-rate conversion. 
 
-You can use this as a utlity, or use it to benchmark this project.
+You can use this as a utility, or use it to benchmark this project.
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release

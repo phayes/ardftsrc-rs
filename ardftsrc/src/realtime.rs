@@ -35,7 +35,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///
 /// If you are wiring [`RealtimeResampler`] into your own realtime audio pipeline, you'll want to keep proper pacing ratios between input and output samples.
 /// See the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback,
-/// or a very slow response to seeking, those are both symtoms of bad pacing.
+/// or a very slow response to seeking, those are both symptoms of bad pacing.
 ///
 /// # Spans
 ///
@@ -49,7 +49,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///
 /// #### Potential allocations on span boundaries
 ///
-/// [`RealtimeResampler`] uses a span pool to avoid allocations. After a span has played, it's allocationns are returned to the pool to be re-used.
+/// [`RealtimeResampler`] uses a span pool to avoid allocations. After a span has played, its allocations are returned to the pool to be re-used.
 /// Under ideal conditions (playing a single album back to back with no format changes between spans) the resampler will not allocate during playback.
 /// However, the resampler may still perform transient allocations at span boundaries under the following conditions:
 ///   - Rapidly cycling through spans (eg. a user pressing next, next, next, next...)
@@ -168,7 +168,7 @@ where
 
     /// Estimates the number of input samples required to prime the resampler.
     ///
-    /// This can be innacurate if there is a span transition during the priming process.
+    /// This can be inaccurate if there is a span transition during the priming process.
     #[must_use]
     pub fn estimate_priming_samples(&self) -> usize {
         self.active_input_span().input_buffer_size() * 2
@@ -176,7 +176,7 @@ where
 
     /// Estimates the duration required to prime the resampler.
     ///
-    /// This can be innacurate if there is a span transition during the priming process.
+    /// This can be inaccurate if there is a span transition during the priming process.
     #[must_use]
     pub fn estimate_priming_duration(&self) -> std::time::Duration {
         std::time::Duration::from_secs_f64(
