@@ -123,7 +123,7 @@ ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration vi
 
 ## Rodio integration
 
-Enable the `rodio` feature to use [`rodio::RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) to wrap a [`rodio::Source`](https://docs.rs/rodio/latest/rodio/source/trait.Source.html) and resample it in realtime in your rodio pipeline.
+Enable the `rodio` feature to use [`RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) to wrap a [`rodio::Source`](https://docs.rs/rodio/latest/rodio/source/trait.Source.html) and resample it in realtime in your rodio pipeline.
 
 When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use [`config.with_rodio_fast_start(true)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_rodio_fast_start), which will 
 avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
