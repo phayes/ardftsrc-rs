@@ -2,9 +2,9 @@ use crate::{Config, Error, RealtimeResampler, panic_err, panic_msg};
 use num_traits::Float;
 use realfft::FftNum;
 
-/// Wrap a `rodio::Source` and resample it in realtime in your rodio pipeline. Requires the `rodio` feature.
+/// Wrap a [`rodio::Source`] and resample it in realtime in your rodio pipeline. Requires the `rodio` feature.
 ///
-/// When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use `config.with_rodio_fast_start(true)`, which will
+/// When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use [`config.with_rodio_fast_start(true)`](Config::with_rodio_fast_start), which will
 /// avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar,
 /// do not enable fast-start.
 ///

@@ -216,7 +216,7 @@ pub struct Config {
     /// `0.0` disables phase rotation. The default value is `50.0`.
     pub phase_intensity: f32,
 
-    /// For `RodioResampler`, this setting controls whether to use a fast start mode.
+    /// For [`RodioResampler`], this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
     /// This is only appropriate to use when the inner sounce can handle rapid calls to `next()`. For example, this will
@@ -227,7 +227,7 @@ pub struct Config {
     ///
     /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
     ///
-    /// This setting is only for `RodioResampler`, it has no effect on other resamplers.
+    /// This setting is only for [`RodioResampler`], it has no effect on other resamplers.
     #[cfg(feature = "rodio")]
     pub rodio_fast_start: bool,
 }
@@ -356,7 +356,7 @@ impl Config {
         self
     }
 
-    /// For `RodioResampler`, this setting controls whether to use a fast start mode.
+    /// For [`RodioResampler`], this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
     /// This is only appropriate to use when the inner sounce can handle rapid calls to `next()`. For example, this will
@@ -367,7 +367,7 @@ impl Config {
     ///
     /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
     ///
-    /// This setting is only for `RodioResampler`, it has no effect on other resamplers.
+    /// This setting is only for [`RodioResampler`], it has no effect on other resamplers.
     #[must_use]
     #[cfg(feature = "rodio")]
     pub fn with_rodio_fast_start(mut self, rodio_fast_start: bool) -> Self {
@@ -420,7 +420,7 @@ impl Config {
 
     /// Computes derived FFT/chunk geometry from validated user configuration.
     ///
-    /// Returns `DerivedConfig` for processing, or an error if validation fails.
+    /// Returns [`DerivedConfig`] for processing, or an error if validation fails.
     pub(crate) fn derive_config<T>(&self) -> Result<DerivedConfig<T>, Error>
     where
         T: Float,
@@ -467,7 +467,7 @@ where
 {
     /// Expands user-facing configuration into internal chunk/FFT dimensions.
     ///
-    /// Returns a fully populated `DerivedConfig` with rate-reduced chunk sizes and offsets.
+    /// Returns a fully populated [`DerivedConfig`] with rate-reduced chunk sizes and offsets.
     fn from_config(config: &Config) -> Self {
         let common_divisor = gcd(config.input_sample_rate, config.output_sample_rate);
         let mut input_chunk_frames = config.input_sample_rate / common_divisor;

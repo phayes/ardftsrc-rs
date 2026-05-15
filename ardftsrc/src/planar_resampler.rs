@@ -8,16 +8,16 @@ use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore
 /// Chunked sample-rate converter for planar audio buffers.
 ///
 /// Use this resampler when you can control both read and write buffer sizes, and your audio is already in planar format.
-/// Query `input_buffer_size()` and `output_buffer_size()`, then size your input and output
+/// Query [`input_buffer_size()`](Self::input_buffer_size) and [`output_buffer_size()`](Self::output_buffer_size), then size your input and output
 /// channel slices to those values.
 ///
-/// 1. Construct with `PlanarResampler::new(config)`.
-/// 2. Query `input_buffer_size()` and `output_buffer_size()`.
-/// 3. Call `process_chunk(...)` for each full planar chunk.
-/// 4. Call `process_chunk_final(...)` once for the final chunk (it may be undersized).
-/// 5. Call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
+/// 1. Construct with [`PlanarResampler::new(config)`](Self::new).
+/// 2. Query [`input_buffer_size()`](Self::input_buffer_size) and [`output_buffer_size()`](Self::output_buffer_size).
+/// 3. Call [`process_chunk(...)`](Self::process_chunk) for each full planar chunk.
+/// 4. Call [`process_chunk_final(...)`](Self::process_chunk_final) once for the final chunk (it may be undersized).
+/// 5. Call [`finalize(...)`](Self::finalize) once per stream to emit delayed tail samples and reset stream state.
 ///
-/// To end a stream early, call `reset()`.
+/// To end a stream early, call [`reset()`](Self::reset).
 ///
 /// This is the most direct chunked path because ardftsrc internally processes planar channels.
 pub struct PlanarResampler<T = f64>
@@ -33,9 +33,9 @@ impl<T> PlanarResampler<T>
 where
     T: Float + FftNum,
 {
-    /// Constructs a resampler from `config`.
+    /// Constructs a resampler from [`config`](Config).
     ///
-    /// Returns a ready-to-use resampler instance, or an error if `config` is invalid or derived
+    /// Returns a ready-to-use resampler instance, or an error if [`config`](Config) is invalid or derived
     /// FFT geometry cannot be prepared.
     pub fn new(config: Config) -> Result<Self, Error> {
         let derived = config.derive_config::<T>()?;
@@ -64,7 +64,7 @@ where
         self.cores.iter().map(ArdftsrcCore::output_sample_processed).sum()
     }
 
-    /// Returns the required total `input` length for each `process_chunk()` call.
+    /// Returns the required total `input` length for each [`process_chunk()`](Self::process_chunk) call.
     ///
     /// Divide by channel count to get the required frame count per channel.
     ///
@@ -79,8 +79,8 @@ where
     ///
     /// Divide by channel count to get the recommended frame capacity per channel.
     ///
-    /// For chunked streaming, size output slices passed to `process_chunk()` and
-    /// `process_chunk_final()` to at least this value.
+    /// For chunked streaming, size output slices passed to [`process_chunk()`](Self::process_chunk) and
+    /// [`process_chunk_final()`](Self::process_chunk_final) to at least this value.
     #[must_use]
     #[inline]
     pub fn output_buffer_size(&self) -> usize {
@@ -239,7 +239,7 @@ where
     ///
     /// This flushes any remaining delayed samples that were held back by the chunked
     /// processing pipeline. It is the terminal step of a stream and should be called once per
-    /// stream. If `process_chunk_final()` was not called, this treats the last accepted full chunk
+    /// stream. If [`process_chunk_final()`](Self::process_chunk_final) was not called, this treats the last accepted full chunk
     /// as terminal input.
     ///
     /// `output` must provide one mutable slice per channel, each with at least
@@ -408,7 +408,7 @@ where
     /// Process multiple independent tracks.
     ///
     /// Each input slice is treated as its own stream with no inter-track context. See
-    /// `batch_gapless()` for gapless processing of multiple tracks.
+    /// [`batch_gapless()`](Self::batch_gapless) for gapless processing of multiple tracks.
     ///
     /// Enable the `rayon` feature for parallel processing.
     pub fn batch(&self, inputs: Vec<PlanarVecs<T>>) -> Result<Vec<PlanarVecs<T>>, Error>
@@ -438,7 +438,7 @@ where
         }
     }
 
-    /// Process multiple tracks as one gapless sequence. This is a planar specialization of `batch_gapless()`.
+    /// Process multiple tracks as one gapless sequence. This is a planar specialization of [`batch_gapless()`](Self::batch_gapless).
     ///
     /// Adjacent inputs are treated as tracks from the same album or other back-to-back
     /// material. Each track is returned separately, but the previous track's tail and next

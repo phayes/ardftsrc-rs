@@ -13,30 +13,30 @@ pub(crate) const BUFFER_SIZE_MULTIPLIER: usize = 2;
 /// Number of concurrent spans that can be playing at the same time before we allocate.
 const DEFAULT_CONCURRENT_SPANS: usize = 4;
 
-/// Realtime reasampler for live audio streams. If you're looking for **rodio** support, see `RodioResampler`.
+/// Realtime reasampler for live audio streams. If you're looking for **rodio** support, see [`RodioResampler`].
 ///
 /// The real-time resampler allow you to plug ardftsrc into your own realtime audio pipeline. It accepts interleaved samples one-at-a-time.
 ///
 /// 1. Call `write_sample(...)` with each incoming interleaved sample and `read_sample(...)` at your output cadence.
 /// 2. For multichannel streams, samples must be written interleaved.
 /// 3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
-/// 4. Call `finalize()` at end-of-stream, then keep calling `read_sample(...)` until it returns `None`.
+/// 4. Call [`finalize()`](Self::finalize) at end-of-stream, then keep calling [`read_sample(...)`](Self::read_sample) until it returns `None`.
 ///
-/// Additioonal configuration settings for realtime are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
+/// Additional configuration settings for realtime are [`Config::with_realtime_input_range()`] and [`Config::with_realtime_max_channels()`] which lets you tune the resampler if you
 /// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous.
 ///
 /// # Startup Delay
 ///
-/// `RealtimeResampler` has some startup delay and will emit negative-zero silence until the resampler is primed and producing samples.
-/// You can check `RealtimeResampler::is_primed()` to see if the resampler is ready to produce real samples.
-/// You can also check `RealtimeResampler::sample_is_underrun()` to see if a produced sample is negative-zero silence emitted during initial delay.
+/// [`RealtimeResampler`] has some startup delay and will emit negative-zero silence until the resampler is primed and producing samples.
+/// You can check [`RealtimeResampler::is_primed()`] to see if the resampler is ready to produce real samples.
+/// You can also check [`RealtimeResampler::sample_is_underrun()`] to see if a produced sample is negative-zero silence emitted during initial delay.
 ///
-/// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding until `RealtimeResampler::is_primed()` returns `true``.
+/// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding until [`RealtimeResampler::is_primed()`] returns `true`.
 /// See the [RodioResampler::fast_start() source code](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this.
 ///
 /// # Pacing
 ///
-/// If you are wiring `RealtimeResampler` into your own realtime audio pipeline, you'll want to keep proper pacing ratios between input and output samples.
+/// If you are wiring [`RealtimeResampler`] into your own realtime audio pipeline, you'll want to keep proper pacing ratios between input and output samples.
 /// See the [rodio source](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this. If you notice crackling with slow playback,
 /// or a very slow response to seeking, those are both symtoms of bad pacing.
 ///
@@ -44,15 +44,15 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///
 /// Streaming sources sometimes change format while they are still producing samples.
 /// For example, a playlist-like source may play one file at 44.1 kHz stereo and then another at 48 kHz mono.
-/// The realtime resampler models those format regions as spans. You can start a new span with `new_span()`.
+/// The realtime resampler models those format regions as spans. You can start a new span with [`new_span()`](Self::new_span).
 /// When a new span starts, writes go to the new span immediately, and reads continue draining the previous span first before switching to the next.
 ///
 /// Input spans and output spans are non-synchronous.
-/// After calling `new_span`, query `current_span_len()` to see how many samples are left on the output side before the output will switch to a new span.
+/// After calling [`new_span()`](Self::new_span), query [`samples_left_in_span()`](Self::samples_left_in_span) to see how many samples are left on the output side before the output will switch to a new span.
 ///
 /// #### Potential allocations on span boundaries
 /// 
-/// `RealtimeResampler` uses a span pool to avoid allocations. After a span has played, it's allocationns are returned to the pool to be re-used.
+/// [`RealtimeResampler`] uses a span pool to avoid allocations. After a span has played, it's allocationns are returned to the pool to be re-used.
 /// Under ideal conditions (playing a single album back to back with no format changes between spans) the resampler will not allocate during playback.
 /// However, the resampler may still perform transient allocations at span boundaries under the following conditions:
 ///   - Rapidly cycling through spans (eg. a user pressing next, next, next, next...)
@@ -133,7 +133,7 @@ impl<T> RealtimeResampler<T>
 where
     T: Float + FftNum,
 {
-    /// Constructs a sample-streaming resampler from `config`.
+    /// Constructs a sample-streaming resampler from [`config`](Config).
     pub fn new(config: Config) -> Result<Self, Error> {
         Ok(Self {
             spans: SpanPool::new(config, DEFAULT_CONCURRENT_SPANS)?,
@@ -172,7 +172,7 @@ where
         self.active_output_span().samples_pending_output.len()
     }
 
-    /// Returns true when the output buffer has enough samples for realtime `read_sample()` pulls.
+    /// Returns true when the output buffer has enough samples for realtime [`read_sample()`](Self::read_sample) pulls.
     #[must_use]
     #[inline]
     pub fn is_primed(&mut self) -> bool {
@@ -262,7 +262,7 @@ where
         })
     }
 
-    /// Returns the output channel count for the next samples that `read_samples()` would emit.
+    /// Returns the output channel count for the next samples that [`read_samples()`](Self::read_samples) would emit.
     ///
     /// When `samples_left_in_span() == Some(0)`, the current output-active span is already drained, so this
     /// reports the queued next span's channel count.
@@ -307,7 +307,7 @@ where
     /// A finalized resampler will not accept any more input, but will still 
     /// continue to produce output until all buffered input/output samples have been drained.
     /// 
-    /// Call `is_done()` to check if the resampler is fully drained.
+    /// Call [`is_done()`](Self::is_done) to check if the resampler is fully drained.
     #[must_use]
     #[inline]
     pub fn is_finalized(&self) -> bool {
@@ -333,7 +333,7 @@ where
     /// Returns `None` if the resampler is done and no more output will be produced.
     /// 
     /// Returns Some(T::neg_zero()) if the resampler is not primed and is producing negative-zero silence during initial priming delay.
-    /// Query `sample_is_underrun()` to check if a sample is negative-zero silence emitted during initial delay.s
+    /// Query [`sample_is_underrun()`](Self::sample_is_underrun) to check if a sample is negative-zero silence emitted during initial delay.s
     #[inline]
     pub fn read_sample(&mut self) -> Option<T> {
         if self.is_done() {
@@ -376,16 +376,16 @@ where
     /// Marks the input-active span as finalized and flushes delayed output into pending samples.
     ///
     /// After this call, no new input should be written for the current stream. Keep calling
-    /// `read_samples()` until it returns zero to drain all finalized output.
+    /// [`read_samples()`](Self::read_samples) until it returns zero to drain all finalized output.
     ///
     /// If your streaming pipeline does not need delayed tail output at end-of-stream, call
-    /// `reset()` directly instead of `finalize_samples()`. This is specifically for abrupt
+    /// [`reset()`](Self::reset) directly instead of `finalize_samples()`. This is specifically for abrupt
     /// switching cases where you intentionally discard the previous stream tail. For normal
-    /// endings where tail output is desired, use `finalize_samples()`.
+    /// endings where tail output is desired, use [`finalize()`](Self::finalize).
     ///
     /// For multi-channel streams, callers must provide a complete interleaved frame via
-    /// `write_samples()` before finalizing. If a dangling partial frame remains buffered, this
-    /// method returns `Error::DanglingPartialFrame`.
+    /// [`write_samples()`](Self::write_samples) before finalizing. If a dangling partial frame remains buffered, this
+    /// method returns [`Error::DanglingPartialFrame`].
     pub fn finalize(&mut self) -> Result<(), Error> {
         self.active_input_span_mut().finalize_samples()
     }

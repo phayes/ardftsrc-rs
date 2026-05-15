@@ -7,7 +7,7 @@ use crate::{Config, Error, PlanarResampler, PlanarVecs, config::DerivedConfig, c
 use audio_core::Sample;
 use audioadapter::{Adapter, AdapterMut};
 
-/// `audioadapter` integration. Currently has performance issues - not recommended.
+/// [`audioadapter`] integration. Currently has performance issues - not recommended.
 pub struct AdapterResampler<T = f64>
 where
     T: Float + FftNum + Sample,
@@ -27,9 +27,9 @@ impl<T> AdapterResampler<T>
 where
     T: Float + FftNum + Sample,
 {
-    /// Constructs a resampler from `config`.
+    /// Constructs a resampler from [`config`](Config).
     ///
-    /// Returns a ready-to-use resampler instance, or an error if `config` is invalid or derived
+    /// Returns a ready-to-use resampler instance, or an error if [`config`](Config) is invalid or derived
     /// FFT geometry cannot be prepared.
     pub fn new(config: Config) -> Result<Self, Error> {
         let derived = config.derive_config::<T>()?;
@@ -67,7 +67,7 @@ where
         self.cores.iter().map(ArdftsrcCore::output_sample_processed).sum()
     }
 
-    /// Returns the required `input` length (interleaved samples) for each `process_chunk()` call.
+    /// Returns the required `input` length (interleaved samples) for each [`process_chunk()`](Self::process_chunk) call.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
     #[must_use]
@@ -78,8 +78,8 @@ where
 
     /// Returns the recommended per-call `output` capacity in interleaved samples.
     ///
-    /// For chunked streaming, size output slices passed to `process_chunk()` and
-    /// `process_chunk_final()` to at least this value.
+    /// For chunked streaming, size output slices passed to [`process_chunk()`](Self::process_chunk) and
+    /// [`process_chunk_final()`](Self::process_chunk_final) to at least this value.
     #[must_use]
     #[inline]
     pub fn output_chunk_size(&self) -> usize {
@@ -276,7 +276,7 @@ where
     ///
     /// This flushes any remaining delayed samples that were held back by the chunked
     /// processing pipeline. It is the terminal step of a stream and should be called once per
-    /// stream. If `process_chunk_final()` was not called, this treats the last accepted full chunk
+    /// stream. If [`process_chunk_final()`](Self::process_chunk_final) was not called, this treats the last accepted full chunk
     /// as terminal input.
     ///
     /// Returns the number of samples written to the output buffer.
@@ -428,7 +428,7 @@ where
     /// Process multiple independent tracks.
     ///
     /// Each input slice is treated as its own stream with no inter-track context. See
-    /// `batch_gapless()` for gapless processing of multiple tracks.
+    /// [`batch_gapless()`](Self::batch_gapless) for gapless processing of multiple tracks.
     ///
     /// Enable the `rayon` feature for parallel processing.
     pub fn batch<'a>(&self, inputs: &[&dyn Adapter<'a, T>]) -> Result<Vec<PlanarVecs<T>>, Error>

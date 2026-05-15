@@ -86,7 +86,7 @@ where
         self.derived.output_chunk_frames
     }
 
-    /// Constructs a single-channel core resampler from `derived`.
+    /// Constructs a single-channel core resampler from [`derived`](DerivedConfig).
     ///
     /// Returns a ready-to-use core instance.
     pub fn new(derived: DerivedConfig<T>) -> Self {
@@ -140,7 +140,7 @@ where
         self.input_chunk_len_samples()
     }
 
-    /// Returns the required `input` length for each `process_chunk()` call.
+    /// Returns the required `input` length for each [`process_chunk()`](Self::process_chunk) call.
     ///
     /// Use this to allocate/read fixed-size streaming input buffers.
     #[inline]
@@ -156,7 +156,7 @@ where
     /// Recommended size:
     ///
     /// - Pass one full input chunk from the end of the previous track.
-    /// - Query chunk size with `input_chunk_samples()`, or `input_buffer_size()`.
+    /// - Query chunk size with [`input_chunk_samples()`](Self::input_chunk_samples), or [`input_buffer_size()`](Self::input_buffer_size).
     ///
     /// Shorter buffers are still valid: any missing start context falls back to LPC
     /// extrapolation.
@@ -176,7 +176,7 @@ where
     /// Recommended size:
     ///
     /// - Pass one full input chunk from the start of the next track.
-    /// - Query chunk size with `input_chunk_samples()`, or `input_buffer_size()`.
+    /// - Query chunk size with [`input_chunk_samples()`](Self::input_chunk_samples), or [`input_buffer_size()`](Self::input_buffer_size).
     ///
     /// Shorter buffers are still valid: any missing stop context falls back to LPC
     /// extrapolation.
@@ -327,7 +327,7 @@ where
     ///
     /// Behavior by mode:
     ///
-    /// - If final input was already seen, returns `Error::StreamFinished`.
+    /// - If final input was already seen, returns [`Error::StreamFinished`].
     /// - In passthrough mode (equal rates), it copies input directly to output.
     /// - In FFT mode, it processes one chunk, then applies startup trim and writes contiguous
     ///   samples from `output_block`.
