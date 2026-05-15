@@ -1,6 +1,6 @@
+use crate::TaperType;
 use num_traits::Float;
 use realfft::num_complex::Complex;
-use crate::TaperType;
 
 /// Low-latency, lower-quality preset.
 ///
@@ -137,8 +137,6 @@ pub const PRESET_EXTREME: Config = Config {
 };
 
 use crate::Error;
-
-
 
 #[derive(Debug, Clone, PartialEq)]
 /// Configures the ardftsrc resampler.
@@ -411,7 +409,7 @@ impl Config {
         if !(0.0..=100.0).contains(&self.phase_intensity) || !self.phase_intensity.is_finite() {
             return Err(Error::InvalidPhaseIntensity(self.phase_intensity));
         }
-    
+
         // Validate the taper type
         self.taper_type.validate()?;
 
@@ -488,12 +486,9 @@ where
         let cutoff_bins = input_chunk_frames.min(output_chunk_frames) + 1;
         let taper_bins = (cutoff_bins as f64 * (1.0 - f64::from(config.bandwidth))).ceil() as usize;
         let is_passthrough = config.input_sample_rate == config.output_sample_rate;
-        let taper = config.taper_type.build_taper(
-            input_fft_size,
-            cutoff_bins,
-            taper_bins,
-            is_passthrough,
-        );
+        let taper = config
+            .taper_type
+            .build_taper(input_fft_size, cutoff_bins, taper_bins, is_passthrough);
 
         let phase_value = T::from(config.phase).unwrap_or_else(T::zero);
         let phase_intensity = T::from(config.phase_intensity).unwrap_or_else(T::zero);
@@ -535,7 +530,6 @@ where
             })
             .collect()
     }
-
 }
 
 fn gcd(mut a: usize, mut b: usize) -> usize {

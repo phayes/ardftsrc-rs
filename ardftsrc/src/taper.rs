@@ -1,6 +1,6 @@
 use crate::Error;
-use num_traits::Float;
 use crate::beta_reg::beta_reg;
+use num_traits::Float;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// Transition profile used to shape the cutoff edge of the frequency mask.
