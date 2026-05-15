@@ -1,5 +1,7 @@
 //! This code was orignially copied from the `linear-predictive-coding` crate and adapted for our use here.
 //! Our thanks to the authors of the linear-predictive-coding crate!
+//! 
+//! Licensed under MIT OR Apache-2.0 license.
 
 use num_traits::Float;
 
