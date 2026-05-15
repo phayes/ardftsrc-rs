@@ -129,7 +129,6 @@ When playing from a buffered audio source such as a file or a buffered stream, i
 avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
 do not enable fast-start.
 
-# Example:
 ```rust
 #[cfg(feature = "rodio")]
 {
