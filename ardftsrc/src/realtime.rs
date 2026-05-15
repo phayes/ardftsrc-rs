@@ -264,6 +264,8 @@ where
     #[must_use]
     #[inline]
     /// Returns the output sample rate for samples currently being read.
+    /// 
+    /// When samples_left_in_span() == Some(0), the current output-active span is already drained, so this reports the queued next span’s channel count.
     pub fn output_sample_rate(&self) -> usize {
         self.active_output_span().config().output_sample_rate
     }
@@ -283,7 +285,7 @@ where
     /// Check if this resampler has been finalized.
     ///
     /// A finalized resampler will not accept any more input, but will still
-    /// continue to produce output until all buffered input/output samples have been drained.
+    /// continue to produce output until all buffered samples have been drained.
     ///
     /// Call [`is_done()`](Self::is_done) to check if the resampler is fully drained.
     #[must_use]
@@ -311,7 +313,7 @@ where
     ///
     /// Returns `None` if the resampler is done and no more output will be produced.
     ///
-    /// Returns Some(T::neg_zero()) if the resampler is not primed and is producing negative-zero silence during initial priming delay.
+    /// Returns `Some(T::neg_zero())` if the resampler is not primed and is producing negative-zero silence during initial priming delay.
     /// Query [`sample_is_underrun()`](Self::sample_is_underrun) to check if a sample is negative-zero silence emitted during initial delay.s
     #[inline]
     pub fn read_sample(&mut self) -> Option<T> {
@@ -337,9 +339,9 @@ where
     /// Reads up to `output.len()` interleaved samples from internally buffered output.
     ///
     /// Returns one of:
-    ///    - Some(written_samples) if samples were written to `output`. Read the inner value to see how many samples were written.
-    ///    - Some(0) if the resampler is not primed, the output buffer is zero-length, or the resampler is input starved and is underrunning.
-    ///    - None if the resampler is done and no more output will be produced.
+    ///    - `Some(written_samples)` if samples were written to `output`. Read the inner value to see how many samples were written.
+    ///    - `Some(0)` if the resampler is not primed, the output buffer is zero-length, or the resampler is input starved and is underrunning.
+    ///    - `None` if the resampler is done and no more output will be produced.
     #[must_use]
     pub fn read_samples(&mut self, output: &mut [T]) -> Option<usize> {
         if self.is_done() {
@@ -355,7 +357,7 @@ where
     /// Marks the input-active span as finalized and flushes delayed output into pending samples.
     ///
     /// After this call, no new input should be written for the current stream. Keep calling
-    /// [`read_samples()`](Self::read_samples) until it returns zero to drain all finalized output.
+    /// [`read_samples()`](Self::read_samples) or [`read_sample()`](Self::read_sample) until it returns zero to drain all finalized output.
     ///
     /// If your streaming pipeline does not need delayed tail output at end-of-stream, call
     /// [`reset()`](Self::reset) directly instead of `finalize_samples()`. This is specifically for abrupt

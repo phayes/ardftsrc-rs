@@ -208,6 +208,9 @@ where
     S: rodio::Source,
 {
     /// Create a new RodioResampler using `f64` as the internal resampling type.
+    /// 
+    /// Config input sample rate and channel count can be a best-guess if you don't know the exact values at the time of construction. 
+    /// If they are innacuate, a new span will be created when the actual values are known.
     pub fn new(inner: S, config: Config) -> Result<Self, Error> {
         Self::new_typed(inner, config)
     }
@@ -218,6 +221,9 @@ where
     S: rodio::Source,
 {
     /// Create a new RodioResampler using `f32` as the internal resampling type.
+    /// 
+    /// Config input sample rate and channel count can be a best-guess if you don't know the exact values at the time of construction. 
+    /// If they are innacuate, a new span will be created when the actual values are known.
     pub fn new_f32(inner: S, config: Config) -> Result<Self, Error> {
         Self::new_typed(inner, config)
     }
