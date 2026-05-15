@@ -290,6 +290,9 @@ where
 
     #[must_use]
     #[inline]
+    /// Check if this resampler is finalized. 
+    /// 
+    /// Once finalized, no more samples can be written. Samples can still be read until fully drained.
     pub fn is_finalized(&self) -> bool {
         self.finalized
     }

@@ -56,6 +56,7 @@ impl TaperType {
         }
     }
 
+    /// Validates taper parameters and returns an error for invalid values.
     pub fn validate(&self) -> Result<(), Error> {
         match self {
             TaperType::Planck => Ok(()),

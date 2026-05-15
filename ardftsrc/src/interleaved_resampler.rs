@@ -279,6 +279,7 @@ where
         Ok(total_written)
     }
 
+    /// Returns true when all channels have been finalized.
     pub fn is_finalized(&self) -> bool {
         self.cores.iter().all(|core| core.is_finalized())
     }

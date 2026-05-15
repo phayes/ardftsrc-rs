@@ -8,7 +8,7 @@ use crate::{Config, Error, InterleavedResampler};
 // This is sized to cover at least two chunks during priming:
 // - First partial chunk
 // - Second full chunk
-pub(crate) const BUFFER_SIZE_MULTIPLIER: usize = 2;
+const BUFFER_SIZE_MULTIPLIER: usize = 2;
 
 /// Number of concurrent spans that can be playing at the same time before we allocate.
 const DEFAULT_CONCURRENT_SPANS: usize = 4;
@@ -51,7 +51,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 /// After calling [`new_span()`](Self::new_span), query [`samples_left_in_span()`](Self::samples_left_in_span) to see how many samples are left on the output side before the output will switch to a new span.
 ///
 /// #### Potential allocations on span boundaries
-/// 
+///
 /// [`RealtimeResampler`] uses a span pool to avoid allocations. After a span has played, it's allocationns are returned to the pool to be re-used.
 /// Under ideal conditions (playing a single album back to back with no format changes between spans) the resampler will not allocate during playback.
 /// However, the resampler may still perform transient allocations at span boundaries under the following conditions:
@@ -142,32 +142,9 @@ where
         })
     }
 
-    /// Returns the configuration for the input-active span (write side).
-    #[must_use]
-    #[cfg(test)]
-    pub fn config(&self) -> &Config {
-        self.active_input_span().config()
-    }
-
-    #[cfg(test)]
-    fn input_sample_processed(&self) -> usize {
-        self.active_input_span().inner.input_sample_processed()
-    }
-
     #[must_use]
     #[inline]
-    pub fn input_buffer_size(&self) -> usize {
-        self.active_input_span().input_buffer_size()
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn output_buffer_size(&self) -> usize {
-        self.active_output_span().output_buffer_size()
-    }
-
-    #[must_use]
-    #[inline]
+    /// Returns the number of buffered output samples ready to read.
     pub fn num_samples_ready(&self) -> usize {
         self.active_output_span().samples_pending_output.len()
     }
@@ -196,6 +173,7 @@ where
     /// Estimates the number of input samples required to prime the resampler.
     ///
     /// This can be innacurate if there is a span transition during the priming process.
+    #[must_use]
     pub fn estimate_priming_samples(&self) -> usize {
         self.active_input_span().input_buffer_size() * 2
     }
@@ -203,6 +181,7 @@ where
     /// Estimates the duration required to prime the resampler.
     ///
     /// This can be innacurate if there is a span transition during the priming process.
+    #[must_use]
     pub fn estimate_priming_duration(&self) -> std::time::Duration {
         std::time::Duration::from_secs_f64(
             self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64 * 1000.0,
@@ -274,18 +253,21 @@ where
 
     #[must_use]
     #[inline]
+    /// Returns the input channel count for samples currently being written.
     pub fn input_channels(&self) -> usize {
         self.active_input_span().config().channels
     }
 
     #[must_use]
     #[inline]
+    /// Returns the input sample rate for samples currently being written.
     pub fn input_sample_rate(&self) -> usize {
         self.active_input_span().config().input_sample_rate
     }
 
     #[must_use]
     #[inline]
+    /// Returns the output sample rate for samples currently being read.
     pub fn output_sample_rate(&self) -> usize {
         self.active_output_span().config().output_sample_rate
     }
@@ -304,9 +286,9 @@ where
 
     /// Check if this resampler has been finalized.
     ///
-    /// A finalized resampler will not accept any more input, but will still 
+    /// A finalized resampler will not accept any more input, but will still
     /// continue to produce output until all buffered input/output samples have been drained.
-    /// 
+    ///
     /// Call [`is_done()`](Self::is_done) to check if the resampler is fully drained.
     #[must_use]
     #[inline]
@@ -315,6 +297,7 @@ where
     }
 
     /// Accepts a single sample.
+    #[inline]
     pub fn write_sample(&mut self, sample: T) -> Result<(), Error> {
         self.write_samples(&[sample])
     }
@@ -331,7 +314,7 @@ where
     /// Reads a single sample from the resampler.
     ///
     /// Returns `None` if the resampler is done and no more output will be produced.
-    /// 
+    ///
     /// Returns Some(T::neg_zero()) if the resampler is not primed and is producing negative-zero silence during initial priming delay.
     /// Query [`sample_is_underrun()`](Self::sample_is_underrun) to check if a sample is negative-zero silence emitted during initial delay.s
     #[inline]
@@ -361,11 +344,11 @@ where
     ///    - Some(written_samples) if samples were written to `output`. Read the inner value to see how many samples were written.
     ///    - Some(0) if the resampler is not primed, the output buffer is zero-length, or the resampler is input starved and is underrunning.
     ///    - None if the resampler is done and no more output will be produced.
+    #[must_use]
     pub fn read_samples(&mut self, output: &mut [T]) -> Option<usize> {
         if self.is_done() {
             return None;
-        }
-        else if output.len() == 0 || !self.is_primed() {
+        } else if output.len() == 0 || !self.is_primed() {
             return Some(0);
         }
 
@@ -388,11 +371,6 @@ where
     /// method returns [`Error::DanglingPartialFrame`].
     pub fn finalize(&mut self) -> Result<(), Error> {
         self.active_input_span_mut().finalize_samples()
-    }
-
-    #[must_use]
-    pub fn samples_pending_in_output_span(&self) -> usize {
-        self.active_output_span().samples_pending_output.len()
     }
 
     /// Returns the input-active span (write side).
@@ -432,6 +410,38 @@ where
     pub fn sample_is_underrun(sample: T) -> bool {
         sample.is_zero() && sample.is_sign_negative()
     }
+
+    // Test Utility methods
+    // ------------------------------------------------------------
+
+    #[cfg(test)]
+    /// Returns the number of queued output samples in the current output-active span.
+    fn samples_pending_in_output_span(&self) -> usize {
+        self.active_output_span().samples_pending_output.len()
+    }
+
+    /// Returns the configuration for the input-active span (write side).
+    #[cfg(test)]
+    fn input_config(&self) -> &Config {
+        self.active_input_span().config()
+    }
+
+    #[cfg(test)]
+    /// Returns the input chunk size in samples for the current write-side span.
+    fn input_buffer_size(&self) -> usize {
+        self.active_input_span().input_buffer_size()
+    }
+
+    #[cfg(test)]
+    /// Returns the output chunk size in samples for the current read-side span.
+    fn output_buffer_size(&self) -> usize {
+        self.active_output_span().output_buffer_size()
+    }
+
+    #[cfg(test)]
+    fn input_sample_processed(&self) -> usize {
+        self.active_input_span().inner.input_sample_processed()
+    }
 }
 
 /// RealtimeSpan is a single span of audio.
@@ -469,7 +479,7 @@ where
         })
     }
 
-    // Re-initializes the span with the given config.
+    /// Re-initializes internal buffers and counters for span reuse.
     pub fn re_initialize(&mut self) {
         self.reset();
 
@@ -502,8 +512,7 @@ where
         self.inner.input_buffer_size()
     }
 
-    #[must_use]
-    #[inline]
+    #[cfg(test)]
     fn output_buffer_size(&self) -> usize {
         self.inner.output_buffer_size()
     }
@@ -753,9 +762,9 @@ mod tests {
     }
 
     fn input_chunk_frames(resampler: &RealtimeResampler<f32>) -> usize {
-        resampler.input_buffer_size() / resampler.config().channels
+        resampler.input_buffer_size() / resampler.input_config().channels
     }
-    
+
     fn resample_stream_with_sample_api(
         config: Config,
         input: &[f32],
@@ -765,7 +774,7 @@ mod tests {
         let mut resampler = RealtimeResampler::new(config).unwrap();
         let mut output = Vec::new();
         let mut read_buffer = vec![0.0; read_block_size.max(1)];
-        let channels = resampler.config().channels;
+        let channels = resampler.input_config().channels;
         let mut write_step = write_block_size.max(1);
         write_step -= write_step % channels;
         if write_step == 0 {
@@ -865,12 +874,12 @@ mod tests {
 
         resampler.new_span(32_000, 2).unwrap();
 
-        assert_eq!(resampler.config().input_sample_rate, 32_000);
-        assert_eq!(resampler.config().output_sample_rate, 48_000);
-        assert_eq!(resampler.config().channels, 2);
-        assert_eq!(resampler.config().quality, 128);
-        assert_eq!(resampler.config().bandwidth, 0.91);
-        assert_eq!(resampler.config().taper_type, TaperType::Cosine(2.75));
+        assert_eq!(resampler.input_config().input_sample_rate, 32_000);
+        assert_eq!(resampler.input_config().output_sample_rate, 48_000);
+        assert_eq!(resampler.input_config().channels, 2);
+        assert_eq!(resampler.input_config().quality, 128);
+        assert_eq!(resampler.input_config().bandwidth, 0.91);
+        assert_eq!(resampler.input_config().taper_type, TaperType::Cosine(2.75));
     }
 
     #[test]
@@ -940,7 +949,7 @@ mod tests {
         resampler.write_samples(&second_input).unwrap();
         resampler.finalize().unwrap();
 
-        assert_eq!(resampler.config().channels, 2);
+        assert_eq!(resampler.input_config().channels, 2);
         assert_eq!(resampler.output_channels(), 1);
         assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
 
@@ -950,7 +959,10 @@ mod tests {
         assert_eq!(resampler.output_channels(), 2);
 
         let mut second_actual = vec![0.0; second_expected.len()];
-        assert_eq!(resampler.read_samples(&mut second_actual).unwrap(), second_expected.len());
+        assert_eq!(
+            resampler.read_samples(&mut second_actual).unwrap(),
+            second_expected.len()
+        );
         assert_eq!(resampler.samples_left_in_span(), None);
         assert_eq!(resampler.output_channels(), 2);
 
