@@ -15,7 +15,6 @@ audio-core = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
 rodio = { version = "0.22", default-features = false, optional = true }
 tracing = { version = "0.1", optional = true }
-statrs = { version = "0.18", default-features = false }
 
 [dev-dependencies]
 audioadapter-buffers.workspace = true

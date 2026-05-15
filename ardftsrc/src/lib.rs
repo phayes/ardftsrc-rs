@@ -8,8 +8,11 @@ mod lpc;
 mod planar_resampler;
 mod planar_vecs;
 mod realtime;
+mod beta_reg;
+mod taper;
 
-pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, TaperType};
+pub use taper::TaperType;
+pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 pub use error::Error;
 pub use interleaved_resampler::InterleavedResampler;
 pub use planar_resampler::PlanarResampler;

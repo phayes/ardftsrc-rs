@@ -34,8 +34,12 @@ pub enum Error {
     InvalidPhaseIntensity(f32),
 
     /// Cosine taper alpha is non-finite or not greater than zero.
-    #[error("alpha must be finite and greater than zero, got {0}")]
+    #[error("taper alpha must be finite and greater than zero, got {0}")]
     InvalidAlpha(f32),
+
+    /// Beta taper beta is non-finite or not greater than zero.
+    #[error("taper beta must be finite and greater than zero, got {0}")]
+    InvalidBeta(f32),
 
     /// Wrong channel count.
     #[error("expected {expected} channels, got {actual}")]

@@ -131,9 +131,6 @@ When playing from a buffered audio source such as a file or a buffered stream, i
 avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
 do not enable fast-start.
 
-Additional configuration settings are `Config::with_realtime_input_range()` and `Config::with_realtime_max_channels()` which lets you tune the resampler if you
-know ahead-of-time the shape of the input sample-rate and channel count. It is recommended to not change these settings - the default values are quite generous. 
-
 # Example:
 ```rust
 #[cfg(feature = "rodio")]

@@ -1,6 +1,6 @@
 use num_traits::Float;
 use realfft::num_complex::Complex;
-use statrs::function::beta::beta_reg;
+use crate::TaperType;
 
 /// Low-latency, lower-quality preset.
 ///
@@ -138,40 +138,7 @@ pub const PRESET_EXTREME: Config = Config {
 
 use crate::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-/// Transition profile used to shape the cutoff edge of the frequency mask.
-pub enum TaperType {
-    /// Uses a Planck-taper transition
-    Planck,
 
-    /// Uses a sigmoid-warped cosine transition.
-    ///
-    /// `alpha` controls the sharpness of the transition.
-    ///
-    /// Value guide for `Cosine(alpha)`:
-    /// - `1.5`: Very smooth transition; may increase near-Nyquist artifacts.
-    /// - `2.5`: Smooth and less aggressive shaping.
-    /// - `3.5`: Good balance between smoothness and selectivity.
-    /// - `4.0`: Sharper shaping; trades smoothness for selectivity.
-    Cosine(f32),
-
-    /// Beta-CDF taper.
-    ///
-    /// `alpha` and `beta` are the two Beta distribution shape parameters.
-    /// Symmetric:
-    ///     BetaCdf { alpha: 24.0, beta: 24.0 }
-    ///
-    /// Asymmetric:
-    ///     BetaCdf { alpha: 8.0, beta: 24.0 }
-    ///     BetaCdf { alpha: 24.0, beta: 8.0 }
-    BetaCdf { alpha: f32, beta: f32 },
-}
-
-impl Default for TaperType {
-    fn default() -> Self {
-        Self::Cosine(3.4375)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 /// Configures the ardftsrc resampler.
@@ -444,12 +411,9 @@ impl Config {
         if !(0.0..=100.0).contains(&self.phase_intensity) || !self.phase_intensity.is_finite() {
             return Err(Error::InvalidPhaseIntensity(self.phase_intensity));
         }
-
-        if let TaperType::Cosine(alpha) = self.taper_type
-            && (alpha <= 0.0 || !alpha.is_finite())
-        {
-            return Err(Error::InvalidAlpha(alpha));
-        }
+    
+        // Validate the taper type
+        self.taper_type.validate()?;
 
         Ok(())
     }
@@ -524,12 +488,11 @@ where
         let cutoff_bins = input_chunk_frames.min(output_chunk_frames) + 1;
         let taper_bins = (cutoff_bins as f64 * (1.0 - f64::from(config.bandwidth))).ceil() as usize;
         let is_passthrough = config.input_sample_rate == config.output_sample_rate;
-        let taper = Self::build_taper(
+        let taper = config.taper_type.build_taper(
             input_fft_size,
             cutoff_bins,
             taper_bins,
             is_passthrough,
-            config.taper_type,
         );
 
         let phase_value = T::from(config.phase).unwrap_or_else(T::zero);
@@ -573,264 +536,6 @@ where
             .collect()
     }
 
-    fn build_taper(
-        input_fft_size: usize,
-        cutoff_bin: usize,
-        taper_bins: usize,
-        is_passthrough: bool,
-        taper_type: TaperType,
-    ) -> Vec<T> {
-        match taper_type {
-            TaperType::Planck => Self::build_planck_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough),
-            TaperType::Cosine(alpha) => {
-                Self::build_cosine_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough, alpha)
-            }
-            TaperType::BetaCdf { alpha, beta } => {
-                Self::build_beta_cdf_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough, alpha, beta)
-            }
-        }
-    }
-
-    /// Builds a Planck-taper frequency mask.
-    ///
-    /// Returns passband unity bins, a Planck-taper transition, and stopband zeros.
-    fn build_planck_taper(input_fft_size: usize, cutoff_bin: usize, taper_bins: usize, is_passthrough: bool) -> Vec<T> {
-        let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
-
-        if is_passthrough {
-            taper.fill(T::one());
-            return taper;
-        }
-
-        let transition = if taper_bins == 0 {
-            Vec::new()
-        } else if taper_bins == 1 {
-            vec![T::one()]
-        } else {
-            let denom = T::from(taper_bins).unwrap() - T::one();
-
-            let raw: Vec<T> = (0..taper_bins)
-                .map(|idx| {
-                    if idx == 0 {
-                        return T::one();
-                    }
-
-                    if idx == taper_bins - 1 {
-                        return T::zero();
-                    }
-
-                    let x = T::from(idx).unwrap_or_else(T::zero) / denom;
-
-                    // Descending Planck taper
-                    let z = T::one() / x - T::one() / (T::one() - x);
-                    let rising = T::one() / (z.exp() + T::one());
-
-                    let value = T::one() - rising;
-
-                    if value.is_normal() {
-                        value
-                    } else if value >= T::one() {
-                        T::one()
-                    } else {
-                        T::zero()
-                    }
-                })
-                .collect();
-
-            let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
-
-            let trim_stop = raw
-                .iter()
-                .rposition(|value| *value > T::zero())
-                .map_or(0, |idx| raw.len() - idx - 1);
-
-            let active_end = raw.len().saturating_sub(trim_stop);
-
-            raw[trim_start..active_end].to_vec()
-        };
-
-        let taper_start = cutoff_bin.saturating_sub(transition.len());
-
-        for (idx, value) in taper.iter_mut().enumerate() {
-            if idx < taper_start {
-                *value = T::one();
-            } else if idx < cutoff_bin {
-                *value = transition[idx - taper_start];
-            } else {
-                *value = T::zero();
-            }
-        }
-
-        taper
-    }
-
-    /// Builds a sigmoid-warped cosine frequency taper.
-    ///
-    /// Returns passband unity bins, a trimmed warped-cosine transition, and stopband zeros.
-    fn build_cosine_taper(
-        input_fft_size: usize,
-        cutoff_bin: usize,
-        taper_bins: usize,
-        is_passthrough: bool,
-        alpha: f32,
-    ) -> Vec<T> {
-        let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
-
-        if is_passthrough {
-            taper.fill(T::one());
-            return taper;
-        }
-
-        let transition = if taper_bins == 0 {
-            Vec::new()
-        } else if taper_bins == 1 {
-            vec![T::one()]
-        } else {
-            let pi = T::from(std::f64::consts::PI).unwrap_or_else(T::zero);
-            let two = T::one() + T::one();
-            let alpha = T::from(alpha).unwrap_or_else(T::one);
-            let denom = T::from(taper_bins).unwrap() - T::one();
-
-            let raw: Vec<T> = (0..taper_bins)
-                .map(|idx| {
-                    let x = T::from(idx).unwrap_or_else(T::zero) / denom;
-
-                    // Powered sigmoid warp:
-                    //
-                    //     x_warped = x^a / (x^a + (1 - x)^a)
-                    //
-                    // This preserves endpoints but concentrates most of the transition
-                    // around the middle, making the cosine behave more like the
-                    // trimmed logistic taper.
-                    let a = x.powf(alpha);
-                    let b = (T::one() - x).powf(alpha);
-                    let warped = a / (a + b);
-
-                    let value = (T::one() + (pi * warped).cos()) / two;
-
-                    if value.is_normal() {
-                        value
-                    } else if value == T::one() {
-                        T::one()
-                    } else {
-                        T::zero()
-                    }
-                })
-                .collect();
-
-            let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
-
-            let trim_stop = raw
-                .iter()
-                .rposition(|value| *value > T::zero())
-                .map_or(0, |idx| raw.len() - idx - 1);
-
-            let active_end = raw.len().saturating_sub(trim_stop);
-
-            raw[trim_start..active_end].to_vec()
-        };
-
-        let taper_start = cutoff_bin.saturating_sub(transition.len());
-
-        for (idx, value) in taper.iter_mut().enumerate() {
-            if idx < taper_start {
-                *value = T::one();
-            } else if idx < cutoff_bin {
-                *value = transition[idx - taper_start];
-            } else {
-                *value = T::zero();
-            }
-        }
-
-        taper
-    }
-
-    /// Builds a Beta-CDF frequency taper.
-    ///
-    /// Returns passband unity bins, a trimmed descending Beta-CDF transition,
-    /// and stopband zeros.
-    ///
-    /// `order` controls the shape of the transition:
-    ///
-    /// - `order = 1.0` gives a linear-ish transition.
-    /// - `order > 1.0` gives an S-shaped transition.
-    /// - `order = 24.0` gives a very flat-at-the-edges, steep-in-the-middle
-    ///   transition equivalent to `1 - BetaCDF(x; 24, 24)`.
-    ///
-    /// TODO: Validate alpha and beta are positive.
-    fn build_beta_cdf_taper(
-        input_fft_size: usize,
-        cutoff_bin: usize,
-        taper_bins: usize,
-        is_passthrough: bool,
-        alpha: f32,
-        beta: f32,
-    ) -> Vec<T> {
-        let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
-
-        if is_passthrough {
-            taper.fill(T::one());
-            return taper;
-        }
-
-        let transition = if taper_bins == 0 {
-            Vec::new()
-        } else if taper_bins == 1 {
-            vec![T::one()]
-        } else {
-            let denom = T::from(taper_bins).unwrap() - T::one();
-
-            let raw: Vec<T> = (0..taper_bins)
-                .map(|idx| {
-                    if idx == 0 {
-                        return T::one();
-                    }
-
-                    if idx == taper_bins - 1 {
-                        return T::zero();
-                    }
-
-                    let x_t = T::from(idx).unwrap_or_else(T::zero) / denom;
-                    let x = x_t.to_f64().unwrap_or(0.0).clamp(0.0, 1.0);
-                    let cdf = beta_reg(alpha as f64, beta as f64, x);
-                    let value = T::from(1.0 - cdf).expect("T should be f64 or f32 and be able to convert from f64");
-
-                    if value.is_normal() {
-                        value
-                    } else if value >= T::one() {
-                        T::one()
-                    } else {
-                        T::zero()
-                    }
-                })
-                .collect();
-
-            let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
-
-            let trim_stop = raw
-                .iter()
-                .rposition(|value| *value > T::zero())
-                .map_or(0, |idx| raw.len() - idx - 1);
-
-            let active_end = raw.len().saturating_sub(trim_stop);
-
-            raw[trim_start..active_end].to_vec()
-        };
-
-        let taper_start = cutoff_bin.saturating_sub(transition.len());
-
-        for (idx, value) in taper.iter_mut().enumerate() {
-            if idx < taper_start {
-                *value = T::one();
-            } else if idx < cutoff_bin {
-                *value = transition[idx - taper_start];
-            } else {
-                *value = T::zero();
-            }
-        }
-
-        taper
-    }
 }
 
 fn gcd(mut a: usize, mut b: usize) -> usize {
@@ -1115,7 +820,7 @@ mod tests {
     #[test]
     fn taper_is_all_ones_when_passthrough() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper = DerivedConfig::<f32>::build_taper(16, 8, 4, true, taper_type);
+            let taper: Vec<f32> = taper_type.build_taper(16, 8, 4, true);
             assert_no_nans(&taper, "config::taper_is_all_ones_when_passthrough taper");
 
             assert_eq!(taper.len(), 9);
@@ -1126,7 +831,7 @@ mod tests {
     #[test]
     fn taper_has_expected_passband_transition_and_stopband() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper = DerivedConfig::<f32>::build_taper(16, 6, 4, false, taper_type);
+            let taper: Vec<f32> = taper_type.build_taper(16, 6, 4, false);
             assert_no_nans(
                 &taper,
                 "config::taper_has_expected_passband_transition_and_stopband taper",
@@ -1158,7 +863,7 @@ mod tests {
     fn transition_is_descending_and_bounded() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let cutoff_bin = 24;
-            let taper = DerivedConfig::<f32>::build_taper(64, cutoff_bin, 16, false, taper_type);
+            let taper: Vec<f32> = taper_type.build_taper(64, cutoff_bin, 16, false);
             assert_no_nans(&taper, "config::transition_is_descending_and_bounded taper");
             let transition_start = taper
                 .iter()
@@ -1185,7 +890,7 @@ mod tests {
     #[test]
     fn zero_taper_bins_produces_hard_cutoff() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper = DerivedConfig::<f32>::build_taper(16, 6, 0, false, taper_type);
+            let taper: Vec<f32> = taper_type.build_taper(16, 6, 0, false);
             assert_no_nans(&taper, "config::zero_taper_bins_produces_hard_cutoff taper");
 
             assert_eq!(taper.len(), 9);
@@ -1203,7 +908,7 @@ mod tests {
     #[test]
     fn one_taper_bin_keeps_single_unity_transition_bin() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper = DerivedConfig::<f32>::build_taper(16, 6, 1, false, taper_type);
+            let taper: Vec<f32> = taper_type.build_taper(16, 6, 1, false);
             assert_no_nans(&taper, "config::one_taper_bin_keeps_single_unity_transition_bin taper");
 
             assert_eq!(taper[5], 1.0);
@@ -1214,7 +919,7 @@ mod tests {
     #[test]
     fn taper_handles_cutoff_smaller_than_transition_width() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper = DerivedConfig::<f32>::build_taper(16, 2, 8, false, taper_type);
+            let taper: Vec<f32> = taper_type.build_taper(16, 2, 8, false);
 
             assert_eq!(taper.len(), 9);
 
