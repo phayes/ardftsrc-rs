@@ -22,9 +22,6 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 /// 3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
 /// 4. Call [`finalize()`](Self::finalize) at end-of-stream, then keep calling [`read_sample(...)`](Self::read_sample) until it returns `None`.
 ///
-/// Additional configuration settings for realtime are [`Config::with_realtime_input_range()`](crate::Config) and [`Config::with_realtime_max_channels()`](crate::Config) which lets you tune the resampler if you
-/// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous.
-///
 /// # Startup Delay
 ///
 /// [`RealtimeResampler`] has some startup delay and will emit negative-zero silence until the resampler is primed and producing samples.
@@ -92,7 +89,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///             output.push(sample as f32);
 ///         }
 ///
-///         if resampler.current_span_len() == Some(0) {
+///         if resampler.samples_left_in_span() == Some(0) {
 ///             // New span detected, maybe switch channel count in output.
 ///         }
 ///     }
@@ -106,7 +103,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///             output.push(sample as f32);
 ///         }
 ///
-///         if resampler.current_span_len() == Some(0) {
+///         if resampler.samples_left_in_span() == Some(0) {
 ///             // New span detected, maybe switch channel count in output.
 ///         }
 ///     }
@@ -1012,6 +1009,77 @@ mod tests {
         assert_eq!(resampler.read_samples(&mut first_read).unwrap(), first_read_len);
         assert_eq!(resampler.samples_left_in_span(), Some(0));
         assert_eq!(resampler.output_buffer_size(), second_output_buffer_size);
+    }
+
+    #[test]
+    fn samples_left_in_span_reports_zero_at_exact_span_boundary() {
+        let first_config = mono_config(44_100, 48_000);
+        let mut first_offline = InterleavedResampler::new(first_config.clone()).unwrap();
+        let first_input: Vec<f32> = (0..(first_offline.input_buffer_size() + 3))
+            .map(|frame| (frame as f32 * 0.011).sin() * 0.3)
+            .collect();
+        let first_expected = process_all_samples(&mut first_offline, &first_input).unwrap();
+        let first_output_buffer_size = first_offline.output_buffer_size();
+
+        let second_config = stereo_config(44_100, 48_000);
+        let mut second_offline = InterleavedResampler::<f32>::new(second_config).unwrap();
+        let second_output_buffer_size = second_offline.output_buffer_size();
+        let second_frames = second_offline.input_buffer_size() / 2 + 3;
+        let mut second_input = Vec::with_capacity(second_frames * 2);
+        for frame in 0..second_frames {
+            second_input.push((frame as f32 * 0.013).sin() * 0.2);
+            second_input.push((frame as f32 * 0.017).cos() * 0.2);
+        }
+        let second_expected = process_all_samples(&mut second_offline, &second_input).unwrap();
+
+        let mut resampler = RealtimeResampler::new(first_config).unwrap();
+        resampler.write_samples(&first_input).unwrap();
+        resampler.new_span(44_100, 2).unwrap();
+        resampler.write_samples(&second_input).unwrap();
+        resampler.finalize().unwrap();
+        assert_eq!(resampler.output_channels(), 1);
+        assert_eq!(resampler.output_buffer_size(), first_output_buffer_size);
+
+        let mut actual = Vec::with_capacity(first_expected.len() + second_expected.len());
+        while resampler.samples_left_in_span().unwrap() > 1 {
+            let left = resampler.samples_left_in_span().unwrap();
+            let chunk_len = left.min(7).min(left - 1);
+            let mut chunk = vec![0.0; chunk_len];
+            let written = resampler.read_samples(&mut chunk).unwrap();
+            assert_eq!(written, chunk_len);
+            actual.extend_from_slice(&chunk);
+        }
+
+        assert_eq!(resampler.samples_left_in_span(), Some(1));
+
+        let mut boundary_sample = [0.0];
+        assert_eq!(resampler.read_samples(&mut boundary_sample), Some(1));
+        actual.extend_from_slice(&boundary_sample);
+
+        // The docs guarantee we can observe Some(0) exactly at the boundary.
+        assert_eq!(resampler.samples_left_in_span(), Some(0));
+        assert_eq!(resampler.output_channels(), 2);
+        assert_eq!(resampler.output_buffer_size(), second_output_buffer_size);
+
+        let mut next_span_sample = [0.0];
+        assert_eq!(resampler.read_samples(&mut next_span_sample), Some(1));
+        actual.extend_from_slice(&next_span_sample);
+        assert_eq!(resampler.samples_left_in_span(), None);
+
+        let mut tail = vec![0.0; 19];
+        while let Some(written) = resampler.read_samples(&mut tail) {
+            actual.extend_from_slice(&tail[..written]);
+        }
+
+        let expected = first_expected
+            .iter()
+            .chain(second_expected.iter())
+            .copied()
+            .collect::<Vec<_>>();
+        assert_eq!(actual.len(), expected.len());
+        for (left, right) in actual.iter().zip(expected.iter()) {
+            assert!((*left - *right).abs() < 1e-5);
+        }
     }
 
     #[test]

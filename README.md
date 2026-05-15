@@ -253,7 +253,7 @@ At a high level there are two layers:
 - `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithm. It is private.
 - `PlanarResampler<T>` and `InterleavedResampler<T>` are fixed-size chunk resamplers. They own one `ArdftsrcCore` per channel and expose full-buffer, chunked, and batch processing APIs for planar or interleaved audio.
 - `AdapterResampler<T>` is optional behind the `audioadapter` feature and adapts generic audioadapter inputs and outputs onto the chunk resampling core. Right now there are performance issues with this.
-- `StreamingResampler<T>` provides arbitrary-size sample buffering for live resampling.
+- `RealtimeResampler<T>` provides arbitrary-size sample buffering for live resampling.
 
 ### Golden Hashes
 
