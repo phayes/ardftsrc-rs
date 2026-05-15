@@ -17,7 +17,7 @@ pub enum Error {
     #[error("quality must be greater than zero, got {0}")]
     InvalidQuality(usize),
 
-    /// `f32` samples cannot use arbitrarily large FFT geometries derived from quality.
+    /// quality greater than 8192 is not supported for f32. Use f64 instead.
     #[error("quality greater than 8192 is not supported for f32. Use f64 instead.")]
     QualityTooHighForF32,
 
@@ -33,11 +33,11 @@ pub enum Error {
     #[error("phase intensity must be finite and in the range 0.0..=100.0, got {0}")]
     InvalidPhaseIntensity(f32),
 
-    /// Cosine taper alpha is non-finite or not greater than zero.
+    /// taper alpha config is non-finite or not greater than zero.
     #[error("taper alpha must be finite and greater than zero, got {0}")]
     InvalidAlpha(f32),
 
-    /// Beta taper beta is non-finite or not greater than zero.
+    /// taper beta config is non-finite or not greater than zero.
     #[error("taper beta must be finite and greater than zero, got {0}")]
     InvalidBeta(f32),
 
