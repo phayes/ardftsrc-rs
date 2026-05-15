@@ -216,7 +216,7 @@ pub struct Config {
     /// `0.0` disables phase rotation. The default value is `50.0`.
     pub phase_intensity: f32,
 
-    /// For [`RodioResampler`], this setting controls whether to use a fast start mode.
+    /// For [`RodioResampler`](crate::RodioResampler), this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
     /// This is only appropriate to use when the inner sounce can handle rapid calls to `next()`. For example, this will
@@ -227,7 +227,7 @@ pub struct Config {
     ///
     /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
     ///
-    /// This setting is only for [`RodioResampler`], it has no effect on other resamplers.
+    /// This setting is only for [`RodioResampler`](crate::RodioResampler), it has no effect on other resamplers.
     #[cfg(feature = "rodio")]
     pub rodio_fast_start: bool,
 }
@@ -356,18 +356,18 @@ impl Config {
         self
     }
 
-    /// For [`RodioResampler`], this setting controls whether to use a fast start mode.
+    /// For [`RodioResampler`](crate::RodioResampler), this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
     /// This is only appropriate to use when the inner sounce can handle rapid calls to `next()`. For example, this will
     /// generally work on buffered streams or audio files, but not on live microphones.
     ///
-    ///   - Set to "true" if the inner source is something like a buffered stream or audio file.
-    ///   - Set to "false" if the inner source is very realtime (e.g. a live microphone).
+    ///   - Set to `true` if the inner source is something like a buffered stream or audio file.
+    ///   - Set to `false` if the inner source is very realtime (e.g. a live microphone).
     ///
     /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
     ///
-    /// This setting is only for [`RodioResampler`], it has no effect on other resamplers.
+    /// This setting is only for [`RodioResampler`](crate::RodioResampler), it has no effect on other resamplers.
     #[must_use]
     #[cfg(feature = "rodio")]
     pub fn with_rodio_fast_start(mut self, rodio_fast_start: bool) -> Self {

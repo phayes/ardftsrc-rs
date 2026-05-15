@@ -2,7 +2,7 @@
 //! 
 //! This was ported from the `statrs` crate.
 //! 
-//! See https://github.com/statrs-dev/statrs/
+//! See <https://github.com/statrs-dev/statrs/>
 
 use crate::panic_msg;
 

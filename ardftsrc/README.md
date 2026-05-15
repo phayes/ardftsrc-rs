@@ -9,11 +9,11 @@ A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Ra
 
 Generally `ardftsrc` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
-It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. See [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md) for a detailed speed and quality comparison vs rubato.
+It is among the top scoring resampling libraries on [HydrogenAudio Sample Rate Conversion Comparison](https://src.hydrogenaudio.org/), topping out with a balanced score of 99.73%.  It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. See [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md) for a detailed speed and quality comparison vs rubato.
 
 ## Quick Start
 
-Use `InterleavedResampler::process_all` to resample a complete interleaved audio stream for a single track.
+Use [`InterleavedResampler::process_all`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.InterleavedResampler.html#method.process_all) to resample a complete interleaved audio stream for a single track.
 
 ```rust
 use ardftsrc::{InterleavedResampler, PRESET_HIGH};
@@ -42,18 +42,16 @@ Use chunk resampling when you can control both read and write buffer sizes. Quer
 
 There are two chunked resamplers depending on the shape of your audio:
 
-1. `InterleavedResampler` - for interleaved audio
-2. `PlanarResampler` - for planar audio. 
+1. [`InterleavedResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.InterleavedResampler.html) - for interleaved audio
+2. [`PlanarResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.PlanarResampler.html) - for planar audio. 
 
-Internally ardftsrc uses planar representation, so `PlanarResampler` is more efficient, but if you're already working with interleaved audio, prefer `InterleavedResampler` since it has an optimized de-interleave / re-interleave path. Working with all chunked resamplers is the same:
+Internally ardftsrc uses planar representation, so [`PlanarResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.PlanarResampler.html) is more efficient, but if you're already working with interleaved audio, prefer [`InterleavedResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.InterleavedResampler.html) since it has an optimized de-interleave / re-interleave path. Working with all chunked resamplers is the same:
 
 1. Create the resampler with `let resampler = Resampler::new(config)`
 2. Query the required input buffer size and output buffer size with `resampler.input_buffer_size()` and `resampler.output_buffer_size()`
 3. Call  `process_chunk(...)` for each chunk, using the appropriate buffer sizes.
 4. Call `process_chunk_final(...)` for the final chunk, it can be undersized. 
 5. Finally, call `finalize(...)` once per stream to emit delayed tail samples and reset stream state.
-
-To end the stream early, you may simply call `reset()`. 
 
 ```rust
 use ardftsrc::{InterleavedResampler, PRESET_GOOD};
@@ -121,13 +119,13 @@ call `post(...)` on A with B's head samples so A's stop-edge uses real next-trac
 
 ## Realtime Resampling
 
-ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via `RodioResampler` (`rodio` feature) and the ability to build your own custom realtime audio resampling pipline via `RealtimeResampler`. 
+ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via [`RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) (`rodio` feature) and the ability to build your own custom realtime audio resampling pipline via [`RealtimeResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RealtimeResampler.html). 
 
 ## Rodio integration
 
-Enable the `rodio` feature to use `rodio::RodioResampler` to wrap a `rodio::Source` and resample it in realtime in your rodio pipeline.
+Enable the `rodio` feature to use [`rodio::RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) to wrap a [`rodio::Source`](https://docs.rs/rodio/latest/rodio/source/trait.Source.html) and resample it in realtime in your rodio pipeline.
 
-When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use `config.with_rodio_fast_start(true)`, which will 
+When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use [`config.with_rodio_fast_start(true)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_rodio_fast_start), which will 
 avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
 do not enable fast-start.
 
@@ -162,11 +160,11 @@ More examples can be found:
 
 Use batching when you have multiple full tracks to convert with the same configuration.
 
-- `InterleavedResampler::batch(...)`: processes each interleaved input as an independent stream (no context shared between tracks).
-- `InterleavedResampler::batch_gapless(...)`: preserves adjacent-track context for gapless album-style playback.
-- `PlanarResampler` exposes the same `batch(...)` and `batch_gapless(...)` APIs for already-planar inputs.
+- [`InterleavedResampler::batch(...)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.InterleavedResampler.html#method.batch): processes each interleaved input as an independent stream (no context shared between tracks).
+- [`InterleavedResampler::batch_gapless(...)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.InterleavedResampler.html#method.batch_gapless): preserves adjacent-track context for gapless album-style playback.
+- [`PlanarResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.PlanarResampler.html) exposes the same [`batch(...)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.PlanarResampler.html#method.batch) and [`batch_gapless(...)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.PlanarResampler.html#method.batch_gapless) APIs for already-planar inputs.
 
-Enable the `rayon` feature to parallelize work across tracks.
+Enable the [`rayon` feature](https://docs.rs/crate/ardftsrc/latest/features) to parallelize work across tracks.
 
 ```rust
 use ardftsrc::{InterleavedResampler, PRESET_GOOD, PlanarVecs};
@@ -197,11 +195,11 @@ fn resample_tracks(
 
 ## Quality Tuning and Presets
 
-ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using `InterleavedResampler<f64>` or `PlanarResampler<f64>`, then convert back to `f32`.
+ARDFTSRC is built for quality over speed, and despite supporting both `f32` and `f64` should almost always be run as `f64`. To resample `f32` audio, it is recommended to convert `f32` samples to `f64`, resample them using [`InterleavedResampler<f64>`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.InterleavedResampler.html) or [`PlanarResampler<f64>`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.PlanarResampler.html), then convert back to `f32`.
 
 If you want better performance than what this project offers, consider using a sinc resampler such as [`rubato`](https://crates.io/crates/rubato).
 
-Presets are pre-vetted `Config` for various quality levels. 
+Presets are pre-vetted [`Config`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html) for various quality levels. 
 
 ```rust
 let config = ardftsrc::PRESET_GOOD
@@ -210,19 +208,20 @@ let config = ardftsrc::PRESET_GOOD
   .with_channels(2);
 ```
 
-| Preset           |                             Parameters | Recommended use                                            | Quality Metrics  |
-| ---------------- | -------------------------------------: | -----------------------------------------------------------| ---------------- |
-| `PRESET_FAST`    | `quality=512` `bandwidth=0.832`        | Fast preset for realtime workloads.                        | [f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0)|
-| `PRESET_GOOD`    | `quality=1878` `bandwidth=0.911`       | Balanced preset for realtime quality.                      | [f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0)             |
-| `PRESET_HIGH`    | `quality=73622` `bandwidth=0.987`      | High quality for offline use. | [f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)             |
-| `PRESET_EXTREME` | `quality=524514` `bandwidth=0.995`     | Maximum quality, intended for offline use.                 | [f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)             |
+| Preset                                                                                    |  Quality | Bandwidth | Recommended use                            | Quality metrics                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------- | -------: | --------: | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.832` | Fast preset for realtime workloads.        | [f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0) |
+| [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `1878` |   `0.911` | Balanced preset for realtime quality.      | [f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0)                                                                                                     |
+| [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |  `73622` |   `0.987` | High quality for offline use.              | [f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)                                                                                                     |
+| [`PRESET_EXTREME`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_EXTREME.html) | `524514` |   `0.995` | Maximum quality, intended for offline use. | [f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)                                                                                                     |
 
+† You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast,  has very high quality metrics, and has lower pre-ringing artefact as compared PRESET_HIGH and PRESET_EXTREME.
 
 ## Feature Flags
 
 | Flag           | Enables                                                                           | Default |
 | -------------- | --------------------------------------------------------------------------------- | ------- |
-| `rodio`        | [`rodio`](https://crates.io/crates/rodio) integration via `rodio::RodioResampler` | No      |
+| `rodio`        | [`rodio`](https://crates.io/crates/rodio) integration via [`rodio::RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) | No      |
 | `rayon`        | Parallelized resampling (`batch()` and `process_all()` APIs)                      | No      |
 | `avx`          | FFT AVX SIMD                                                                      | Yes     |
 | `sse`          | FFT SSE SIMD                                                                      | Yes     |

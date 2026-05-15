@@ -13,7 +13,7 @@ pub(crate) const BUFFER_SIZE_MULTIPLIER: usize = 2;
 /// Number of concurrent spans that can be playing at the same time before we allocate.
 const DEFAULT_CONCURRENT_SPANS: usize = 4;
 
-/// Realtime reasampler for live audio streams. If you're looking for **rodio** support, see [`RodioResampler`].
+/// Realtime reasampler for live audio streams. If you're looking for **rodio** support, see [`RodioResampler`](crate::RodioResampler).
 ///
 /// The real-time resampler allow you to plug ardftsrc into your own realtime audio pipeline. It accepts interleaved samples one-at-a-time.
 ///
@@ -22,7 +22,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 /// 3. Call `new_span(input_sample_rate, channels)` when the input sample rate or channel count changes.
 /// 4. Call [`finalize()`](Self::finalize) at end-of-stream, then keep calling [`read_sample(...)`](Self::read_sample) until it returns `None`.
 ///
-/// Additional configuration settings for realtime are [`Config::with_realtime_input_range()`] and [`Config::with_realtime_max_channels()`] which lets you tune the resampler if you
+/// Additional configuration settings for realtime are [`Config::with_realtime_input_range()`](crate::Config) and [`Config::with_realtime_max_channels()`](crate::Config) which lets you tune the resampler if you
 /// know the shape of the upstream sample-rate and channel counts. It is not recommended to change these settings - the default values are quite generous.
 ///
 /// # Startup Delay
