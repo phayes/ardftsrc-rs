@@ -59,11 +59,11 @@ harness = false
 
 [[example]]
 name = "rodio_adapter"
-required-features = ["rodio-playback", "tracing"]
+required-features = ["rodio-playback"]
 
 [[example]]
 name = "rodio_adapter_with_spans"
-required-features = ["rodio-playback", "tracing"]
+required-features = ["rodio-playback"]
 
 [package.metadata.docs.rs]
 features = ["rodio"]

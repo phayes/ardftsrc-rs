@@ -185,6 +185,7 @@ pub struct Config {
     ///
     /// - `Planck`: Uses a Planck taper transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
+    /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
     /// Default value is `Cosine(3.4375)`, which was arrived at through testing
     /// various values on the HydrogenAudio SRC test suite.

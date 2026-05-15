@@ -64,7 +64,6 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///
 /// # Example
 /// ```rust
-/// #[cfg(feature = "realtime")]
 /// fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Result<Vec<f32>, ardftsrc::Error> {
 ///     use ardftsrc::{PRESET_GOOD, RealtimeResampler};
 ///
@@ -181,7 +180,7 @@ where
     #[must_use]
     pub fn estimate_priming_duration(&self) -> std::time::Duration {
         std::time::Duration::from_secs_f64(
-            self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64 * 1000.0,
+            self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64,
         )
     }
 

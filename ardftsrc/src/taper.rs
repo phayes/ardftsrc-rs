@@ -239,17 +239,10 @@ fn build_cosine_taper<T: Float>(
     taper
 }
 
-/// Builds a Beta-CDF frequency taper.
+/// Builds a Beta-CDF frequency taper from the regularized lower incomplete beta function.
 ///
 /// Returns passband unity bins, a trimmed descending Beta-CDF transition,
 /// and stopband zeros.
-///
-/// `order` controls the shape of the transition:
-///
-/// - `order = 1.0` gives a linear-ish transition.
-/// - `order > 1.0` gives an S-shaped transition.
-/// - `order = 24.0` gives a very flat-at-the-edges, steep-in-the-middle
-///   transition equivalent to `1 - BetaCDF(x; 24, 24)`.
 ///
 /// TODO: Validate alpha and beta are positive.
 fn build_beta_cdf_taper<T: Float>(
