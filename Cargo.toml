@@ -8,6 +8,7 @@ edition = "2024"
 description = "High-quality audio sample-rate conversion using the ARDFTSRC algorithm."
 license = "MIT OR Apache-2.0"
 authors = ["Patrick Hayes <patrick.d.hayes@gmail.com>"]
+repository = "https://github.com/phayes/ardftsrc-rs"
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
