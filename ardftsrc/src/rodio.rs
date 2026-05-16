@@ -136,6 +136,7 @@ where
     // Pull a sample from the inner source and write it to the resampler.
     fn pull_inner_sample(&mut self, count_samples: bool) {
         // Check for a new span on each pull since downsampling can consume >1 input sample per output.
+        // TODO: Cache self.inner.current_span_len, decrement, and check once we get to one-frame left and zero-frames left
         let span_ends_after_next = self.inner.current_span_len() == Some(1);
         if !self.pending_span_transition && span_ends_after_next {
             self.pending_span_transition = true;
@@ -282,11 +283,12 @@ where
             return Some(input_span_len * output_sample_rate / input_sample_rate as usize);
         }
         else {
-            // Report the actual size of the output buffer on the output active span
             return match self.resampler.samples_left_in_span() {
                 SamplesLeftInSpan::Known(samples_left) => {
                     let samples_left = samples_left as usize;
 
+                    // Samples left == 0 means the span is drained and a new span is ready to be read (does NOT mean end-of-stream)
+                    // Tell the caller to come back in one frame
                     if samples_left == 0 {
                         Some(self.resampler.output_channels() as usize)
                     }
@@ -296,6 +298,9 @@ where
                 },
                 SamplesLeftInSpan::Unknown => {
                     let num_samples_ready = self.resampler.num_samples_ready();
+
+                    // Samples ready == 0 means the output buffer is empty (does NOT mean end-of-stream)
+                    // Tell the caller to come back in one frame
                     if num_samples_ready == 0 {
                         Some(self.resampler.output_channels() as usize)
                     }
