@@ -282,31 +282,29 @@ where
             return Some(input_span_len * output_sample_rate / input_sample_rate as usize);
         }
         else {
-            // Conservative estimate: floor the sample-rate conversion and snap down to a full output frame.
-            let estimate = input_span_len * output_sample_rate / input_sample_rate as usize; // usize division rounds down
-            let frame_len = self.resampler.output_channels();
-            let snapped_to_frame = estimate - (estimate % frame_len); // snap down to nearest frame boundary
-            if snapped_to_frame > 0 {
-                return Some(snapped_to_frame);
-            }
-            else {
-                // Report the actual size of the output buffer on the output active span
-                return match self.resampler.samples_left_in_span() {
-                    SamplesLeftInSpan::Known(samples_left) => {
-                        // There is an issue here: semenatics are different
-                        //  - Known(0) means the span is drained and a new span is ready to be read
-                        //  - but Some(0) means end-of-stream.
-                        // Maybe on Known(0), return Some(channel_count) to indicate next-frame is a new span.
-                        // But then we repeat the same frame again - but I think that's OK, it would just be a one-frame span...
-                        // Or do we do Some(known + 1) ?
+            // Report the actual size of the output buffer on the output active span
+            return match self.resampler.samples_left_in_span() {
+                SamplesLeftInSpan::Known(samples_left) => {
+                    let samples_left = samples_left as usize;
+
+                    if samples_left == 0 {
+                        Some(self.resampler.output_channels() as usize)
+                    }
+                    else {
                         Some(samples_left)
-                    },
-                    SamplesLeftInSpan::Unknown => {
-                        panic_msg("Expected SamplesLeftInSpan::Known, got SamplesLeftInSpan::Unknown");
-                    },
-                    SamplesLeftInSpan::EndOfStream => Some(0),
-                };
-            }
+                    }
+                },
+                SamplesLeftInSpan::Unknown => {
+                    let num_samples_ready = self.resampler.num_samples_ready();
+                    if num_samples_ready == 0 {
+                        Some(self.resampler.output_channels() as usize)
+                    }
+                    else {
+                        Some(num_samples_ready)
+                    }
+                },
+                SamplesLeftInSpan::EndOfStream => Some(0),
+            };
         }
     }
 
