@@ -1,7 +1,7 @@
 use crate::{Config, Error, RealtimeResampler, panic_err, panic_msg};
 use num_traits::Float;
 use realfft::FftNum;
-
+use crate::SamplesLeftInSpan;
 /// Wrap a [`rodio::Source`] and resample it in realtime in your rodio pipeline. Requires the `rodio` feature.
 ///
 /// When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use [`config.with_rodio_fast_start(true)`](Config::with_rodio_fast_start), which will
@@ -269,7 +269,45 @@ where
     }
 
     fn current_span_len(&self) -> Option<usize> {
-        self.resampler.samples_left_in_span()
+        let input_span_len = match self.inner.current_span_len() {
+            Some(len) => len,
+            None => return None,
+        };
+
+        let input_sample_rate = self.inner.sample_rate().get();
+        let output_sample_rate = self.config.output_sample_rate;
+
+        // Integer upsampling (2x, 3x, etc.) - always exact and frame-aligned
+        if output_sample_rate % input_sample_rate as usize == 0 {
+            return Some(input_span_len * output_sample_rate / input_sample_rate as usize);
+        }
+        else {
+            // Conservative estimate: floor the sample-rate conversion and snap down to a full output frame.
+            let estimate = input_span_len * output_sample_rate / input_sample_rate as usize; // usize division rounds down
+            let frame_len = self.resampler.output_channels();
+            let snapped_to_frame = estimate - (estimate % frame_len); // snap down to nearest frame boundary
+            if snapped_to_frame > 0 {
+                return Some(snapped_to_frame);
+            }
+            else {
+                // Report the actual size of the output buffer on the output active span
+                return match self.resampler.samples_left_in_span() {
+                    SamplesLeftInSpan::Known(samples_left) => {
+                        // There is an issue here: semenatics are different
+                        //  - Known(0) means the span is drained and a new span is ready to be read
+                        //  - but Some(0) means end-of-stream.
+                        // Maybe on Known(0), return Some(channel_count) to indicate next-frame is a new span.
+                        // But then we repeat the same frame again - but I think that's OK, it would just be a one-frame span...
+                        // Or do we do Some(known + 1) ?
+                        Some(samples_left)
+                    },
+                    SamplesLeftInSpan::Unknown => {
+                        panic_msg("Expected SamplesLeftInSpan::Known, got SamplesLeftInSpan::Unknown");
+                    },
+                    SamplesLeftInSpan::EndOfStream => Some(0),
+                };
+            }
+        }
     }
 
     fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {

@@ -18,6 +18,7 @@ pub use planar_resampler::PlanarResampler;
 pub use planar_vecs::PlanarVecs;
 pub use realtime::RealtimeResampler;
 pub use taper::TaperType;
+pub use realtime::SamplesLeftInSpan;
 
 #[cfg(test)]
 mod test_utils;

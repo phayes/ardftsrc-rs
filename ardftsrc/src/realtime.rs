@@ -223,18 +223,27 @@ where
 
     /// Returns samples left before reads cross from the output-active span into the next queued span.
     ///
-    /// `None` means there is no pending span transition. `Some(0)` means a transition is queued and
-    /// the next read can enter the next span immediately.
+    /// Returns `EndOfStream` if the stream is done.
+    /// Returns `Unknown` if the length is not known and we are not in a span transition.
+    /// Returns `Known(usize)` if the length is known and we are in a span transition.
     #[must_use]
-    pub fn samples_left_in_span(&self) -> Option<usize> {
-        (self.spans.spans.len() > 1).then(|| {
+    pub fn samples_left_in_span(&self) -> SamplesLeftInSpan {
+        if self.is_done() {
+            return SamplesLeftInSpan::EndOfStream;
+        }
+
+        let samples_left = (self.spans.spans.len() > 1).then(|| {
             self.spans
                 .spans
                 .front()
                 .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"))
                 .samples_pending_output
                 .len()
-        })
+        });
+        match samples_left {
+            Some(samples_left) => SamplesLeftInSpan::Known(samples_left),
+            None => SamplesLeftInSpan::Unknown,
+        }
     }
 
     /// Returns the output channel count for the next samples that [`read_samples()`](Self::read_samples) would emit.
@@ -396,7 +405,7 @@ where
     /// This is normally the front span. If a queued transition is ready (`Some(0)`),
     /// reads are about to enter the next span and this reports that next span instead.
     fn active_output_span(&self) -> &RealtimeSpan<T> {
-        let output_span_index = usize::from(self.samples_left_in_span() == Some(0));
+        let output_span_index = usize::from(self.samples_left_in_span() == SamplesLeftInSpan::Known(0));
         self.spans
             .spans
             .get(output_span_index)
@@ -439,6 +448,41 @@ where
     #[cfg(test)]
     fn input_sample_processed(&self) -> usize {
         self.active_input_span().inner.input_sample_processed()
+    }
+}
+
+/// The length of a span in output samples for RealtimeResampler.
+/// 
+/// See [`RealtimeResampler::samples_left_in_span()`](RealtimeResampler::samples_left_in_span) for more details.
+/// 
+/// - `Unknown` means the length is not known.
+/// - `Known(usize)` means the length is at least the given number of samples, but may be larger.
+/// - `Known(0)` means the span is drained and a new span is ready to be read.
+/// - `EndOfStream` means the entire stream is EOF. 
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum SamplesLeftInSpan {
+    Unknown,
+    Known(usize),
+    EndOfStream,
+}
+
+impl SamplesLeftInSpan {
+
+    /// Returns true if samples left in span is known.
+    #[must_use]
+    #[inline]
+    pub fn is_known(&self) -> bool {
+        matches!(self, SamplesLeftInSpan::Known(_))
+    }
+    
+    /// Unwraps the samples left in span if known, otherwise panics.
+    #[track_caller]
+    pub fn unwrap(&self) -> usize {
+        match self {
+            SamplesLeftInSpan::Known(len) => *len,
+            SamplesLeftInSpan::Unknown => panic!("Expected Known length, got Unknown"),
+            SamplesLeftInSpan::EndOfStream => panic!("Expected Known length, got EndOfStream"),
+        }
     }
 }
 
@@ -850,7 +894,7 @@ mod tests {
         resampler.new_span(44_100, 2).unwrap();
 
         assert_eq!(resampler.spans.spans.len(), 1);
-        assert_eq!(resampler.samples_left_in_span(), None);
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Unknown);
         assert!(matches!(
             resampler.finalize(),
             Err(Error::DanglingPartialFrame {
@@ -904,7 +948,7 @@ mod tests {
         let mut resampler = RealtimeResampler::new(first_config).unwrap();
         resampler.write_samples(&first_input).unwrap();
         resampler.new_span(32_000, 1).unwrap();
-        assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(first_expected.len()));
 
         resampler.write_samples(&second_input).unwrap();
         resampler.finalize().unwrap();
@@ -949,11 +993,11 @@ mod tests {
 
         assert_eq!(resampler.input_config().channels, 2);
         assert_eq!(resampler.output_channels(), 1);
-        assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(first_expected.len()));
 
         let mut first_actual = vec![0.0; first_expected.len()];
         assert_eq!(resampler.read_samples(&mut first_actual).unwrap(), first_expected.len());
-        assert_eq!(resampler.samples_left_in_span(), Some(0));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(0));
         assert_eq!(resampler.output_channels(), 2);
 
         let mut second_actual = vec![0.0; second_expected.len()];
@@ -961,7 +1005,7 @@ mod tests {
             resampler.read_samples(&mut second_actual).unwrap(),
             second_expected.len()
         );
-        assert_eq!(resampler.samples_left_in_span(), None);
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Unknown);
         assert_eq!(resampler.output_channels(), 2);
 
         for (left, right) in first_actual.iter().zip(first_expected.iter()) {
@@ -1001,14 +1045,18 @@ mod tests {
 
         assert_eq!(
             resampler.samples_left_in_span(),
-            Some(process_all_samples(&mut first_offline, &first_input).unwrap().len())
+            SamplesLeftInSpan::Known(process_all_samples(&mut first_offline, &first_input).unwrap().len())
         );
         assert_eq!(resampler.output_buffer_size(), first_output_buffer_size);
 
-        let first_read_len = resampler.samples_left_in_span().unwrap();
+        let first_read_len = match resampler.samples_left_in_span() {
+            SamplesLeftInSpan::Known(len) => len,
+            SamplesLeftInSpan::Unknown => panic!("Expected Known length, got Unknown"),
+            SamplesLeftInSpan::EndOfStream => panic!("Expected Known length, got EndOfStream"),
+        };
         let mut first_read = vec![0.0; first_read_len];
         assert_eq!(resampler.read_samples(&mut first_read).unwrap(), first_read_len);
-        assert_eq!(resampler.samples_left_in_span(), Some(0));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(0));
         assert_eq!(resampler.output_buffer_size(), second_output_buffer_size);
     }
 
@@ -1043,7 +1091,11 @@ mod tests {
 
         let mut actual = Vec::with_capacity(first_expected.len() + second_expected.len());
         while resampler.samples_left_in_span().unwrap() > 1 {
-            let left = resampler.samples_left_in_span().unwrap();
+            let left = match resampler.samples_left_in_span() {
+                SamplesLeftInSpan::Known(len) => len,
+                SamplesLeftInSpan::Unknown => panic!("Expected Known length, got Unknown"),
+                SamplesLeftInSpan::EndOfStream => panic!("Expected Known length, got EndOfStream"),
+            };
             let chunk_len = left.min(7).min(left - 1);
             let mut chunk = vec![0.0; chunk_len];
             let written = resampler.read_samples(&mut chunk).unwrap();
@@ -1051,21 +1103,21 @@ mod tests {
             actual.extend_from_slice(&chunk);
         }
 
-        assert_eq!(resampler.samples_left_in_span(), Some(1));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(1));
 
         let mut boundary_sample = [0.0];
         assert_eq!(resampler.read_samples(&mut boundary_sample), Some(1));
         actual.extend_from_slice(&boundary_sample);
 
         // The docs guarantee we can observe Some(0) exactly at the boundary.
-        assert_eq!(resampler.samples_left_in_span(), Some(0));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(0));
         assert_eq!(resampler.output_channels(), 2);
         assert_eq!(resampler.output_buffer_size(), second_output_buffer_size);
 
         let mut next_span_sample = [0.0];
         assert_eq!(resampler.read_samples(&mut next_span_sample), Some(1));
         actual.extend_from_slice(&next_span_sample);
-        assert_eq!(resampler.samples_left_in_span(), None);
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Unknown);
 
         let mut tail = vec![0.0; 19];
         while let Some(written) = resampler.read_samples(&mut tail) {
@@ -1109,12 +1161,12 @@ mod tests {
         resampler.finalize().unwrap();
 
         assert_eq!(resampler.samples_pending_in_output_span(), first_expected.len());
-        assert_eq!(resampler.samples_left_in_span(), Some(first_expected.len()));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(first_expected.len()));
 
         let mut first_actual = vec![0.0; first_expected.len()];
         assert_eq!(resampler.read_samples(&mut first_actual).unwrap(), first_expected.len());
 
-        assert_eq!(resampler.samples_left_in_span(), Some(0));
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(0));
         assert_eq!(resampler.samples_pending_in_output_span(), second_expected.len());
     }
 
@@ -1248,6 +1300,6 @@ mod tests {
         stream.write_samples(&input).unwrap();
         stream.new_span(32_000, 1).unwrap();
         assert!(!stream.is_done());
-        assert!(stream.samples_left_in_span().is_some());
+        assert!(stream.samples_left_in_span().is_known());
     }
 }
