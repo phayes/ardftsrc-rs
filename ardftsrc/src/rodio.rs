@@ -42,6 +42,8 @@ where
     samples_this_span: u64,
     output_samples_this_span: u64,
     span_ratio: f64,
+    inner_span_len: u64,
+    inner_channel_count: u64,
 }
 
 impl<S, T> RodioResampler<S, T>
@@ -72,6 +74,8 @@ where
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
+            inner_span_len: 0, // Zero means uninitialized here
+            inner_channel_count: 0, // Zero means uninitialized here
         };
         rodio_resampler.set_span_ratio();
         if fast_start {
@@ -98,6 +102,8 @@ where
                 .unwrap_or_else(|err| panic_err("failed to create new input span", err));
             self.samples_this_span = 0;
             self.output_samples_this_span = 0;
+            self.inner_span_len = 0; // Zero means uninitialized here
+            self.inner_channel_count = 0; // Zero means uninitialized here
             self.set_span_ratio();
 
             #[cfg(feature = "tracing")]
@@ -135,11 +141,13 @@ where
 
     // Pull a sample from the inner source and write it to the resampler.
     fn pull_inner_sample(&mut self, count_samples: bool) {
-        // Check for a new span on each pull since downsampling can consume >1 input sample per output.
-        // TODO: Cache self.inner.current_span_len, decrement, and check once we get to one-frame left and zero-frames left
-        let span_ends_after_next = self.inner.current_span_len() == Some(1);
-        if !self.pending_span_transition && span_ends_after_next {
-            self.pending_span_transition = true;
+        // Cache the inner span length for span boundary checking
+        if self.inner_span_len == 0 {
+            self.inner_span_len = self.inner.current_span_len().unwrap() as u64;
+            self.inner_channel_count = self.inner.channels().get() as u64;
+
+            // Debug assert that we are right on a frame boundary
+            debug_assert!(self.inner_span_len % self.inner_channel_count == 0, "ardftsrc: Error in inner source: current_span_len should be a multiple of channels on a frame boundary");
         }
 
         // If input is none, end the stream, but keep reading until the resampler is drained.
@@ -162,11 +170,18 @@ where
             }
         }
 
+        if self.samples_this_span == self.inner_span_len {
+            // Debug assert that we are right on a frame boundary
+            debug_assert!(self.samples_this_span % self.inner_channel_count == 0, "samples_this_span should be a multiple of inner_channel_count on a frame boundary");
+
+            self.pending_span_transition = true;
+        }
+
         // Some sources (for example source-chaining adapters) can switch to a new span one pull
         // after reporting `current_span_len() == Some(1)`. Keep checking after each pull while a
         // transition is pending so pacing can update as soon as the new format is visible.
         if self.pending_span_transition {
-            let started_new_span = self.maybe_new_input_span();
+            let started_new_span = self.maybe_new_input_span(); // TODO THIS
             if started_new_span || self.stream_input_ended {
                 self.pending_span_transition = false;
             }
@@ -318,7 +333,7 @@ where
         self.stream_input_ended = false;
         self.just_seeked = true;
         self.pending_span_transition = false;
-        self.maybe_new_input_span();
+        self.maybe_new_input_span(); 
         Ok(())
     }
 }

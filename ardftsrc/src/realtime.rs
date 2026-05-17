@@ -65,7 +65,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 /// # Example
 /// ```rust
 /// fn resample_streaming(span_1_input: Vec<f32>, span_2_input: Vec<f32>) -> Result<Vec<f32>, ardftsrc::Error> {
-///     use ardftsrc::{PRESET_GOOD, RealtimeResampler};
+///     use ardftsrc::{PRESET_GOOD, RealtimeResampler, SamplesLeftInSpan};
 ///
 ///     // Span 1 is 44.1 kHz stereo. Span 2 is 48 kHz mono.
 ///     // Both spans are resampled to the same 48 kHz output rate.
@@ -88,7 +88,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///             output.push(sample as f32);
 ///         }
 ///
-///         if resampler.samples_left_in_span() == Some(0) {
+///         if resampler.samples_left_in_span() == SamplesLeftInSpan::Known(0) {
 ///             // New span detected, maybe switch channel count in output.
 ///         }
 ///     }
@@ -102,7 +102,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 ///             output.push(sample as f32);
 ///         }
 ///
-///         if resampler.samples_left_in_span() == Some(0) {
+///         if resampler.samples_left_in_span() == SamplesLeftInSpan::Known(0) {
 ///             // New span detected, maybe switch channel count in output.
 ///         }
 ///     }
@@ -1005,7 +1005,7 @@ mod tests {
             resampler.read_samples(&mut second_actual).unwrap(),
             second_expected.len()
         );
-        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Unknown);
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::EndOfStream);
         assert_eq!(resampler.output_channels(), 2);
 
         for (left, right) in first_actual.iter().zip(first_expected.iter()) {
