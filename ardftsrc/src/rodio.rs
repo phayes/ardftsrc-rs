@@ -1,7 +1,7 @@
-use crate::{Config, Error, RealtimeResampler, panic_err, panic_msg};
+use crate::SamplesLeftInSpan;
+use crate::{panic_err, panic_msg, Config, Error, RealtimeResampler};
 use num_traits::Float;
 use realfft::FftNum;
-use crate::SamplesLeftInSpan;
 /// Wrap a [`rodio::Source`] and resample it in realtime in your rodio pipeline. Requires the `rodio` feature.
 ///
 /// When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use [`config.with_rodio_fast_start(true)`](Config::with_rodio_fast_start), which will
@@ -74,7 +74,7 @@ where
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
-            inner_span_len: 0, // Zero means uninitialized here
+            inner_span_len: 0,      // Zero means uninitialized here
             inner_channel_count: 0, // Zero means uninitialized here
         };
         rodio_resampler.set_span_ratio();
@@ -172,7 +172,10 @@ where
 
         if self.samples_this_span == self.inner_span_len {
             // Debug assert that we are right on a frame boundary
-            debug_assert!(self.samples_this_span % self.inner_channel_count == 0, "samples_this_span should be a multiple of inner_channel_count on a frame boundary");
+            debug_assert!(
+                self.samples_this_span % self.inner_channel_count == 0,
+                "samples_this_span should be a multiple of inner_channel_count on a frame boundary"
+            );
 
             self.pending_span_transition = true;
         }
@@ -224,8 +227,8 @@ where
     S: rodio::Source,
 {
     /// Create a new RodioResampler using `f64` as the internal resampling type.
-    /// 
-    /// Config input sample rate and channel count can be a best-guess if you don't know the exact values at the time of construction. 
+    ///
+    /// Config input sample rate and channel count can be a best-guess if you don't know the exact values at the time of construction.
     /// If they are innacuate, a new span will be created when the actual values are known.
     pub fn new(inner: S, config: Config) -> Result<Self, Error> {
         Self::new_typed(inner, config)
@@ -237,8 +240,8 @@ where
     S: rodio::Source,
 {
     /// Create a new RodioResampler using `f32` as the internal resampling type.
-    /// 
-    /// Config input sample rate and channel count can be a best-guess if you don't know the exact values at the time of construction. 
+    ///
+    /// Config input sample rate and channel count can be a best-guess if you don't know the exact values at the time of construction.
     /// If they are innacuate, a new span will be created when the actual values are known.
     pub fn new_f32(inner: S, config: Config) -> Result<Self, Error> {
         Self::new_typed(inner, config)
@@ -296,8 +299,7 @@ where
         // Integer upsampling (2x, 3x, etc.) - always exact and frame-aligned
         if output_sample_rate % input_sample_rate as usize == 0 {
             return Some(input_span_len * output_sample_rate / input_sample_rate as usize);
-        }
-        else {
+        } else {
             return match self.resampler.samples_left_in_span() {
                 SamplesLeftInSpan::Known(samples_left) => {
                     let samples_left = samples_left as usize;
@@ -306,11 +308,10 @@ where
                     // Tell the caller to come back in one frame
                     if samples_left == 0 {
                         Some(self.resampler.output_channels() as usize)
-                    }
-                    else {
+                    } else {
                         Some(samples_left)
                     }
-                },
+                }
                 SamplesLeftInSpan::Unknown => {
                     let num_samples_ready = self.resampler.num_samples_ready();
 
@@ -318,11 +319,10 @@ where
                     // Tell the caller to come back in one frame
                     if num_samples_ready == 0 {
                         Some(self.resampler.output_channels() as usize)
-                    }
-                    else {
+                    } else {
                         Some(num_samples_ready)
                     }
-                },
+                }
                 SamplesLeftInSpan::EndOfStream => Some(0),
             };
         }
@@ -333,7 +333,7 @@ where
         self.stream_input_ended = false;
         self.just_seeked = true;
         self.pending_span_transition = false;
-        self.maybe_new_input_span(); 
+        self.maybe_new_input_span();
         Ok(())
     }
 }
@@ -344,6 +344,274 @@ mod tests {
     use rodio::Source;
     use std::num::NonZero;
     use std::time::Duration;
+
+    struct TestSpan {
+        sample_rate: u32,
+        channels: u16,
+        samples: Vec<rodio::Sample>,
+    }
+
+    struct ExplicitSpanSource {
+        spans: Vec<TestSpan>,
+        span_index: usize,
+        sample_index: usize,
+    }
+
+    impl ExplicitSpanSource {
+        fn new(spans: Vec<TestSpan>) -> Self {
+            assert!(!spans.is_empty(), "test source needs at least one span");
+            Self {
+                spans,
+                span_index: 0,
+                sample_index: 0,
+            }
+        }
+
+        fn active_span_index(&self) -> Option<usize> {
+            let mut span_index = self.span_index;
+            let mut sample_index = self.sample_index;
+
+            while let Some(span) = self.spans.get(span_index) {
+                if sample_index < span.samples.len() {
+                    return Some(span_index);
+                }
+                span_index += 1;
+                sample_index = 0;
+            }
+
+            None
+        }
+
+        fn active_or_last_span(&self) -> &TestSpan {
+            let span_index = self
+                .active_span_index()
+                .unwrap_or_else(|| self.spans.len().saturating_sub(1));
+            &self.spans[span_index]
+        }
+    }
+
+    impl Iterator for ExplicitSpanSource {
+        type Item = rodio::Sample;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            while let Some(span) = self.spans.get(self.span_index) {
+                if self.sample_index < span.samples.len() {
+                    let sample = span.samples[self.sample_index];
+                    self.sample_index += 1;
+                    return Some(sample);
+                }
+
+                self.span_index += 1;
+                self.sample_index = 0;
+            }
+
+            None
+        }
+    }
+
+    impl Source for ExplicitSpanSource {
+        fn current_span_len(&self) -> Option<usize> {
+            let Some(span_index) = self.active_span_index() else {
+                return Some(0);
+            };
+            let span = &self.spans[span_index];
+            let sample_index = if span_index == self.span_index {
+                self.sample_index
+            } else {
+                0
+            };
+
+            Some(span.samples.len() - sample_index)
+        }
+
+        fn channels(&self) -> NonZero<u16> {
+            NonZero::new(self.active_or_last_span().channels).expect("test span channel count is non-zero")
+        }
+
+        fn sample_rate(&self) -> NonZero<u32> {
+            NonZero::new(self.active_or_last_span().sample_rate).expect("test span sample rate is non-zero")
+        }
+
+        fn total_duration(&self) -> Option<Duration> {
+            None
+        }
+    }
+
+    fn test_config(input_sample_rate: usize, channels: usize) -> Config {
+        Config {
+            input_sample_rate,
+            output_sample_rate: 48_000,
+            channels,
+            quality: 64,
+            bandwidth: 0.95,
+            ..Config::default()
+        }
+    }
+
+    fn test_span(sample_rate: u32, channels: u16, frames: usize, phase: f32) -> TestSpan {
+        let channels_usize = usize::from(channels);
+        let sample_count = frames * channels_usize;
+        let samples = (0..sample_count)
+            .map(|sample| ((sample as f32 * 0.013) + phase).sin() * 0.25)
+            .collect();
+
+        TestSpan {
+            sample_rate,
+            channels,
+            samples,
+        }
+    }
+
+    fn consume_samples<S, T>(resampler: &mut RodioResampler<S, T>, samples: usize)
+    where
+        S: Source,
+        T: Float + FftNum,
+    {
+        for _ in 0..samples {
+            assert!(
+                resampler.next().is_some(),
+                "reported current_span_len exceeded the remaining stream"
+            );
+        }
+    }
+
+    #[test]
+    fn current_span_len_is_frame_aligned_for_non_integer_resample_boundary() {
+        let source = ExplicitSpanSource::new(vec![test_span(44_100, 2, 512, 0.0), test_span(32_000, 2, 512, 0.7)]);
+        let mut resampler = RodioResampler::new(source, test_config(44_100, 2)).expect("resampler should construct");
+
+        let mut observed_samples = 0usize;
+        const MAX_OUTPUT_SAMPLES: usize = 20_000;
+        loop {
+            let span_len = resampler
+                .current_span_len()
+                .expect("finite explicit spans should report finite output spans");
+            if span_len == 0 {
+                assert!(
+                    resampler.next().is_none(),
+                    "Some(0) should only be reported at end-of-stream"
+                );
+                break;
+            }
+
+            let channels = usize::from(resampler.channels().get());
+            assert_eq!(
+                span_len % channels,
+                0,
+                "current_span_len must stay aligned to complete output frames"
+            );
+
+            consume_samples(&mut resampler, span_len);
+            observed_samples += span_len;
+            assert!(
+                observed_samples <= MAX_OUTPUT_SAMPLES,
+                "resampler did not drain the finite span source"
+            );
+        }
+
+        assert!(observed_samples > 0, "finite spans should produce output");
+    }
+
+    #[test]
+    fn current_span_len_exposes_boundary_before_output_format_change() {
+        let source = ExplicitSpanSource::new(vec![test_span(44_100, 1, 512, 0.0), test_span(44_100, 2, 512, 0.7)]);
+        let mut resampler = RodioResampler::new(source, test_config(44_100, 1)).expect("resampler should construct");
+
+        let mut observed_channel_change = false;
+        let mut previous_channels = usize::from(resampler.channels().get());
+        let mut observed_samples = 0usize;
+        const MAX_OUTPUT_SAMPLES: usize = 20_000;
+
+        loop {
+            let span_len = resampler
+                .current_span_len()
+                .expect("finite explicit spans should report finite output spans");
+            if span_len == 0 {
+                break;
+            }
+
+            let chunk_channels = usize::from(resampler.channels().get());
+            for sample_in_chunk in 0..span_len {
+                assert_eq!(
+                    usize::from(resampler.channels().get()),
+                    chunk_channels,
+                    "output channels changed inside a reported stable span at sample {sample_in_chunk} of {span_len}"
+                );
+                assert!(
+                    resampler.next().is_some(),
+                    "reported current_span_len exceeded the remaining stream"
+                );
+            }
+
+            let next_channels = usize::from(resampler.channels().get());
+            if next_channels != previous_channels {
+                assert_eq!(
+                    next_channels, 2,
+                    "test source should only transition from mono to stereo"
+                );
+                observed_channel_change = true;
+            }
+            previous_channels = next_channels;
+            observed_samples += span_len;
+            assert!(
+                observed_samples <= MAX_OUTPUT_SAMPLES,
+                "resampler did not drain the finite span source"
+            );
+        }
+
+        assert!(
+            observed_channel_change,
+            "resampler should expose the queued stereo output span"
+        );
+    }
+
+    #[test]
+    fn current_span_len_handles_exact_boundary_without_zero_stall() {
+        let source = ExplicitSpanSource::new(vec![test_span(44_100, 1, 512, 0.0), test_span(44_100, 2, 512, 0.7)]);
+        let mut resampler = RodioResampler::new(source, test_config(44_100, 1)).expect("resampler should construct");
+
+        let mut previous_channels = usize::from(resampler.channels().get());
+        let mut observed_boundary = false;
+        let mut observed_samples = 0usize;
+        const MAX_OUTPUT_SAMPLES: usize = 20_000;
+
+        loop {
+            let span_len = resampler
+                .current_span_len()
+                .expect("finite explicit spans should report finite output spans");
+            let channels = usize::from(resampler.channels().get());
+
+            if channels != previous_channels {
+                assert_eq!(channels, 2, "test source should only transition from mono to stereo");
+                assert_eq!(
+                    span_len, channels,
+                    "exact output span boundaries should report one stable frame, not zero or a partial frame"
+                );
+                observed_boundary = true;
+            }
+
+            if span_len == 0 {
+                break;
+            }
+
+            consume_samples(&mut resampler, span_len);
+            previous_channels = channels;
+            observed_samples += span_len;
+            assert!(
+                observed_samples <= MAX_OUTPUT_SAMPLES,
+                "resampler did not drain the finite span source"
+            );
+        }
+
+        assert!(
+            observed_boundary,
+            "test should observe the exact mono-to-stereo boundary"
+        );
+        assert!(
+            observed_samples > 0,
+            "resampler should continue producing output after the boundary"
+        );
+    }
 
     #[test]
     fn no_underrun_across_delayed_span_transition() {
