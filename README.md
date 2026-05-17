@@ -2,6 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/ardftsrc.svg)](https://crates.io/crates/ardftsrc)
 [![Docs.rs](https://docs.rs/ardftsrc/badge.svg)](https://docs.rs/ardftsrc)
+[![Tests](https://github.com/phayes/ardftsrc-rs/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/phayes/ardftsrc-rs/actions/workflows/rust.yml?query=branch%3Amaster)
 
 A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Rate Converter (ARDFTSRC) algorithm.
 
