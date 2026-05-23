@@ -17,6 +17,8 @@ use rayon::prelude::*;
 static GLOBAL: MiMalloc = MiMalloc;
 
 const DEFAULT_ALPHA: f32 = 3.4375;
+const DEFAULT_BETA_CDF_ALPHA: f32 = 10.0;
+const DEFAULT_BETA_CDF_BETA: f32 = 10.0;
 const FLAC_WRITE_CHUNK_FRAMES: usize = 32768;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -37,6 +39,9 @@ enum TaperTypeArg {
     Planck,
     /// Sigmoid-warped cosine taper transition.
     Cosine,
+    /// Beta-CDF taper transition.
+    #[value(name = "beta_cdf", alias = "beta-cdf")]
+    BetaCdf,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -89,9 +94,15 @@ struct Args {
     #[arg(long)]
     bandwidth: Option<f32>,
 
-    /// Cosine taper alpha (cannot be used with --taper-type planck). Higher values are sharper cutoff; lower values are smoother. Useful values are between 1 and 4.
+    /// Taper alpha. Used by --taper-type cosine and --taper-type beta_cdf.
+    ///
+    /// For cosine, higher values are sharper cutoff; lower values are smoother.
     #[arg(long)]
     alpha: Option<f32>,
+
+    /// Beta-CDF taper beta. Used by --taper-type beta_cdf.
+    #[arg(long)]
+    beta: Option<f32>,
 
     /// Transition taper profile.
     #[arg(long = "taper-type", value_enum)]
@@ -300,8 +311,14 @@ fn validate_args(args: &Args) -> Result<(), Box<dyn Error>> {
     if unique_outputs.len() != args.output.len() {
         return Err("--output must not contain duplicate paths".into());
     }
-    if matches!(args.taper_type, Some(TaperTypeArg::Planck)) && args.alpha.is_some() {
-        return Err("--alpha cannot be used with --taper-type=planck".into());
+    if matches!(args.taper_type, Some(TaperTypeArg::Planck)) && (args.alpha.is_some() || args.beta.is_some()) {
+        return Err("--alpha/--beta cannot be used with --taper-type=planck".into());
+    }
+    if matches!(args.taper_type, Some(TaperTypeArg::Cosine)) && args.beta.is_some() {
+        return Err("--beta cannot be used with --taper-type=cosine".into());
+    }
+    if args.taper_type.is_none() && args.beta.is_some() {
+        return Err("--beta requires --taper-type=beta_cdf".into());
     }
     Ok(())
 }
@@ -355,6 +372,11 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
             TaperTypeArg::Cosine => {
                 let alpha = args.alpha.unwrap_or(DEFAULT_ALPHA);
                 TaperType::Cosine(alpha)
+            }
+            TaperTypeArg::BetaCdf => {
+                let alpha = args.alpha.unwrap_or(DEFAULT_BETA_CDF_ALPHA);
+                let beta = args.beta.unwrap_or(DEFAULT_BETA_CDF_BETA);
+                TaperType::BetaCdf { alpha, beta }
             }
         };
     } else if let Some(alpha) = args.alpha {
