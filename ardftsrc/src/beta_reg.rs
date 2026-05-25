@@ -3,7 +3,7 @@
 //! This was ported from the `statrs` crate.
 //!
 //! See <https://github.com/statrs-dev/statrs/>
-//! 
+//!
 //! licensed under the MIT License.
 //! Copyright (c) 2016 Michael Ma
 

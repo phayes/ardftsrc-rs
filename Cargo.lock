@@ -110,6 +110,7 @@ dependencies = [
  "md5",
  "mimalloc",
  "num-traits",
+ "pxfm",
  "rayon",
  "realfft",
  "rodio",
@@ -1082,6 +1083,12 @@ checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "pxfm"
+version = "0.1.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0c5ccf5294c6ccd63a74f1565028353830a9c2f5eb0c682c355c471726a6e3f"
 
 [[package]]
 name = "quote"

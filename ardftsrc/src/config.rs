@@ -184,6 +184,7 @@ pub struct Config {
     /// Frequency taper profile used around the cutoff region.
     ///
     /// - `Planck`: Uses a Planck taper transition.
+    /// - `Bessel(alpha)`: Uses a cumulative Bessel-I0 taper transition. Requires the `bessel` feature.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
@@ -313,7 +314,9 @@ impl Config {
     /// Frequency taper profile used around the cutoff region.
     ///
     /// - `Planck`: Uses a Planck taper transition.
+    /// - `Bessel(alpha)`: Uses a cumulative Bessel-I0 taper transition. Requires the `bessel` feature.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
+    /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
     /// Default value is `Cosine(3.4375)`, which was arrived at through testing
     /// various values on the HydrogenAudio SRC test suite.

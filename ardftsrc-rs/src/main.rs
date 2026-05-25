@@ -17,6 +17,8 @@ use rayon::prelude::*;
 static GLOBAL: MiMalloc = MiMalloc;
 
 const DEFAULT_ALPHA: f32 = 3.4375;
+#[cfg(feature = "bessel")]
+const DEFAULT_BESSEL_ALPHA: f32 = 6.0;
 const DEFAULT_BETA_CDF_ALPHA: f32 = 10.0;
 const DEFAULT_BETA_CDF_BETA: f32 = 10.0;
 const FLAC_WRITE_CHUNK_FRAMES: usize = 32768;
@@ -37,6 +39,9 @@ enum PresetArg {
 enum TaperTypeArg {
     /// Planck taper transition.
     Planck,
+    /// Cumulative Bessel-I0 taper transition.
+    #[cfg(feature = "bessel")]
+    Bessel,
     /// Sigmoid-warped cosine taper transition.
     Cosine,
     /// Beta-CDF taper transition.
@@ -94,7 +99,7 @@ struct Args {
     #[arg(long)]
     bandwidth: Option<f32>,
 
-    /// Taper alpha. Used by --taper-type cosine and --taper-type beta_cdf.
+    /// Taper alpha. Used by --taper-type cosine and beta_cdf, and by bessel when enabled.
     ///
     /// For cosine, higher values are sharper cutoff; lower values are smoother.
     #[arg(long)]
@@ -314,6 +319,10 @@ fn validate_args(args: &Args) -> Result<(), Box<dyn Error>> {
     if matches!(args.taper_type, Some(TaperTypeArg::Planck)) && (args.alpha.is_some() || args.beta.is_some()) {
         return Err("--alpha/--beta cannot be used with --taper-type=planck".into());
     }
+    #[cfg(feature = "bessel")]
+    if matches!(args.taper_type, Some(TaperTypeArg::Bessel)) && args.beta.is_some() {
+        return Err("--beta cannot be used with --taper-type=bessel".into());
+    }
     if matches!(args.taper_type, Some(TaperTypeArg::Cosine)) && args.beta.is_some() {
         return Err("--beta cannot be used with --taper-type=cosine".into());
     }
@@ -369,6 +378,11 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if let Some(taper_type) = args.taper_type {
         config.taper_type = match taper_type {
             TaperTypeArg::Planck => TaperType::Planck,
+            #[cfg(feature = "bessel")]
+            TaperTypeArg::Bessel => {
+                let alpha = args.alpha.unwrap_or(DEFAULT_BESSEL_ALPHA);
+                TaperType::Bessel(alpha)
+            }
             TaperTypeArg::Cosine => {
                 let alpha = args.alpha.unwrap_or(DEFAULT_ALPHA);
                 TaperType::Cosine(alpha)

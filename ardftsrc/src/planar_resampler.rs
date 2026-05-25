@@ -438,7 +438,7 @@ where
         }
     }
 
-    /// Process multiple tracks as one gapless sequence. 
+    /// Process multiple tracks as one gapless sequence.
     ///
     /// Adjacent inputs are treated as tracks from the same album or other back-to-back
     /// material. Each track is returned separately, but the previous track's tail and next

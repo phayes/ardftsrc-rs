@@ -19,6 +19,7 @@ wavers.workspace = true
 
 [features]
 default = ["avx", "neon", "sse", "wasm_simd", "rayon"]
+bessel = ["ardftsrc/bessel"]
 rayon = ["dep:rayon", "ardftsrc/rayon"]
 avx = ["ardftsrc/avx"]
 neon = ["ardftsrc/neon"]

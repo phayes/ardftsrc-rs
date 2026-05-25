@@ -16,6 +16,7 @@ audio-core = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
 rodio = { version = "0.22", default-features = false, optional = true }
 tracing = { version = "0.1", optional = true }
+pxfm = { version = "0.1.29", optional = true }
 
 [dev-dependencies]
 audioadapter-buffers.workspace = true
@@ -38,6 +39,7 @@ sse = ["realfft/sse"]
 wasm_simd = ["realfft/wasm_simd"]
 
 # Optional features (disabled by default)
+bessel = ["dep:pxfm"]
 rodio = ["dep:rodio"]
 rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]

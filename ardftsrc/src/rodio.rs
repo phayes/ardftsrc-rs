@@ -1,5 +1,5 @@
 use crate::SamplesLeftInSpan;
-use crate::{panic_err, panic_msg, Config, Error, RealtimeResampler};
+use crate::{Config, Error, RealtimeResampler, panic_err, panic_msg};
 use num_traits::Float;
 use realfft::FftNum;
 /// Wrap a [`rodio::Source`] and resample it in realtime in your rodio pipeline. Requires the `rodio` feature.
@@ -147,7 +147,10 @@ where
             self.inner_channel_count = self.inner.channels().get() as u64;
 
             // Debug assert that we are right on a frame boundary
-            debug_assert!(self.inner_span_len % self.inner_channel_count == 0, "ardftsrc: Error in inner source: current_span_len should be a multiple of channels on a frame boundary");
+            debug_assert!(
+                self.inner_span_len % self.inner_channel_count == 0,
+                "ardftsrc: Error in inner source: current_span_len should be a multiple of channels on a frame boundary"
+            );
         }
 
         // If input is none, end the stream, but keep reading until the resampler is drained.

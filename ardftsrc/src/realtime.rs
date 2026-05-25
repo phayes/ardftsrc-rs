@@ -179,9 +179,7 @@ where
     /// This can be inaccurate if there is a span transition during the priming process.
     #[must_use]
     pub fn estimate_priming_duration(&self) -> std::time::Duration {
-        std::time::Duration::from_secs_f64(
-            self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64,
-        )
+        std::time::Duration::from_secs_f64(self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64)
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -273,7 +271,7 @@ where
     #[must_use]
     #[inline]
     /// Returns the output sample rate for samples currently being read.
-    /// 
+    ///
     /// When samples_left_in_span() == Some(0), the current output-active span is already drained, so this reports the queued next span’s channel count.
     pub fn output_sample_rate(&self) -> usize {
         self.active_output_span().config().output_sample_rate
@@ -452,13 +450,13 @@ where
 }
 
 /// The length of a span in output samples for RealtimeResampler.
-/// 
+///
 /// See [`RealtimeResampler::samples_left_in_span()`](RealtimeResampler::samples_left_in_span) for more details.
-/// 
+///
 /// - `Unknown` means the length is not known.
 /// - `Known(usize)` means the length is at least the given number of samples, but may be larger.
 /// - `Known(0)` means the span is drained and a new span is ready to be read.
-/// - `EndOfStream` means the entire stream is EOF. 
+/// - `EndOfStream` means the entire stream is EOF.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum SamplesLeftInSpan {
     Unknown,
@@ -467,14 +465,13 @@ pub enum SamplesLeftInSpan {
 }
 
 impl SamplesLeftInSpan {
-
     /// Returns true if samples left in span is known.
     #[must_use]
     #[inline]
     pub fn is_known(&self) -> bool {
         matches!(self, SamplesLeftInSpan::Known(_))
     }
-    
+
     /// Unwraps the samples left in span if known, otherwise panics.
     #[track_caller]
     pub fn unwrap(&self) -> usize {
@@ -948,7 +945,10 @@ mod tests {
         let mut resampler = RealtimeResampler::new(first_config).unwrap();
         resampler.write_samples(&first_input).unwrap();
         resampler.new_span(32_000, 1).unwrap();
-        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(first_expected.len()));
+        assert_eq!(
+            resampler.samples_left_in_span(),
+            SamplesLeftInSpan::Known(first_expected.len())
+        );
 
         resampler.write_samples(&second_input).unwrap();
         resampler.finalize().unwrap();
@@ -993,7 +993,10 @@ mod tests {
 
         assert_eq!(resampler.input_config().channels, 2);
         assert_eq!(resampler.output_channels(), 1);
-        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(first_expected.len()));
+        assert_eq!(
+            resampler.samples_left_in_span(),
+            SamplesLeftInSpan::Known(first_expected.len())
+        );
 
         let mut first_actual = vec![0.0; first_expected.len()];
         assert_eq!(resampler.read_samples(&mut first_actual).unwrap(), first_expected.len());
@@ -1161,7 +1164,10 @@ mod tests {
         resampler.finalize().unwrap();
 
         assert_eq!(resampler.samples_pending_in_output_span(), first_expected.len());
-        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Known(first_expected.len()));
+        assert_eq!(
+            resampler.samples_left_in_span(),
+            SamplesLeftInSpan::Known(first_expected.len())
+        );
 
         let mut first_actual = vec![0.0; first_expected.len()];
         assert_eq!(resampler.read_samples(&mut first_actual).unwrap(), first_expected.len());

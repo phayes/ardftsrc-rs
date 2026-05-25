@@ -8,6 +8,12 @@ pub enum TaperType {
     /// Uses a Planck-taper transition
     Planck,
 
+    /// Uses a cumulative Bessel-I0 taper transition.
+    ///
+    /// `alpha` controls the steepness of the transition.
+    #[cfg(feature = "bessel")]
+    Bessel(f32),
+
     /// Uses a sigmoid-warped cosine transition.
     ///
     /// `alpha` controls the sharpness of the transition.
@@ -47,6 +53,10 @@ impl TaperType {
     ) -> Vec<T> {
         match self {
             TaperType::Planck => build_planck_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough),
+            #[cfg(feature = "bessel")]
+            TaperType::Bessel(alpha) => {
+                build_cumulative_bessel_i0_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough, *alpha)
+            }
             TaperType::Cosine(alpha) => {
                 build_cosine_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough, *alpha)
             }
@@ -60,6 +70,14 @@ impl TaperType {
     pub fn validate(&self) -> Result<(), Error> {
         match self {
             TaperType::Planck => Ok(()),
+            #[cfg(feature = "bessel")]
+            TaperType::Bessel(alpha) => {
+                if *alpha <= 0.0 || !alpha.is_finite() {
+                    return Err(Error::InvalidAlpha(*alpha));
+                } else {
+                    Ok(())
+                }
+            }
             TaperType::Cosine(alpha) => {
                 if *alpha <= 0.0 || !alpha.is_finite() {
                     return Err(Error::InvalidAlpha(*alpha));
@@ -78,6 +96,75 @@ impl TaperType {
             }
         }
     }
+}
+
+/// Builds a cumulative Bessel-I0 frequency taper.
+///
+/// Returns passband unity bins, a trimmed descending transition, and stopband zeros.
+#[cfg(feature = "bessel")]
+fn build_cumulative_bessel_i0_taper<T: Float>(
+    input_fft_size: usize,
+    cutoff_bin: usize,
+    taper_bins: usize,
+    is_passthrough: bool,
+    alpha: f32,
+) -> Vec<T> {
+    let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
+    let alpha = f64::from(alpha);
+
+    if is_passthrough {
+        taper.fill(T::one());
+        return taper;
+    }
+
+    let transition = if taper_bins == 0 {
+        Vec::new()
+    } else {
+        let n = taper_bins as f64;
+        let alpha2 = 4.0 * (alpha * std::f64::consts::PI / n).powi(2);
+        let mut raw = vec![0.0; taper_bins];
+        let mut scale = 0.0;
+
+        for idx in (0..taper_bins).rev() {
+            let idx_f = idx as f64;
+            let tmp = idx_f * (n - idx_f) * alpha2;
+            raw[idx] = pxfm::f_i0(tmp.sqrt());
+            scale += raw[idx];
+        }
+
+        let scale = 1.0 / (scale + 1.0);
+        let mut sum = 0.0;
+        for idx in (0..taper_bins).rev() {
+            sum += raw[idx];
+            raw[idx] = sum * scale;
+        }
+
+        let trim_start = raw.iter().position(|value| *value < 1.0).unwrap_or(raw.len());
+        let trim_stop = raw
+            .iter()
+            .rposition(|value| *value > 0.0)
+            .map_or(0, |idx| raw.len() - idx - 1);
+        let active_end = raw.len().saturating_sub(trim_stop);
+
+        raw[trim_start..active_end]
+            .iter()
+            .map(|value| T::from(*value).expect("T should be f64 or f32 and be able to convert from f64"))
+            .collect()
+    };
+
+    let taper_start = cutoff_bin.saturating_sub(transition.len());
+
+    for (idx, value) in taper.iter_mut().enumerate() {
+        if idx < taper_start {
+            *value = T::one();
+        } else if idx < cutoff_bin {
+            *value = transition[idx - taper_start];
+        } else {
+            *value = T::zero();
+        }
+    }
+
+    taper
 }
 
 /// Builds a Planck-taper frequency mask.
@@ -315,4 +402,47 @@ fn build_beta_cdf_taper<T: Float>(
     }
 
     taper
+}
+
+#[cfg(all(test, feature = "bessel"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cumulative_bessel_i0_taper_is_descending_and_bounded() {
+        let taper = TaperType::Bessel(6.0).build_taper::<f64>(64, 24, 16, false);
+        let transition_start = taper
+            .iter()
+            .position(|value| *value < 1.0)
+            .expect("expected transition start");
+        let transition = &taper[transition_start..24];
+
+        assert_eq!(taper.len(), 33);
+        assert!(!transition.is_empty());
+        assert!(taper[..transition_start].iter().all(|value| *value == 1.0));
+        assert!(taper[24..].iter().all(|value| *value == 0.0));
+
+        for value in transition {
+            assert!(*value >= 0.0);
+            assert!(*value <= 1.0);
+        }
+        for pair in transition.windows(2) {
+            assert!(pair[0] >= pair[1]);
+        }
+    }
+
+    #[test]
+    fn cumulative_bessel_i0_passthrough_is_all_ones() {
+        let taper = TaperType::Bessel(6.0).build_taper::<f32>(16, 8, 4, true);
+
+        assert_eq!(taper.len(), 9);
+        assert!(taper.iter().all(|value| *value == 1.0));
+    }
+
+    #[test]
+    fn bessel_i0_matches_known_values() {
+        assert!((pxfm::f_i0(0.0) - 1.0).abs() < 1e-15);
+        assert!((pxfm::f_i0(1.0) - 1.266_065_877_752_008_2).abs() < 1e-15);
+        assert!((pxfm::f_i0(2.0) - 2.279_585_302_336_067_3).abs() < 1e-15);
+    }
 }
