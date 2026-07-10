@@ -8,6 +8,12 @@ use num_traits::Float;
 /// Maximum LPC order used during extrapolation.
 pub(crate) const EXTRAPOLATION_MAX_ORDER: usize = 64;
 
+/// Bound on predicted magnitude relative to the seed window's peak. A stable
+/// predictor of bounded audio has no business exceeding the seed's peak by
+/// orders of magnitude; once a prediction crosses this line the recursion has
+/// diverged and every later value is garbage on its way to overflow.
+pub(crate) const EXTRAPOLATION_DIVERGENCE_HEADROOM: f64 = 8.0;
+
 /// Per-coefficient damping multiplier for LPC stabilization.
 pub(crate) const LPC_DAMPING_FACTOR: f64 = 0.999;
 
@@ -165,6 +171,16 @@ where
 }
 
 /// Predict `extra` forward samples via LPC with finite-value guards.
+///
+/// An unstable fit (a pole on or outside the unit circle, which Burg can
+/// produce on ill-conditioned near-silent windows and legitimately produces
+/// on growing ones) makes the recursion diverge exponentially; the per-sample
+/// finite guard alone lets values reach ~1e308 while still "finite", and such
+/// magnitudes overflow downstream DFT convolution into whole NaN blocks. Once
+/// any prediction exceeds the seed's own peak by
+/// [`EXTRAPOLATION_DIVERGENCE_HEADROOM`], the predictor has diverged and every
+/// later value is garbage, so the remainder of the prediction is filled with
+/// silence instead.
 pub(crate) fn extrapolate_forward<T>(input: &[T], extra: usize, fallback: ExtrapolateFallback) -> Vec<T>
 where
     T: Float,
@@ -181,6 +197,12 @@ where
     let mut work = input.to_vec();
     let mut output = Vec::with_capacity(extra);
 
+    let seed_peak = input
+        .iter()
+        .fold(T::zero(), |acc, sample| acc.max(sample.abs()));
+    let headroom = T::from(EXTRAPOLATION_DIVERGENCE_HEADROOM).unwrap_or_else(T::one);
+    let divergence_bound = seed_peak * headroom;
+
     for _ in 0..extra {
         let base = work.len().saturating_sub(lpc.len());
         let mut next = T::zero();
@@ -188,6 +210,11 @@ where
             next = next - work[base + idx] * *coeff;
         }
         let next = if next.is_finite() { next } else { T::zero() };
+        if next.abs() > divergence_bound {
+            // Diverged: the rest of the prediction would only grow further.
+            output.resize(extra, T::zero());
+            return output;
+        }
         work.push(next);
         output.push(next);
     }
@@ -315,5 +342,33 @@ mod tests {
         assert_no_nans(&predicted, "lpc::test_extrapolate_backward_length_and_finite predicted");
         assert_eq!(predicted.len(), 24);
         assert!(predicted.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_extrapolate_forward_divergence_is_clamped() {
+        // A geometrically growing seed makes Burg fit a predictor with a pole
+        // outside the unit circle: it honestly models the growth, so the
+        // recursion explodes exponentially over a long prediction span. The
+        // per-sample is_finite guard alone lets values reach ~1e290 (still
+        // finite) before overflow; downstream DFT convolution then overflows
+        // to NaN across an entire output block (observed in production on a
+        // real 192 kHz track whose near-silent fade-in produced an unstable
+        // fit: the 4x oversampled downsample emitted one full output chunk,
+        // 1,241,856 samples per channel, of NaN). Predictions must stay
+        // bounded by a small multiple of the seed's own peak, with the
+        // diverged tail settling to silence.
+        let seed: Vec<f64> = (0..512).map(|i| 1e-9 * 1.05f64.powi(i)).collect();
+        let seed_peak = seed.iter().fold(0.0f64, |a, s| a.max(s.abs()));
+        let predicted = extrapolate_forward(&seed, 2_000_000, ExtrapolateFallback::Hold);
+        assert_eq!(predicted.len(), 2_000_000);
+        assert!(
+            predicted.iter().all(|v| v.is_finite()),
+            "predictions must stay finite"
+        );
+        let max_predicted = predicted.iter().fold(0.0f64, |a, s| a.max(s.abs()));
+        assert!(
+            max_predicted <= seed_peak * EXTRAPOLATION_DIVERGENCE_HEADROOM,
+            "diverged prediction reached {max_predicted:e} from a seed peak of {seed_peak:e}"
+        );
     }
 }
