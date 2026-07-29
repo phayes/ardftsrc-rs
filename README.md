@@ -10,7 +10,7 @@ A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Ra
 
 Generally `ardftsrc` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
-It is among the top scoring resampling libraries on [HydrogenAudio Sample Rate Conversion Comparison](https://src.hydrogenaudio.org/), topping out with a balanced score of 99.73%.  It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. See [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md) for a detailed speed and quality comparison vs rubato.
+It is among the top scoring resampling libraries on [HydrogenAudio Sample Rate Conversion Comparison](https://src.hydrogenaudio.org/), topping out with a balanced score of 99.75%.  It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. See [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md) for a detailed speed and quality comparison vs rubato.
 
 ## Quick Start
 
