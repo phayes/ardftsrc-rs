@@ -45,6 +45,10 @@ rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
 tracing = ["dep:tracing"]
 
+# Uses a Rust port of librempeg's GPL-licensed LPC edge extrapolation.
+# Enabling this feature brings GPL-derived code into the build.
+gpl_lpc = []
+
  # Rodio features (examples only)
 rodio-playback= ["rodio/playback"]
 

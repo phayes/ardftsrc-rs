@@ -6,6 +6,9 @@ use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
 
 use crate::Error;
 use crate::config::DerivedConfig;
+#[cfg(feature = "gpl_lpc")]
+use crate::gpl_lpc::{extrapolate_backward, extrapolate_forward};
+#[cfg(not(feature = "gpl_lpc"))]
 use crate::lpc::{ExtrapolateFallback, extrapolate_backward, extrapolate_forward};
 
 pub(crate) struct ArdftsrcCore<T = f64>
@@ -459,6 +462,9 @@ where
         let copied = self.copy_pre_tail(&mut predicted);
         if copied < input_start {
             let fallback_len = input_start - copied;
+            #[cfg(feature = "gpl_lpc")]
+            let fallback = extrapolate_backward(&self.scratch.rdft_in[input_start..input_end], fallback_len);
+            #[cfg(not(feature = "gpl_lpc"))]
             let fallback = extrapolate_backward(
                 &self.scratch.rdft_in[input_start..input_end],
                 fallback_len,
@@ -482,6 +488,9 @@ where
             let mut seed = Vec::with_capacity(base.len() + copied);
             seed.extend_from_slice(base);
             seed.extend_from_slice(&predicted[..copied]);
+            #[cfg(feature = "gpl_lpc")]
+            let fallback = extrapolate_forward(&seed, needed - copied);
+            #[cfg(not(feature = "gpl_lpc"))]
             let fallback = extrapolate_forward(&seed, needed - copied, ExtrapolateFallback::Hold);
             predicted[copied..].copy_from_slice(&fallback);
         }

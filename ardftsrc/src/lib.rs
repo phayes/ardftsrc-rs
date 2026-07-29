@@ -4,7 +4,10 @@ mod beta_reg;
 mod config;
 mod core;
 mod error;
+#[cfg(feature = "gpl_lpc")]
+mod gpl_lpc;
 mod interleaved_resampler;
+#[cfg(not(feature = "gpl_lpc"))]
 mod lpc;
 mod planar_resampler;
 mod planar_vecs;
