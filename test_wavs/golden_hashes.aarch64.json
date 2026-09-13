@@ -5,8 +5,8 @@
     "target_rate": 22050,
     "hashes": {
       "example-pcm16-44k1-stereo.wav": [
-        "f7f508e26be391fefb4a596c0f74bdd4",
-        "604eb3d15d065db8018839b5ef811522"
+        "a07fed4e222e31afa8d50706ba7e5b9d",
+        "9f7d5d1d4c90f904e890227e14f26fe3"
       ],
       "gaplesstest_m-f32-96k.wav": [
         "c288fd17238683718377277d6fd70821"
@@ -18,7 +18,7 @@
         "267130c6b2d982620f73e247ea0dac44"
       ],
       "sweep-f32-96k.wav": [
-        "dc629765b7366191f3b4f01d981c8949"
+        "ee9efc4f156bd843c86a2706981b72da"
       ],
       "sweep-pcm16-22k05.wav": [
         "79eea2c757ee70513a02ebce229451be"
@@ -44,7 +44,7 @@
         "99ac486fc2320e32035e64cbfdd1ff04"
       ],
       "sweep-f32-96k.wav": [
-        "425d4934ecd221d880bba6ebd2515361"
+        "66a3ca0766607e4647a86104f78d44ed"
       ],
       "sweep-pcm16-22k05.wav": [
         "79eea2c757ee70513a02ebce229451be"
@@ -122,7 +122,7 @@
         "78e443dc1dec4878dc4545f72e827631"
       ],
       "sweep-f32-96k.wav": [
-        "6457862b03ea038c3b4aaa983dda64cd"
+        "e11eda77672c087f115f2ebabb306f5b"
       ],
       "sweep-pcm16-22k05.wav": [
         "f1aa2d3c0e8dddb57cf1634782926de9"
@@ -148,7 +148,7 @@
         "cf0b1125308890ccc9a83f8808199e3d"
       ],
       "sweep-f32-96k.wav": [
-        "efd0551ec9e7e25e0820c639e6696ecf"
+        "8a85e46ebf0ebaf87e74849ce8e142be"
       ],
       "sweep-pcm16-22k05.wav": [
         "aa8a669e8de2b32aa1a881bcd45ae824"
@@ -226,7 +226,7 @@
         "09a3b84f7226b3d60bf568c905836ff3"
       ],
       "sweep-f32-96k.wav": [
-        "ead6ee539b147800c4961878085aff7b"
+        "be31410d39aae48b7d2d4f1e275888bc"
       ],
       "sweep-pcm16-22k05.wav": [
         "5e7e2da2dde49f6187f2e1515fb5f48f"
@@ -252,7 +252,7 @@
         "2456f3d969fcb5c275dd13f5c4930098"
       ],
       "sweep-f32-96k.wav": [
-        "7d99f52f70009857fe9d34f20eb16191"
+        "d73cf67f41fcced77cf6786f530d06ee"
       ],
       "sweep-pcm16-22k05.wav": [
         "3d7d1c9f44924359e4c6689d2e7669f8"

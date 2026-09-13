@@ -1,6 +1,6 @@
 use crate::TaperType;
+use crate::spectral::SpectralPlan;
 use num_traits::Float;
-use realfft::num_complex::Complex;
 
 /// Low-latency, lower-quality preset.
 ///
@@ -138,6 +138,26 @@ pub const PRESET_EXTREME: Config = Config {
 
 use crate::Error;
 
+/// Lowest frequency that the resampler may fold (downsampling) or image (upsampling) energy
+/// onto. See [`Config::alias_floor`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AliasFloor {
+    /// Fraction of the lower Nyquist frequency in `[bandwidth, 1.0]`, in the same units as
+    /// [`Config::bandwidth`]. `1.0` disables aliasing.
+    Fraction(f32),
+
+    /// Fold/image only down to the frequency where the final filter response is `db` dB
+    /// (must be below `0.0`, e.g. `-3.0`). Resolved when the resampler is constructed, using the
+    /// configured bandwidth and taper.
+    Decibels(f32),
+}
+
+impl Default for AliasFloor {
+    fn default() -> Self {
+        Self::Fraction(1.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 /// Configures the ardftsrc resampler.
 ///
@@ -216,6 +236,24 @@ pub struct Config {
     /// `0.0` disables phase rotation. The default value is `50.0`.
     pub phase_intensity: f32,
 
+    /// Alias floor: permits controlled aliasing/imaging inside the low-pass transition band.
+    ///
+    /// By default the transition ends at the lower Nyquist frequency and content beyond it is
+    /// suppressed. Lowering the floor extends the transition past Nyquist (mirrored about it), so
+    /// it is wider and rings less. Energy in the extended region is folded back (downsampling) or
+    /// imaged (upsampling), but never below the floor, and the floor never goes below the
+    /// passband edge set by [`bandwidth`](Config::bandwidth).
+    ///
+    /// This is not the same as removing the low-pass filter: the passband is unchanged and
+    /// content above the extended stopband is still suppressed.
+    ///
+    /// - `AliasFloor::Fraction(1.0)`: no aliasing (default).
+    /// - `AliasFloor::Decibels(-3.0)`: similar to SoX `rate -a`.
+    /// - `AliasFloor::Fraction(bandwidth)`: widest transition.
+    ///
+    /// Pre-decimation stages (see [`decimate`](Config::decimate)) always stay strict.
+    pub alias_floor: AliasFloor,
+
     /// EXPERIMENTAL: Enables an optional 2:1 pre-decimation stage ahead of the FFT resampler for very large
     /// downsampling ratios (e.g. 192kHz -> 48kHz).
     ///
@@ -268,6 +306,7 @@ impl Config {
         taper_type: TaperType::Cosine(3.4375),
         phase: 0.0,
         phase_intensity: 50.0,
+        alias_floor: AliasFloor::Fraction(1.0),
         decimate: false,
         #[cfg(feature = "rodio")]
         rodio_fast_start: false,
@@ -387,6 +426,26 @@ impl Config {
         self
     }
 
+    /// Sets the alias floor as a fraction of the lower Nyquist frequency in `[bandwidth, 1.0]`.
+    ///
+    /// `1.0` (default) disables aliasing. See [`alias_floor`](Config::alias_floor).
+    #[must_use]
+    pub fn with_alias_floor(mut self, fraction: f32) -> Self {
+        self.alias_floor = AliasFloor::Fraction(fraction);
+        self
+    }
+
+    /// Sets the alias floor to the frequency where the final filter response is `db` dB
+    /// (must be below `0.0`). `-3.0` is similar to SoX `rate -a`.
+    ///
+    /// Resolved when the resampler is constructed, so it always reflects the final bandwidth and
+    /// taper regardless of builder call order. See [`alias_floor`](Config::alias_floor).
+    #[must_use]
+    pub fn with_alias_floor_db(mut self, db: f32) -> Self {
+        self.alias_floor = AliasFloor::Decibels(db);
+        self
+    }
+
     /// For [`RodioResampler`](crate::RodioResampler), this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
@@ -475,6 +534,19 @@ impl Config {
             return Err(Error::InvalidPhaseIntensity(self.phase_intensity));
         }
 
+        match self.alias_floor {
+            AliasFloor::Fraction(fraction) => {
+                if !fraction.is_finite() || fraction < self.bandwidth || fraction > 1.0 {
+                    return Err(Error::InvalidAliasFloor(fraction));
+                }
+            }
+            AliasFloor::Decibels(db) => {
+                if !db.is_finite() || db >= 0.0 {
+                    return Err(Error::InvalidAliasFloorDb(db));
+                }
+            }
+        }
+
         // Validate the taper type
         self.taper_type.validate()?;
 
@@ -523,11 +595,8 @@ pub struct DerivedConfig<T> {
     pub(crate) output_fft_size: usize,
     pub(crate) input_offset: usize,
     pub(crate) output_offset: usize,
-    pub(crate) cutoff_bins: usize,
-    pub(crate) taper_bins: usize,
-    pub(crate) taper: Vec<T>,
-    pub(crate) phase: Vec<Complex<T>>,
-    pub(crate) phase_enabled: bool,
+    /// Precomputed filter geometry, gain, phase, and bin mapping for the FFT stage.
+    pub(crate) spectral: SpectralPlan<T>,
     /// Number of cascaded 2:1 decimation stages to run ahead of the FFT resampler. Zero when
     /// [`Config::decimate`] is disabled or the rate ratio doesn't warrant it.
     pub(crate) decimation_stages: usize,
@@ -581,17 +650,15 @@ where
         let output_fft_size = output_chunk_frames * 2;
         let input_offset = (input_fft_size - input_chunk_frames) / 2;
         let output_offset = (output_fft_size - output_chunk_frames) / 2;
-        let cutoff_bins = input_chunk_frames.min(output_chunk_frames) + 1;
-        let taper_bins = (cutoff_bins as f64 * (1.0 - f64::from(config.bandwidth))).ceil() as usize;
-        let is_passthrough = effective_input_rate == config.output_sample_rate;
-        let taper = config
-            .taper_type
-            .build_taper(input_fft_size, cutoff_bins, taper_bins, is_passthrough);
-
-        let phase_value = T::from(config.phase).unwrap_or_else(T::zero);
-        let phase_intensity = T::from(config.phase_intensity).unwrap_or_else(T::zero);
-        let phase = Self::build_phase(cutoff_bins, phase_value, phase_intensity);
-        let phase_enabled = !phase_value.is_zero() && !phase_intensity.is_zero();
+        let spectral = SpectralPlan::new(
+            input_chunk_frames,
+            output_chunk_frames,
+            config.bandwidth,
+            &config.taper_type,
+            T::from(config.phase).unwrap_or_else(T::zero),
+            T::from(config.phase_intensity).unwrap_or_else(T::zero),
+            crate::spectral::resolve_alias_floor(config.alias_floor, config.bandwidth, &config.taper_type),
+        );
 
         let decimation_taps = if decimation_stages > 0 {
             // Cap each stage's group delay to roughly the (decimated-domain) chunk size, so
@@ -616,34 +683,11 @@ where
             output_fft_size,
             input_offset,
             output_offset,
-            cutoff_bins,
-            taper_bins,
-            taper,
-            phase,
-            phase_enabled,
+            spectral,
             decimation_stages,
             decimation_taps,
             dd_fft,
         }
-    }
-
-    /// Builds the per-bin unit complex phase rotation used before tapering.
-    fn build_phase(bins: usize, phase: T, phase_intensity: T) -> Vec<Complex<T>> {
-        if bins == 0 {
-            return Vec::new();
-        }
-
-        let magnitude = phase.abs();
-        let sign = if phase < T::zero() { -T::one() } else { T::one() };
-        let denominator = T::from(bins).unwrap_or_else(T::one);
-
-        (0..bins)
-            .map(|idx| {
-                let x = T::from(idx).unwrap_or_else(T::zero) / denominator;
-                let angle = (magnitude * x).asin() * phase_intensity * sign;
-                Complex::new(angle.cos(), angle.sin())
-            })
-            .collect()
     }
 }
 
@@ -673,8 +717,8 @@ mod tests {
         assert_eq!(derived.output_fft_size, 4480);
         assert_eq!(derived.input_offset, 1029);
         assert_eq!(derived.output_offset, 1120);
-        assert_eq!(derived.cutoff_bins, 2059);
-        assert_eq!(derived.taper_bins, 183);
+        assert_eq!(derived.spectral.geometry.stopband_end_bin, 2059);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 183);
     }
 
     #[test]
@@ -690,8 +734,8 @@ mod tests {
         assert_eq!(derived.output_fft_size, 8960);
         assert_eq!(derived.input_offset, 1029);
         assert_eq!(derived.output_offset, 2240);
-        assert_eq!(derived.cutoff_bins, 2059);
-        assert_eq!(derived.taper_bins, 183);
+        assert_eq!(derived.spectral.geometry.stopband_end_bin, 2059);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 183);
     }
 
     #[test]
@@ -707,18 +751,19 @@ mod tests {
                 ..Config::default()
             };
             let derived = config.derive_config::<f32>().unwrap();
-            let taper = &derived.taper;
+            let taper = &derived.spectral.gain;
             assert_no_nans(taper, "config::taper_has_expected_rolloff_shape taper");
-            let taper_bins = derived.taper_bins.max(1);
-            let transition_start = derived.cutoff_bins.saturating_sub(taper_bins);
+            let cutoff_bins = derived.spectral.geometry.stopband_end_bin;
+            let taper_bins = derived.spectral.geometry.transition_bins().max(1);
+            let transition_start = cutoff_bins.saturating_sub(taper_bins);
 
             assert!(taper.iter().all(|value| *value >= 0.0 && *value <= 1.0));
             assert_eq!(taper[transition_start - 1], 1.0);
-            assert_eq!(taper[derived.cutoff_bins], 0.0);
+            assert_eq!(taper[cutoff_bins], 0.0);
             assert!(taper[..transition_start].iter().all(|value| *value == 1.0));
-            assert!(taper[derived.cutoff_bins..].iter().all(|value| *value == 0.0));
+            assert!(taper[cutoff_bins..].iter().all(|value| *value == 0.0));
             assert!(
-                taper[transition_start..derived.cutoff_bins]
+                taper[transition_start..cutoff_bins]
                     .windows(2)
                     .all(|pair| pair[0] >= pair[1])
             );
@@ -738,10 +783,10 @@ mod tests {
                 ..Config::default()
             };
             let derived = config.derive_config::<f32>().unwrap();
-            assert_no_nans(&derived.taper, "config::passthrough_taper_is_all_ones taper");
+            assert_no_nans(&derived.spectral.gain, "config::passthrough_taper_is_all_ones taper");
 
-            assert_eq!(derived.taper.len(), derived.input_fft_size / 2 + 1);
-            assert!(derived.taper.iter().all(|value| *value == 1.0));
+            assert_eq!(derived.spectral.gain.len(), derived.input_fft_size / 2 + 1);
+            assert!(derived.spectral.gain.iter().all(|value| *value == 1.0));
         }
     }
 
@@ -861,33 +906,43 @@ mod tests {
     }
 
     #[test]
-    fn phase_table_uses_c_rotation_formula() {
-        let phase_intensity = Config::DEFAULT.phase_intensity;
-        let identity = DerivedConfig::<f32>::build_phase(4, 0.0, phase_intensity);
-        assert_eq!(identity.len(), 4);
-        assert!(identity.iter().all(|phase| phase.re == 1.0 && phase.im == 0.0));
+    fn validates_alias_floor() {
+        let base = Config::new(96_000, 44_100, 1);
+        assert_eq!(base.alias_floor, AliasFloor::Fraction(1.0));
+        assert!(base.validate().is_ok());
+        assert!(base.clone().with_alias_floor(base.bandwidth).validate().is_ok());
+        assert!(base.clone().with_alias_floor_db(-3.0).validate().is_ok());
 
-        let zero_intensity = DerivedConfig::<f32>::build_phase(4, 0.5, 0.0);
-        assert!(zero_intensity.iter().all(|phase| phase.re == 1.0 && phase.im == 0.0));
-
-        let positive = DerivedConfig::<f32>::build_phase(4, 0.5, phase_intensity);
-        let negative = DerivedConfig::<f32>::build_phase(4, -0.5, phase_intensity);
-
-        assert_eq!(positive[0].re, 1.0);
-        assert_eq!(positive[0].im, 0.0);
-
-        let expected_angle = (0.5f32 * (1.0 / 4.0)).asin() * phase_intensity;
-        assert!((positive[1].re - expected_angle.cos()).abs() < 1e-6);
-        assert!((positive[1].im - expected_angle.sin()).abs() < 1e-6);
-
-        for (pos, neg) in positive.iter().zip(negative.iter()) {
-            let magnitude = (pos.re * pos.re + pos.im * pos.im).sqrt();
-            assert!(pos.re.is_finite());
-            assert!(pos.im.is_finite());
-            assert!((magnitude - 1.0).abs() < 1e-6);
-            assert!((pos.re - neg.re).abs() < 1e-6);
-            assert!((pos.im + neg.im).abs() < 1e-6);
+        for fraction in [base.bandwidth - 0.01, 1.01, f32::NAN] {
+            assert!(matches!(
+                base.clone().with_alias_floor(fraction).validate(),
+                Err(Error::InvalidAliasFloor(_))
+            ));
         }
+        for db in [0.0, 3.0, f32::NAN, f32::NEG_INFINITY] {
+            assert!(matches!(
+                base.clone().with_alias_floor_db(db).validate(),
+                Err(Error::InvalidAliasFloorDb(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn alias_floor_db_is_resolved_against_final_bandwidth() {
+        let db_first = Config::new(96_000, 44_100, 1)
+            .with_alias_floor_db(-6.0)
+            .with_bandwidth(0.95);
+        let db_last = Config::new(96_000, 44_100, 1)
+            .with_bandwidth(0.95)
+            .with_alias_floor_db(-6.0);
+        let strict = Config::new(96_000, 44_100, 1).with_bandwidth(0.95);
+
+        let derived = db_first.derive_config::<f64>().unwrap();
+        assert_eq!(derived, db_last.derive_config::<f64>().unwrap());
+
+        let strict = strict.derive_config::<f64>().unwrap().spectral.geometry;
+        assert_eq!(derived.spectral.geometry.passband_end_bin, strict.passband_end_bin);
+        assert!(derived.spectral.geometry.stopband_end_bin > strict.stopband_end_bin);
     }
 
     #[test]

@@ -227,6 +227,17 @@ let config = ardftsrc::Config::new(192_000, 8_000, 1).with_decimate(true);
 
 It's a speed/memory optimization, not a way to reduce buffering or latency — for that, lower `quality` instead. If you do lower `quality` for a large ratio, turn `decimate` on too: it keeps a low-`quality` conversion sounding good at ratios where it would otherwise struggle.
 
+## Transition-Band Aliasing
+
+By default the low-pass transition ends at the lower Nyquist frequency and everything beyond it is suppressed. Setting an [`alias_floor`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#structfield.alias_floor) lets the transition extend past Nyquist, which makes it wider and reduces ringing. Energy in the extended region is folded back (downsampling) or imaged (upsampling), but only down to the floor, and never into the passband set by `bandwidth`. This is similar to SoX's `rate -a`.
+
+```rust
+// Fold only down to where the filter response is -3 dB.
+let config = ardftsrc::Config::new(48_000, 44_100, 2).with_alias_floor_db(-3.0);
+```
+
+This is not the same as removing the low-pass filter: the passband is unchanged, and content above the extended stopband is still suppressed. Alias rejection is intentionally reduced. Pre-decimation stages stay strict.
+
 ## Feature Flags
 
 | Flag           | Enables                                                                           | Default |

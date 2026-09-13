@@ -44,26 +44,66 @@ impl Default for TaperType {
 }
 
 impl TaperType {
+    /// Builds a full frequency mask of `spectrum_fft_size / 2 + 1` bins: unity passband, a
+    /// descending transition ending just before `cutoff_bin`, and zero stopband.
     pub(crate) fn build_taper<T: Float>(
         &self,
-        input_fft_size: usize,
+        spectrum_fft_size: usize,
         cutoff_bin: usize,
         taper_bins: usize,
         is_passthrough: bool,
     ) -> Vec<T> {
-        match self {
-            TaperType::Planck => build_planck_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough),
-            #[cfg(feature = "bessel")]
-            TaperType::Bessel(alpha) => {
-                build_cumulative_bessel_i0_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough, *alpha)
-            }
-            TaperType::Cosine(alpha) => {
-                build_cosine_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough, *alpha)
-            }
-            TaperType::BetaCdf { alpha, beta } => {
-                build_beta_cdf_taper(input_fft_size, cutoff_bin, taper_bins, is_passthrough, *alpha, *beta)
-            }
+        let len = spectrum_fft_size / 2 + 1;
+        if is_passthrough {
+            return vec![T::one(); len];
         }
+        let transition = self.build_transition::<T>(taper_bins);
+        place_transition(len, cutoff_bin, &transition)
+    }
+
+    /// Builds only the normalized descending transition shape sampled over `taper_bins` bins,
+    /// with leading unity and trailing zero samples trimmed.
+    pub(crate) fn build_transition<T: Float>(&self, taper_bins: usize) -> Vec<T> {
+        match self {
+            TaperType::Planck => planck_transition(taper_bins),
+            #[cfg(feature = "bessel")]
+            TaperType::Bessel(alpha) => cumulative_bessel_i0_transition(taper_bins, *alpha),
+            TaperType::Cosine(alpha) => cosine_transition(taper_bins, *alpha),
+            TaperType::BetaCdf { alpha, beta } => beta_cdf_transition(taper_bins, *alpha, *beta),
+        }
+    }
+
+    /// Returns the normalized position in `[0.0, 1.0]` across the transition (`0.0` = passband
+    /// edge, `1.0` = stopband edge) where the descending gain first falls to `gain`.
+    ///
+    /// The shape is sampled at high resolution with the same builder (and trimming/placement)
+    /// used for real masks, so the result is independent of FFT size.
+    pub(crate) fn transition_position_at_gain(&self, gain: f64) -> f64 {
+        const RESOLUTION: usize = 65_536;
+
+        if gain >= 1.0 {
+            return 0.0;
+        }
+        if gain <= 0.0 {
+            return 1.0;
+        }
+
+        let transition = self.build_transition::<f64>(RESOLUTION);
+        // Trimmed transitions are placed so they end at the stopband edge.
+        let offset = (RESOLUTION - transition.len()) as f64;
+
+        // Monotone non-increasing: find the first sample at or below `gain` and interpolate.
+        let idx = transition.partition_point(|value| *value > gain);
+        let position = if idx == 0 {
+            0.0
+        } else if idx == transition.len() {
+            transition.len() as f64
+        } else {
+            let (above, below) = (transition[idx - 1], transition[idx]);
+            (idx - 1) as f64 + (above - gain) / (above - below)
+        };
+
+        ((offset + position) / RESOLUTION as f64).clamp(0.0, 1.0)
     }
 
     /// Validates taper parameters and returns an error for invalid values.
@@ -98,310 +138,192 @@ impl TaperType {
     }
 }
 
-/// Builds a cumulative Bessel-I0 frequency taper.
-///
-/// Returns passband unity bins, a trimmed descending transition, and stopband zeros.
+/// Lays out a mask of `len` bins: unity below the transition, `transition` ending just before
+/// `cutoff_bin`, and zeros from `cutoff_bin` on.
+fn place_transition<T: Float>(len: usize, cutoff_bin: usize, transition: &[T]) -> Vec<T> {
+    let taper_start = cutoff_bin.saturating_sub(transition.len());
+
+    (0..len)
+        .map(|idx| {
+            if idx < taper_start {
+                T::one()
+            } else if idx < cutoff_bin {
+                transition[idx - taper_start]
+            } else {
+                T::zero()
+            }
+        })
+        .collect()
+}
+
+/// Trims leading unity and trailing zero samples from a raw descending transition.
+fn trim_transition<T: Float>(raw: &[T]) -> &[T] {
+    let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
+    let trim_stop = raw
+        .iter()
+        .rposition(|value| *value > T::zero())
+        .map_or(0, |idx| raw.len() - idx - 1);
+    let active_end = raw.len().saturating_sub(trim_stop);
+
+    &raw[trim_start..active_end]
+}
+
+/// Builds a cumulative Bessel-I0 transition.
 #[cfg(feature = "bessel")]
-fn build_cumulative_bessel_i0_taper<T: Float>(
-    input_fft_size: usize,
-    cutoff_bin: usize,
-    taper_bins: usize,
-    is_passthrough: bool,
-    alpha: f32,
-) -> Vec<T> {
-    let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
+fn cumulative_bessel_i0_transition<T: Float>(taper_bins: usize, alpha: f32) -> Vec<T> {
+    if taper_bins == 0 {
+        return Vec::new();
+    }
+
     let alpha = f64::from(alpha);
+    let n = taper_bins as f64;
+    let alpha2 = 4.0 * (alpha * std::f64::consts::PI / n).powi(2);
+    let mut raw = vec![0.0; taper_bins];
+    let mut scale = 0.0;
 
-    if is_passthrough {
-        taper.fill(T::one());
-        return taper;
+    for idx in (0..taper_bins).rev() {
+        let idx_f = idx as f64;
+        let tmp = idx_f * (n - idx_f) * alpha2;
+        raw[idx] = pxfm::f_i0(tmp.sqrt());
+        scale += raw[idx];
     }
 
-    let transition = if taper_bins == 0 {
-        Vec::new()
-    } else {
-        let n = taper_bins as f64;
-        let alpha2 = 4.0 * (alpha * std::f64::consts::PI / n).powi(2);
-        let mut raw = vec![0.0; taper_bins];
-        let mut scale = 0.0;
-
-        for idx in (0..taper_bins).rev() {
-            let idx_f = idx as f64;
-            let tmp = idx_f * (n - idx_f) * alpha2;
-            raw[idx] = pxfm::f_i0(tmp.sqrt());
-            scale += raw[idx];
-        }
-
-        let scale = 1.0 / (scale + 1.0);
-        let mut sum = 0.0;
-        for idx in (0..taper_bins).rev() {
-            sum += raw[idx];
-            raw[idx] = sum * scale;
-        }
-
-        let trim_start = raw.iter().position(|value| *value < 1.0).unwrap_or(raw.len());
-        let trim_stop = raw
-            .iter()
-            .rposition(|value| *value > 0.0)
-            .map_or(0, |idx| raw.len() - idx - 1);
-        let active_end = raw.len().saturating_sub(trim_stop);
-
-        raw[trim_start..active_end]
-            .iter()
-            .map(|value| T::from(*value).expect("T should be f64 or f32 and be able to convert from f64"))
-            .collect()
-    };
-
-    let taper_start = cutoff_bin.saturating_sub(transition.len());
-
-    for (idx, value) in taper.iter_mut().enumerate() {
-        if idx < taper_start {
-            *value = T::one();
-        } else if idx < cutoff_bin {
-            *value = transition[idx - taper_start];
-        } else {
-            *value = T::zero();
-        }
+    let scale = 1.0 / (scale + 1.0);
+    let mut sum = 0.0;
+    for idx in (0..taper_bins).rev() {
+        sum += raw[idx];
+        raw[idx] = sum * scale;
     }
 
-    taper
+    trim_transition(&raw)
+        .iter()
+        .map(|value| T::from(*value).expect("T should be f64 or f32 and be able to convert from f64"))
+        .collect()
 }
 
-/// Builds a Planck-taper frequency mask.
-///
-/// Returns passband unity bins, a Planck-taper transition, and stopband zeros.
-fn build_planck_taper<T: Float>(
-    input_fft_size: usize,
-    cutoff_bin: usize,
-    taper_bins: usize,
-    is_passthrough: bool,
-) -> Vec<T> {
-    let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
-
-    if is_passthrough {
-        taper.fill(T::one());
-        return taper;
+/// Builds a Planck-taper transition.
+fn planck_transition<T: Float>(taper_bins: usize) -> Vec<T> {
+    if taper_bins == 0 {
+        return Vec::new();
+    }
+    if taper_bins == 1 {
+        return vec![T::one()];
     }
 
-    let transition = if taper_bins == 0 {
-        Vec::new()
-    } else if taper_bins == 1 {
-        vec![T::one()]
-    } else {
-        let denom = T::from(taper_bins).unwrap() - T::one();
+    let denom = T::from(taper_bins).unwrap() - T::one();
 
-        let raw: Vec<T> = (0..taper_bins)
-            .map(|idx| {
-                if idx == 0 {
-                    return T::one();
-                }
+    let raw: Vec<T> = (0..taper_bins)
+        .map(|idx| {
+            if idx == 0 {
+                return T::one();
+            }
 
-                if idx == taper_bins - 1 {
-                    return T::zero();
-                }
+            if idx == taper_bins - 1 {
+                return T::zero();
+            }
 
-                let x = T::from(idx).unwrap_or_else(T::zero) / denom;
+            let x = T::from(idx).unwrap_or_else(T::zero) / denom;
 
-                // Descending Planck taper
-                let z = T::one() / x - T::one() / (T::one() - x);
-                let rising = T::one() / (z.exp() + T::one());
+            // Descending Planck taper
+            let z = T::one() / x - T::one() / (T::one() - x);
+            let rising = T::one() / (z.exp() + T::one());
 
-                let value = T::one() - rising;
+            let value = T::one() - rising;
 
-                if value.is_normal() {
-                    value
-                } else if value >= T::one() {
-                    T::one()
-                } else {
-                    T::zero()
-                }
-            })
-            .collect();
+            if value.is_normal() {
+                value
+            } else if value >= T::one() {
+                T::one()
+            } else {
+                T::zero()
+            }
+        })
+        .collect();
 
-        let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
-
-        let trim_stop = raw
-            .iter()
-            .rposition(|value| *value > T::zero())
-            .map_or(0, |idx| raw.len() - idx - 1);
-
-        let active_end = raw.len().saturating_sub(trim_stop);
-
-        raw[trim_start..active_end].to_vec()
-    };
-
-    let taper_start = cutoff_bin.saturating_sub(transition.len());
-
-    for (idx, value) in taper.iter_mut().enumerate() {
-        if idx < taper_start {
-            *value = T::one();
-        } else if idx < cutoff_bin {
-            *value = transition[idx - taper_start];
-        } else {
-            *value = T::zero();
-        }
-    }
-
-    taper
+    trim_transition(&raw).to_vec()
 }
 
-/// Builds a sigmoid-warped cosine frequency taper.
-///
-/// Returns passband unity bins, a trimmed warped-cosine transition, and stopband zeros.
-fn build_cosine_taper<T: Float>(
-    input_fft_size: usize,
-    cutoff_bin: usize,
-    taper_bins: usize,
-    is_passthrough: bool,
-    alpha: f32,
-) -> Vec<T> {
-    let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
-
-    if is_passthrough {
-        taper.fill(T::one());
-        return taper;
+/// Builds a sigmoid-warped cosine transition.
+fn cosine_transition<T: Float>(taper_bins: usize, alpha: f32) -> Vec<T> {
+    if taper_bins == 0 {
+        return Vec::new();
+    }
+    if taper_bins == 1 {
+        return vec![T::one()];
     }
 
-    let transition = if taper_bins == 0 {
-        Vec::new()
-    } else if taper_bins == 1 {
-        vec![T::one()]
-    } else {
-        let pi = T::from(std::f64::consts::PI).unwrap_or_else(T::zero);
-        let two = T::one() + T::one();
-        let alpha = T::from(alpha).unwrap_or_else(T::one);
-        let denom = T::from(taper_bins).unwrap() - T::one();
+    let pi = T::from(std::f64::consts::PI).unwrap_or_else(T::zero);
+    let two = T::one() + T::one();
+    let alpha = T::from(alpha).unwrap_or_else(T::one);
+    let denom = T::from(taper_bins).unwrap() - T::one();
 
-        let raw: Vec<T> = (0..taper_bins)
-            .map(|idx| {
-                let x = T::from(idx).unwrap_or_else(T::zero) / denom;
+    let raw: Vec<T> = (0..taper_bins)
+        .map(|idx| {
+            let x = T::from(idx).unwrap_or_else(T::zero) / denom;
 
-                // Powered sigmoid warp:
-                //
-                //     x_warped = x^a / (x^a + (1 - x)^a)
-                //
-                // This preserves endpoints but concentrates most of the transition
-                // around the middle, making the cosine behave more like the
-                // trimmed logistic taper.
-                let a = x.powf(alpha);
-                let b = (T::one() - x).powf(alpha);
-                let warped = a / (a + b);
+            // Powered sigmoid warp:
+            //
+            //     x_warped = x^a / (x^a + (1 - x)^a)
+            //
+            // This preserves endpoints but concentrates most of the transition
+            // around the middle, making the cosine behave more like the
+            // trimmed logistic taper.
+            let a = x.powf(alpha);
+            let b = (T::one() - x).powf(alpha);
+            let warped = a / (a + b);
 
-                let value = (T::one() + (pi * warped).cos()) / two;
+            let value = (T::one() + (pi * warped).cos()) / two;
 
-                if value.is_normal() {
-                    value
-                } else if value == T::one() {
-                    T::one()
-                } else {
-                    T::zero()
-                }
-            })
-            .collect();
+            if value.is_normal() {
+                value
+            } else if value == T::one() {
+                T::one()
+            } else {
+                T::zero()
+            }
+        })
+        .collect();
 
-        let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
-
-        let trim_stop = raw
-            .iter()
-            .rposition(|value| *value > T::zero())
-            .map_or(0, |idx| raw.len() - idx - 1);
-
-        let active_end = raw.len().saturating_sub(trim_stop);
-
-        raw[trim_start..active_end].to_vec()
-    };
-
-    let taper_start = cutoff_bin.saturating_sub(transition.len());
-
-    for (idx, value) in taper.iter_mut().enumerate() {
-        if idx < taper_start {
-            *value = T::one();
-        } else if idx < cutoff_bin {
-            *value = transition[idx - taper_start];
-        } else {
-            *value = T::zero();
-        }
-    }
-
-    taper
+    trim_transition(&raw).to_vec()
 }
 
-/// Builds a Beta-CDF frequency taper from the regularized lower incomplete beta function.
-///
-/// Returns passband unity bins, a trimmed descending Beta-CDF transition,
-/// and stopband zeros.
-fn build_beta_cdf_taper<T: Float>(
-    input_fft_size: usize,
-    cutoff_bin: usize,
-    taper_bins: usize,
-    is_passthrough: bool,
-    alpha: f32,
-    beta: f32,
-) -> Vec<T> {
-    let mut taper = vec![T::zero(); input_fft_size / 2 + 1];
-
-    if is_passthrough {
-        taper.fill(T::one());
-        return taper;
+/// Builds a Beta-CDF transition from the regularized lower incomplete beta function.
+fn beta_cdf_transition<T: Float>(taper_bins: usize, alpha: f32, beta: f32) -> Vec<T> {
+    if taper_bins == 0 {
+        return Vec::new();
+    }
+    if taper_bins == 1 {
+        return vec![T::one()];
     }
 
-    let transition = if taper_bins == 0 {
-        Vec::new()
-    } else if taper_bins == 1 {
-        vec![T::one()]
-    } else {
-        let denom = T::from(taper_bins).unwrap() - T::one();
+    let denom = T::from(taper_bins).unwrap() - T::one();
 
-        let raw: Vec<T> = (0..taper_bins)
-            .map(|idx| {
-                if idx == 0 {
-                    return T::one();
-                }
+    let raw: Vec<T> = (0..taper_bins)
+        .map(|idx| {
+            if idx == 0 {
+                return T::one();
+            }
 
-                if idx == taper_bins - 1 {
-                    return T::zero();
-                }
+            if idx == taper_bins - 1 {
+                return T::zero();
+            }
 
-                let x_t = T::from(idx).unwrap_or_else(T::zero) / denom;
-                let x = x_t.to_f64().unwrap_or(0.0).clamp(0.0, 1.0);
-                let cdf = beta_reg(alpha as f64, beta as f64, x);
-                let value = T::from(1.0 - cdf).expect("T should be f64 or f32 and be able to convert from f64");
+            let x_t = T::from(idx).unwrap_or_else(T::zero) / denom;
+            let x = x_t.to_f64().unwrap_or(0.0).clamp(0.0, 1.0);
+            let cdf = beta_reg(alpha as f64, beta as f64, x);
+            let value = T::from(1.0 - cdf).expect("T should be f64 or f32 and be able to convert from f64");
 
-                if value.is_normal() {
-                    value
-                } else if value >= T::one() {
-                    T::one()
-                } else {
-                    T::zero()
-                }
-            })
-            .collect();
+            if value.is_normal() {
+                value
+            } else if value >= T::one() {
+                T::one()
+            } else {
+                T::zero()
+            }
+        })
+        .collect();
 
-        let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
-
-        let trim_stop = raw
-            .iter()
-            .rposition(|value| *value > T::zero())
-            .map_or(0, |idx| raw.len() - idx - 1);
-
-        let active_end = raw.len().saturating_sub(trim_stop);
-
-        raw[trim_start..active_end].to_vec()
-    };
-
-    let taper_start = cutoff_bin.saturating_sub(transition.len());
-
-    for (idx, value) in taper.iter_mut().enumerate() {
-        if idx < taper_start {
-            *value = T::one();
-        } else if idx < cutoff_bin {
-            *value = transition[idx - taper_start];
-        } else {
-            *value = T::zero();
-        }
-    }
-
-    taper
+    trim_transition(&raw).to_vec()
 }
 
 #[cfg(all(test, feature = "bessel"))]

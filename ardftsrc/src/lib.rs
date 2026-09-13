@@ -10,13 +10,14 @@ mod lpc;
 mod planar_resampler;
 mod planar_vecs;
 mod realtime;
+mod spectral;
 mod taper;
 
 // feature: dd_fft
 #[cfg(feature = "dd_fft")]
 mod dd_fft;
 
-pub use config::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+pub use config::{AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 pub use error::Error;
 pub use interleaved_resampler::InterleavedResampler;
 pub use planar_resampler::PlanarResampler;

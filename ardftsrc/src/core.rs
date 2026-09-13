@@ -499,7 +499,7 @@ where
     /// Returns true when rates match and no FFT-domain processing has been requested.
     #[inline]
     fn is_passthrough(&self) -> bool {
-        self.derived.input_sample_rate == self.derived.output_sample_rate && !self.derived.phase_enabled
+        self.derived.input_sample_rate == self.derived.output_sample_rate && !self.derived.spectral.phase_enabled
     }
 
     /// Normalizes empty edge context vectors to `None`.
@@ -644,8 +644,9 @@ where
     /// zero-padding, and stop-edge preparation if needed). It then:
     ///
     /// - Performs a forward real FFT.
-    /// - Copies/tapers frequency bins into `resampled_spectrum` and clears unused bins.
-    /// - Enforces real-valued DC/Nyquist bins required by `realfft`.
+    /// - Maps frequency bins into `resampled_spectrum` via the precomputed
+    ///   [`SpectralPlan`](crate::spectral::SpectralPlan) (gain, phase, folding/imaging, and
+    ///   real-valued DC/Nyquist bins required by `realfft`).
     /// - Performs an inverse real FFT back into `rdft_out`.
     /// - Applies mode-specific overlap/output handling for steady-state, start-edge priming,
     ///   or finalize-tail accumulation.
@@ -661,36 +662,9 @@ where
             .process(&mut self.scratch.rdft_in, &mut self.scratch.spectrum)
             .map_err(|err| Error::Fft(err.to_string()))?;
 
-        if self.derived.phase_enabled {
-            for (bin, phase) in self.scratch.spectrum.iter_mut().zip(self.derived.phase.iter()) {
-                *bin = *bin * *phase;
-            }
-        }
-
-        let zero = Complex::new(T::zero(), T::zero());
-        let bins = self
-            .scratch
-            .resampled_spectrum
-            .len()
-            .min(self.scratch.spectrum.len())
-            .min(self.derived.taper.len());
-        for (dst, (src, taper)) in self.scratch.resampled_spectrum[..bins].iter_mut().zip(
-            self.scratch.spectrum[..bins]
-                .iter()
-                .zip(self.derived.taper[..bins].iter()),
-        ) {
-            *dst = *src * *taper;
-        }
-        if bins < self.scratch.resampled_spectrum.len() {
-            self.scratch.resampled_spectrum[bins..].fill(zero);
-        }
-        if let Some(dc_bin) = self.scratch.resampled_spectrum.get_mut(0) {
-            dc_bin.im = T::zero();
-        }
-        if self.scratch.resampled_spectrum.len() > 1 {
-            let nyquist_bin = self.scratch.resampled_spectrum.len() - 1;
-            self.scratch.resampled_spectrum[nyquist_bin].im = T::zero();
-        }
+        self.derived
+            .spectral
+            .apply(&self.scratch.spectrum, &mut self.scratch.resampled_spectrum);
 
         self.inverse
             .process(&mut self.scratch.resampled_spectrum, &mut self.scratch.rdft_out)

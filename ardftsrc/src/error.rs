@@ -37,6 +37,14 @@ pub enum Error {
     #[error("phase intensity must be finite and in the range 0.0..=100.0, got {0}")]
     InvalidPhaseIntensity(f32),
 
+    /// Alias floor fraction is non-finite or outside `[bandwidth, 1.0]`.
+    #[error("alias floor must be finite and in the range bandwidth..=1.0, got {0}")]
+    InvalidAliasFloor(f32),
+
+    /// Alias floor level is non-finite or not below 0 dB.
+    #[error("alias floor level must be finite and less than 0 dB, got {0}")]
+    InvalidAliasFloorDb(f32),
+
     /// taper alpha config is non-finite or not greater than zero.
     #[error("taper alpha must be finite and greater than zero, got {0}")]
     InvalidAlpha(f32),

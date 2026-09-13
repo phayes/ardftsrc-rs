@@ -1,4 +1,6 @@
-use ardftsrc::{Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType};
+use ardftsrc::{
+    AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType,
+};
 use clap::{Parser, ValueEnum};
 use flac_codec::decode::FlacChannelReader;
 use flac_codec::encode::{FlacChannelWriter, Options as FlacOptions};
@@ -21,6 +23,7 @@ const DEFAULT_ALPHA: f32 = 3.4375;
 const DEFAULT_BESSEL_ALPHA: f32 = 6.0;
 const DEFAULT_BETA_CDF_ALPHA: f32 = 10.0;
 const DEFAULT_BETA_CDF_BETA: f32 = 10.0;
+const DEFAULT_ALLOW_ALIASING_DB: f32 = -3.0;
 const FLAC_WRITE_CHUNK_FRAMES: usize = 32768;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -157,6 +160,21 @@ struct Args {
     /// Phase rotation intensity in [0.0, 100.0]. Default is 50.0. Ignored when --phase is 0.
     #[arg(long = "phase-intensity")]
     phase_intensity: Option<f32>,
+
+    /// Permit aliasing/imaging inside the low-pass transition band (similar to SoX `rate -a`).
+    /// Widens the transition to reduce ringing at the cost of alias rejection; the passband is
+    /// unchanged. Equivalent to --alias-floor-db -3.
+    #[arg(short = 'a', long = "allow-aliasing", conflicts_with_all = ["alias_floor", "alias_floor_db"])]
+    allow_aliasing: bool,
+
+    /// Lowest frequency that may receive folded/imaged energy, as a fraction of the lower Nyquist
+    /// in [bandwidth, 1.0]. 1.0 (default) disables aliasing.
+    #[arg(long = "alias-floor", conflicts_with = "alias_floor_db")]
+    alias_floor: Option<f32>,
+
+    /// Fold/image only down to the frequency where the filter response is this many dB (< 0).
+    #[arg(long = "alias-floor-db", allow_negative_numbers = true)]
+    alias_floor_db: Option<f32>,
 
     /// Enable 2:1 pre-decimation for large downsampling ratios (4:1 or higher).
     #[arg(long)]
@@ -460,6 +478,15 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     }
     if let Some(phase_intensity) = args.phase_intensity {
         config.phase_intensity = phase_intensity;
+    }
+    if args.allow_aliasing {
+        config.alias_floor = AliasFloor::Decibels(DEFAULT_ALLOW_ALIASING_DB);
+    }
+    if let Some(fraction) = args.alias_floor {
+        config.alias_floor = AliasFloor::Fraction(fraction);
+    }
+    if let Some(db) = args.alias_floor_db {
+        config.alias_floor = AliasFloor::Decibels(db);
     }
     if args.decimate {
         config.decimate = true;
