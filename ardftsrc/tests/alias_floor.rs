@@ -4,7 +4,7 @@
 //! core in `src/spectral.rs`; these tests check that every wrapper path picks up the alias floor
 //! and keeps stream length/timing unchanged.
 
-use ardftsrc::{AliasFloor, Config, InterleavedResampler, PlanarResampler};
+use ardftsrc::{Config, InterleavedResampler, PlanarResampler};
 
 /// Half a second of a 1 kHz tone plus a tone near the lower Nyquist (22.05 kHz).
 fn signal(rate: usize, channels: usize, near_nyquist_hz: f64) -> Vec<f64> {

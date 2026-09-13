@@ -44,6 +44,9 @@ where
     span_ratio: f64,
     inner_span_len: u64,
     inner_channel_count: u64,
+    output_frame_samples_remaining: usize,
+    output_frame_channels: usize,
+    output_frame_is_startup_silence: bool,
 }
 
 impl<S, T> RodioResampler<S, T>
@@ -76,6 +79,9 @@ where
             span_ratio,
             inner_span_len: 0,      // Zero means uninitialized here
             inner_channel_count: 0, // Zero means uninitialized here
+            output_frame_samples_remaining: 0,
+            output_frame_channels: 0,
+            output_frame_is_startup_silence: false,
         };
         rodio_resampler.set_span_ratio();
         if fast_start {
@@ -212,6 +218,11 @@ where
             self.just_seeked = false;
         }
 
+        let starts_output_frame = self.output_frame_samples_remaining == 0;
+        if starts_output_frame && self.resampler.is_done() {
+            return None;
+        }
+
         // Keep input consumption approximately aligned with output production:
         // pull 0 or multiple input samples depending on span_ratio and current drift.
         let inner_pulls = self.calculate_inner_pulls();
@@ -220,8 +231,27 @@ where
             self.pull_inner_sample(true);
         }
 
-        // Read the sample
-        self.resampler.read_sample()
+        if starts_output_frame {
+            if self.resampler.is_done() {
+                return None;
+            }
+
+            self.output_frame_channels = self.resampler.output_channels();
+            self.output_frame_samples_remaining = self.output_frame_channels;
+            self.output_frame_is_startup_silence =
+                !self.resampler.is_primed() || self.resampler.num_samples_ready() < self.output_frame_channels;
+        }
+
+        let sample = if self.output_frame_is_startup_silence {
+            T::neg_zero()
+        } else {
+            self.resampler
+                .read_sample()
+                .unwrap_or_else(|| panic_msg("primed resampler ended before emitting a complete output frame"))
+        };
+
+        self.output_frame_samples_remaining -= 1;
+        Some(sample)
     }
 }
 
@@ -277,7 +307,12 @@ where
     }
 
     fn channels(&self) -> std::num::NonZero<u16> {
-        std::num::NonZero::new(self.resampler.output_channels() as u16).unwrap()
+        let channels = if self.output_frame_samples_remaining > 0 {
+            self.output_frame_channels
+        } else {
+            self.resampler.output_channels()
+        };
+        std::num::NonZero::new(channels as u16).unwrap()
     }
 
     fn total_duration(&self) -> Option<core::time::Duration> {
@@ -291,43 +326,33 @@ where
     }
 
     fn current_span_len(&self) -> Option<usize> {
-        let input_span_len = match self.inner.current_span_len() {
-            Some(len) => len,
-            None => return None,
-        };
+        if self.output_frame_samples_remaining > 0 {
+            return Some(self.output_frame_channels);
+        }
 
-        let input_sample_rate = self.inner.sample_rate().get();
-        let output_sample_rate = self.config.output_sample_rate;
-
-        // Integer upsampling (2x, 3x, etc.) - always exact and frame-aligned
-        if output_sample_rate % input_sample_rate as usize == 0 {
-            return Some(input_span_len * output_sample_rate / input_sample_rate as usize);
-        } else {
-            return match self.resampler.samples_left_in_span() {
-                SamplesLeftInSpan::Known(samples_left) => {
-                    let samples_left = samples_left as usize;
-
-                    // Samples left == 0 means the span is drained and a new span is ready to be read (does NOT mean end-of-stream)
-                    // Tell the caller to come back in one frame
-                    if samples_left == 0 {
-                        Some(self.resampler.output_channels() as usize)
-                    } else {
-                        Some(samples_left)
-                    }
+        let channels = self.resampler.output_channels();
+        match self.resampler.samples_left_in_span() {
+            SamplesLeftInSpan::Known(0) => Some(channels),
+            SamplesLeftInSpan::Known(samples_left) => {
+                if !samples_left.is_multiple_of(channels) {
+                    panic_msg("output span ended with a partial frame");
                 }
-                SamplesLeftInSpan::Unknown => {
-                    let num_samples_ready = self.resampler.num_samples_ready();
+                Some(samples_left)
+            }
+            SamplesLeftInSpan::Unknown => {
+                self.inner.current_span_len()?;
 
-                    // Samples ready == 0 means the output buffer is empty (does NOT mean end-of-stream)
-                    // Tell the caller to come back in one frame
-                    if num_samples_ready == 0 {
-                        Some(self.resampler.output_channels() as usize)
-                    } else {
-                        Some(num_samples_ready)
+                let samples_ready = self.resampler.num_samples_ready();
+                if samples_ready == 0 {
+                    Some(channels)
+                } else {
+                    if !samples_ready.is_multiple_of(channels) {
+                        panic_msg("output buffer contains a partial frame");
                     }
+                    Some(samples_ready)
                 }
-                SamplesLeftInSpan::EndOfStream => Some(0),
-            };
+            }
+            SamplesLeftInSpan::EndOfStream => Some(0),
         }
     }
 
@@ -336,6 +361,9 @@ where
         self.stream_input_ended = false;
         self.just_seeked = true;
         self.pending_span_transition = false;
+        self.output_frame_samples_remaining = 0;
+        self.output_frame_channels = 0;
+        self.output_frame_is_startup_silence = false;
         self.maybe_new_input_span();
         Ok(())
     }
@@ -417,14 +445,7 @@ mod tests {
             let Some(span_index) = self.active_span_index() else {
                 return Some(0);
             };
-            let span = &self.spans[span_index];
-            let sample_index = if span_index == self.span_index {
-                self.sample_index
-            } else {
-                0
-            };
-
-            Some(span.samples.len() - sample_index)
+            Some(self.spans[span_index].samples.len())
         }
 
         fn channels(&self) -> NonZero<u16> {
@@ -476,6 +497,32 @@ mod tests {
                 "reported current_span_len exceeded the remaining stream"
             );
         }
+    }
+
+    #[test]
+    fn startup_silence_ends_on_an_output_frame_boundary() {
+        let source = ExplicitSpanSource::new(vec![test_span(44_100, 2, 1024, 0.0)]);
+        let mut resampler = RodioResampler::new(source, test_config(44_100, 2)).expect("resampler should construct");
+
+        let mut observed_silence = false;
+        let mut observed_audio = false;
+        while let Some(left) = resampler.next() {
+            let right = resampler
+                .next()
+                .expect("a stereo source must not end halfway through an output frame");
+            let left_is_silence = left == 0.0 && left.is_sign_negative();
+            let right_is_silence = right == 0.0 && right.is_sign_negative();
+
+            assert_eq!(
+                left_is_silence, right_is_silence,
+                "startup silence must not transition to resampled audio halfway through a frame"
+            );
+            observed_silence |= left_is_silence;
+            observed_audio |= !left_is_silence;
+        }
+
+        assert!(observed_silence, "test should observe startup silence");
+        assert!(observed_audio, "test should observe resampled audio");
     }
 
     #[test]
