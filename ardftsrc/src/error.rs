@@ -41,8 +41,8 @@ pub enum Error {
     #[error("alias floor must be finite and in the range bandwidth..=1.0, got {0}")]
     InvalidAliasFloor(f32),
 
-    /// Alias floor level is non-finite or not below 0 dB.
-    #[error("alias floor level must be finite and less than 0 dB, got {0}")]
+    /// Alias floor level is non-finite or above 0 dB.
+    #[error("alias floor level must be finite and at most 0 dB, got {0}")]
     InvalidAliasFloorDb(f32),
 
     /// taper alpha config is non-finite or not greater than zero.

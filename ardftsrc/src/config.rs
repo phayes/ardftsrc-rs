@@ -147,8 +147,8 @@ pub enum AliasFloor {
     Fraction(f32),
 
     /// Fold/image only down to the frequency where the final filter response is `db` dB
-    /// (must be below `0.0`, e.g. `-3.0`). Resolved when the resampler is constructed, using the
-    /// configured bandwidth and taper.
+    /// (must be at most `0.0`, e.g. `-3.0`; `0.0` is equivalent to `Fraction(bandwidth)`).
+    /// Resolved when the resampler is constructed, using the configured bandwidth and taper.
     Decibels(f32),
 }
 
@@ -436,7 +436,7 @@ impl Config {
     }
 
     /// Sets the alias floor to the frequency where the final filter response is `db` dB
-    /// (must be below `0.0`). `-3.0` is similar to SoX `rate -a`.
+    /// (must be at most `0.0`). `-3.0` is similar to SoX `rate -a`.
     ///
     /// Resolved when the resampler is constructed, so it always reflects the final bandwidth and
     /// taper regardless of builder call order. See [`alias_floor`](Config::alias_floor).
@@ -541,7 +541,7 @@ impl Config {
                 }
             }
             AliasFloor::Decibels(db) => {
-                if !db.is_finite() || db >= 0.0 {
+                if !db.is_finite() || db > 0.0 {
                     return Err(Error::InvalidAliasFloorDb(db));
                 }
             }
@@ -912,6 +912,7 @@ mod tests {
         assert!(base.validate().is_ok());
         assert!(base.clone().with_alias_floor(base.bandwidth).validate().is_ok());
         assert!(base.clone().with_alias_floor_db(-3.0).validate().is_ok());
+        assert!(base.clone().with_alias_floor_db(0.0).validate().is_ok());
 
         for fraction in [base.bandwidth - 0.01, 1.01, f32::NAN] {
             assert!(matches!(
@@ -919,7 +920,7 @@ mod tests {
                 Err(Error::InvalidAliasFloor(_))
             ));
         }
-        for db in [0.0, 3.0, f32::NAN, f32::NEG_INFINITY] {
+        for db in [3.0, f32::NAN, f32::NEG_INFINITY] {
             assert!(matches!(
                 base.clone().with_alias_floor_db(db).validate(),
                 Err(Error::InvalidAliasFloorDb(_))
