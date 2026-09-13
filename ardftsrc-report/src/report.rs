@@ -1,6 +1,7 @@
 //! Reads back `thdn_<preset>_report.json` (written by `run thdn`) and
 //! `hydrogen_src_<preset>_report.json` (written by `run hydrogen-src`) from `--out-dir`
-//! and renders one combined `report_<preset>.md` per preset present. A preset missing
+//! and renders one combined `report_<preset>.md` per preset present, plus a
+//! `README.md` index linking those reports. A preset missing
 //! both files is skipped with a warning; a preset missing just one still gets a report,
 //! with a note in place of the missing section.
 //!
@@ -78,9 +79,11 @@ fn hydrogen_src_table(case: &PresetResult) -> String {
 
 /// Reads `thdn_<preset>_report.json` and `hydrogen_src_<preset>_report.json` from
 /// `out_dir` for each preset in [`Preset::ALL`] and writes `report_<preset>.md`
-/// combining whichever of the two is present.
+/// combining whichever of the two is present, plus a `README.md` index linking
+/// each generated report.
 pub fn write_all(out_dir: &Path, quiet: bool) {
     let revision = git_revision();
+    let mut written = Vec::new();
 
     for &preset in Preset::ALL.iter() {
         let thdn_path = out_dir.join(format!("thdn_{}_report.json", preset.label()));
@@ -172,8 +175,41 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
 
         let md_path = out_dir.join(format!("report_{}.md", preset.label()));
         std::fs::write(&md_path, out).unwrap_or_else(|e| panic!("failed to write {}: {e}", md_path.display()));
+        written.push(preset);
         if !quiet {
             eprintln!("report: wrote {}", md_path.display());
         }
+    }
+
+    write_index(out_dir, &written, revision.as_deref(), quiet);
+}
+
+/// Writes `README.md` in `out_dir` linking each `report_<preset>.md` that
+/// [`write_all`] produced. Skipped if no preset reports were written.
+fn write_index(out_dir: &Path, presets: &[Preset], revision: Option<&str>, quiet: bool) {
+    if presets.is_empty() {
+        return;
+    }
+
+    let mut out = String::new();
+    let _ = writeln!(out, "# ardftsrc Quality Reports");
+    let _ = writeln!(out);
+    if let Some(revision) = revision {
+        let _ = writeln!(out, "Revision: {revision}");
+        let _ = writeln!(out);
+    }
+    for &preset in presets {
+        let _ = writeln!(
+            out,
+            "- [{}](report_{}.md)",
+            capitalize(preset.label()),
+            preset.label()
+        );
+    }
+
+    let path = out_dir.join("README.md");
+    std::fs::write(&path, out).unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
+    if !quiet {
+        eprintln!("report: wrote {}", path.display());
     }
 }

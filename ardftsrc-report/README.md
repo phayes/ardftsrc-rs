@@ -73,7 +73,8 @@ cargo run -p ardftsrc-report --release -- report --out-dir reports
 
 Reads `thdn_<preset>_report.json` and `hydrogen_src_<preset>_report.json` back from
 `--out-dir` for each preset and writes `report_<preset>.md` combining both (for
-sharing). A preset missing one of the two JSON files still gets a report, with a note
+sharing), plus a `README.md` that links each generated report. A preset missing one of
+the two JSON files still gets a report, with a note
 in place of the missing section, so `report` can be re-run at any point in the flow.
 Each report notes the repo's current git revision (preferring a `v*` tag pointing at
 `HEAD`, falling back to the short commit hash; omitted if `git` isn't installed or the
