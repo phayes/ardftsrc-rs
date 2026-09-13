@@ -1,0 +1,31 @@
+[package]
+name = "ardftsrc-report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Combined THD+N and HydrogenAudio quality reporting for ardftsrc's f64 resamplers."
+publish = false
+
+[dependencies]
+ardftsrc = { path = "../ardftsrc" }
+clap.workspace = true
+dasp_signal.workspace = true
+hydrogen_src = { git = "https://github.com/phayes/hydrogen_src" }
+mimalloc.workspace = true
+realfft.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tabled = "0.22.0"
+
+[features]
+default = ["dd_fft"]
+
+# Also runs every thdn sweep case with ardftsrc's double-double (~106-bit) FFT backend.
+# On by default; pass --no-default-features for a fast dd_fft-less run.
+dd_fft = ["ardftsrc/dd_fft"]
+
+[[bin]]
+name = "ardftsrc-report"
+path = "src/main.rs"

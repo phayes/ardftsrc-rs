@@ -1,0 +1,28 @@
+{
+  "preset": "fast",
+  "balanced_score": 92.6798464827586,
+  "spectrogram_score": 91.338096,
+  "bandwidth_score": 87.915415,
+  "impulse_freq_score": 96.302267,
+  "average_impulse_freq": -325.501661,
+  "alias_score": 100.0,
+  "preringing_score": 26.793566,
+  "gapless_score": 55.612305,
+  "intermoddiff_score": 100.0,
+  "delay_score": 100.0,
+  "figures": [
+    "fast_sweep-1-to-44KHz-1to11sec.png",
+    "fast_sweep-1-to-44KHz.png",
+    "fast_aliasing150db.png",
+    "fast_nyquist-filter.png",
+    "fast_intermodulation-harmonic-distortion.png",
+    "fast_intermodulation-harmonic-distortion-difference.png",
+    "fast_impulse-frequency.png",
+    "fast_impulse-response.png",
+    "fast_impulse-phase.png",
+    "fast_impulse-passband.png",
+    "fast_impulse-transition.png",
+    "fast_gaplesstestsine.png",
+    "fast_gaplesstest-frequency.png"
+  ]
+}

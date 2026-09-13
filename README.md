@@ -269,6 +269,22 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
     --taper-type beta_cdf --alpha 10 --beta 10 --dd-fft --decimate --phase -0.5
 ```
 
+## Quality Reporting
+
+The workspace includes `ardftsrc-report`, a CLI that generates per-preset quality
+reports combining two independent measurements:
+
+- **HydrogenAudio scores**: runs ardftsrc through the [HydrogenAudio SRC](https://src.hydrogenaudio.org/),
+  test suite. Requires GNU Octave (with the `signal` and `image` packages) on `PATH`.
+
+- **THD+N** (total harmonic distortion + noise): Measure frequency,
+  amplitude, sample-rate pair, and preset, fitting each resampled output against a
+  steady-state sine to measure distortion.
+
+```bash
+cargo run -p ardftsrc-report --release -- all --out-dir reports
+```
+
 ## Contributing
 
 Contributions are welcome!
