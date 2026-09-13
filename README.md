@@ -271,7 +271,14 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 ## Quality Reporting
 
-The workspace includes `ardftsrc-report`, a CLI that generates per-preset quality
+Detailed quality reports are available for each preset:
+
+- [Fast](reports/report_fast.md)
+- [Good](reports/report_good.md)
+- [High](reports/report_high.md)
+- [Extreme](reports/report_extreme.md)
+
+You can generate reports using the `ardftsrc-report` command, a CLI that generates per-preset quality
 reports combining two independent measurements:
 
 - **HydrogenAudio scores**: runs ardftsrc through the [HydrogenAudio SRC](https://src.hydrogenaudio.org/),
