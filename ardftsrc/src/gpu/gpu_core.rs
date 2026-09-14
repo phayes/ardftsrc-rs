@@ -24,15 +24,14 @@ const MIN_RING_SLOTS: usize = 4;
 /// contain [`GpuCore::input_chunk_frames`] samples, except for the final chunk.
 ///
 /// Chunks are processed using the chunk-group geometry compiled into [`GpuContext`], and several
-/// groups may be buffered while the GPU is busy. Memory use is bounded by the `ring_slots`
-/// supplied to [`GpuCore::new`]. `push_input` may block when that buffer is full; use
+/// groups may be buffered while the GPU is busy. Memory use is bounded by
+/// [`Config::gpu_ring_slots`](crate::Config::gpu_ring_slots). `push_input` may block when that
+/// buffer is full; use
 /// [`GpuCore::push_input_ready`] to check GPU progress without blocking.
 pub struct GpuCore<T> {
     context: Arc<GpuContext<T>>,
     pre: Vec<Option<Vec<T>>>,
     post: Vec<Option<Vec<T>>>,
-
-    ring_slots: usize,
 
     /// Idle, reusable group buffer-sets (all built for `[Normal; group_chunks]` windows), ready
     /// to be filled with the next group's chunks.
@@ -119,12 +118,11 @@ fn window_input_stride<T: GpuScalar + FromF64>(group: &Group<T>) -> usize {
 
 #[allow(private_bounds)]
 impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
-    /// Builds a streaming core using the context's fixed shader geometry and a ring of
-    /// `ring_slots` runtime buffer sets. The core takes ownership of `context` and shares it
-    /// internally among its GPU resources.
-    pub fn new(context: GpuContext<T>, ring_slots: usize) -> Result<Self, GpuError> {
+    /// Builds a streaming core using the context's fixed shader geometry and configured ring.
+    /// The core takes ownership of `context` and shares it internally among its GPU resources.
+    pub fn new(context: GpuContext<T>) -> Result<Self, GpuError> {
         let context = Arc::new(context);
-        let ring_slots = ring_slots.max(MIN_RING_SLOTS);
+        let ring_slots = context.config().gpu_ring_slots.max(MIN_RING_SLOTS);
         let channels = context.config().channels;
         let group_chunks = context.group_chunks();
         let derived = context.derived();
@@ -143,7 +141,6 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
             context,
             pre: vec![None; channels],
             post: vec![None; channels],
-            ring_slots,
             free_groups,
             filling: None,
             queued: VecDeque::new(),
@@ -175,7 +172,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
 
     /// Number of pre-allocated group buffer-sets in the fixed ring.
     pub fn ring_slots(&self) -> usize {
-        self.ring_slots
+        self.context.config().gpu_ring_slots.max(MIN_RING_SLOTS)
     }
 
     /// The context this core was built from -- exposed so callers that need an independent
@@ -921,13 +918,15 @@ mod tests {
             }
         };
 
-        let config = Config::new(input_rate, output_rate, channels);
+        let config = Config::new(input_rate, output_rate, channels)
+            .with_gpu_group_chunks(group_chunks)
+            .with_gpu_ring_slots(MIN_RING_SLOTS);
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_cores: Vec<CpuCore<f32>> = (0..channels).map(|_| CpuCore::new(derived.clone())).collect();
-        let context = GpuContext::with_device(context, config, group_chunks).expect("build GpuContext");
-        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build GpuCore");
+        let context = GpuContext::with_device(context, config).expect("build GpuContext");
+        let mut gpu_core = GpuCore::<f32>::new(context).expect("build GpuCore");
         assert_eq!(gpu_core.input_chunk_frames(), chunk_frames);
 
         let full = tone_channels(channels, chunk_frames + total_frames + chunk_frames, input_rate);
@@ -1041,12 +1040,14 @@ mod tests {
             }
         };
         let channels = 1;
-        let config = Config::new(44_100, 48_000, channels);
+        let config = Config::new(44_100, 48_000, channels)
+            .with_gpu_group_chunks(DEFAULT_GROUP_CHUNKS)
+            .with_gpu_ring_slots(MIN_RING_SLOTS);
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
         let mut cpu_core = CpuCore::<f32>::new(derived);
-        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context");
-        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
+        let context = GpuContext::with_device(context, config).expect("build context");
+        let mut gpu_core = GpuCore::<f32>::new(context).expect("build");
 
         let total_frames = chunk_frames * DEFAULT_GROUP_CHUNKS + 137;
         // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
@@ -1113,9 +1114,11 @@ mod tests {
                 return;
             }
         };
-        let context = GpuContext::with_device(context, Config::new(44_100, 48_000, 1), DEFAULT_GROUP_CHUNKS)
-            .expect("build context");
-        let mut core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
+        let config = Config::new(44_100, 48_000, 1)
+            .with_gpu_group_chunks(DEFAULT_GROUP_CHUNKS)
+            .with_gpu_ring_slots(MIN_RING_SLOTS);
+        let context = GpuContext::with_device(context, config).expect("build context");
+        let mut core = GpuCore::<f32>::new(context).expect("build");
         let wrong_size = vec![0.0f32; core.input_chunk_frames() + 1];
         assert!(core.push_input(&[&wrong_size[..]][..], false).is_err());
     }
@@ -1131,11 +1134,12 @@ mod tests {
         };
         let config = Config::new(44_100, 48_000, 2);
         assert!(matches!(
-            GpuContext::<f32>::with_device(Arc::clone(&context), config.clone(), 0),
+            GpuContext::<f32>::with_device(Arc::clone(&context), config.clone().with_gpu_group_chunks(0)),
             Err(GpuError::InvalidConfig(_))
         ));
-        let context = GpuContext::with_device(context, config, 1).expect("build context");
-        let core = GpuCore::<f32>::new(context, 1).expect("build");
+        let config = config.with_gpu_group_chunks(1).with_gpu_ring_slots(1);
+        let context = GpuContext::with_device(context, config).expect("build context");
+        let core = GpuCore::<f32>::new(context).expect("build");
         assert_eq!(core.ring_slots(), MIN_RING_SLOTS);
         assert_eq!(core.group_chunks(), 1);
     }
@@ -1149,10 +1153,12 @@ mod tests {
                 return;
             }
         };
-        let config = Config::new(44_100, 48_000, 1);
+        let config = Config::new(44_100, 48_000, 1)
+            .with_gpu_group_chunks(DEFAULT_GROUP_CHUNKS)
+            .with_gpu_ring_slots(MIN_RING_SLOTS);
         let derived = config.derive_config::<f32>().expect("valid config");
-        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context");
-        let core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
+        let context = GpuContext::with_device(context, config).expect("build context");
+        let core = GpuCore::<f32>::new(context).expect("build");
         assert_eq!(core.output_chunk_frames(), derived.output_chunk_frames);
     }
 
@@ -1167,13 +1173,15 @@ mod tests {
         };
         let channels = 1;
         let group_chunks = 4;
-        let config = Config::new(44_100, 48_000, channels);
+        let config = Config::new(44_100, 48_000, channels)
+            .with_gpu_group_chunks(group_chunks)
+            .with_gpu_ring_slots(MIN_RING_SLOTS);
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_core = CpuCore::<f32>::new(derived.clone());
-        let context = GpuContext::with_device(context, config, group_chunks).expect("build context");
-        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
+        let context = GpuContext::with_device(context, config).expect("build context");
+        let mut gpu_core = GpuCore::<f32>::new(context).expect("build");
 
         // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
         // the separately tracked `Extrapolation::Lpc`/GPU divergence unrelated to what this
@@ -1267,13 +1275,15 @@ mod tests {
         };
         let channels = 1;
         let input_rate = 44_100;
-        let config = Config::new(input_rate, 48_000, channels);
+        let config = Config::new(input_rate, 48_000, channels)
+            .with_gpu_group_chunks(DEFAULT_GROUP_CHUNKS)
+            .with_gpu_ring_slots(MIN_RING_SLOTS);
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
         let total_frames = chunk_frames * 3 + 111;
 
-        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context");
-        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
+        let context = GpuContext::with_device(context, config).expect("build context");
+        let mut gpu_core = GpuCore::<f32>::new(context).expect("build");
 
         // Two structurally identical streams with different content (a different synthetic tone,
         // via a different phase-generation rate) run through the *same* `GpuCore` instance, with
@@ -1348,13 +1358,16 @@ mod tests {
                 return 0.0;
             }
         };
-        let config = Config::new(input_rate, output_rate, 1).with_extrapolation(extrapolation);
+        let config = Config::new(input_rate, output_rate, 1)
+            .with_extrapolation(extrapolation)
+            .with_gpu_group_chunks(DEFAULT_GROUP_CHUNKS)
+            .with_gpu_ring_slots(MIN_RING_SLOTS);
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_core = CpuCore::<f32>::new(derived.clone());
-        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build GpuContext");
-        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build GpuCore");
+        let context = GpuContext::with_device(context, config).expect("build GpuContext");
+        let mut gpu_core = GpuCore::<f32>::new(context).expect("build GpuCore");
 
         let input: Vec<f32> = tone_channels(1, total_frames, input_rate).remove(0);
 

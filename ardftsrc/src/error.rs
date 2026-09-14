@@ -17,6 +17,11 @@ pub enum Error {
     #[error("quality must be greater than zero, got {0}")]
     InvalidQuality(usize),
 
+    /// GPU submission group size is zero.
+    #[cfg(feature = "gpu")]
+    #[error("GPU group chunk count must be greater than zero, got {0}")]
+    InvalidGpuGroupChunks(usize),
+
     /// quality greater than 8192 is not supported for f32. Use f64 instead.
     #[error("quality greater than 8192 is not supported for f32. Use f64 instead.")]
     QualityTooHighForF32,

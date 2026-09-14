@@ -717,13 +717,11 @@ impl GpuDevice {
 /// One validated, precision-specific GPU resampling geometry and its compiled shaders.
 ///
 /// The underlying Vulkan device may be shared by contexts with different configurations.
-/// `group_chunks` belongs here because it changes FFT batch planning and generated shaders;
-/// runtime ring depth does not.
+/// [`Config::gpu_group_chunks`] changes FFT batch planning and generated shaders.
 pub struct GpuContext<T> {
     device: Arc<GpuDevice>,
     config: Config,
     derived: DerivedConfig<T>,
-    group_chunks: usize,
     shaders: RwLock<Option<Arc<GpuShaders>>>,
 }
 
@@ -739,17 +737,12 @@ where
     T: Float + GpuScalar + FromF64,
 {
     /// Creates a context on the best available Vulkan device.
-    pub fn new(config: Config, group_chunks: usize) -> Result<Self, GpuError> {
-        Self::with_device(Arc::new(GpuDevice::auto_select()?), config, group_chunks)
+    pub fn new(config: Config) -> Result<Self, GpuError> {
+        Self::with_device(Arc::new(GpuDevice::auto_select()?), config)
     }
 
     /// Creates a context for an explicitly selected Vulkan device.
-    pub fn with_device(device: Arc<GpuDevice>, config: Config, group_chunks: usize) -> Result<Self, GpuError> {
-        if group_chunks == 0 {
-            return Err(GpuError::InvalidConfig(
-                "group_chunks must be greater than zero".to_string(),
-            ));
-        }
+    pub fn with_device(device: Arc<GpuDevice>, config: Config) -> Result<Self, GpuError> {
         if T::scalar_type() == vkfft_rs::ScalarType::F64 {
             device.require_f64()?;
         }
@@ -766,7 +759,6 @@ where
             device,
             config,
             derived,
-            group_chunks,
             shaders: RwLock::new(None),
         })
     }
@@ -784,7 +776,12 @@ where
     /// otherwise untrusted artifact can violate Vulkan's safety requirements when pipelines are
     /// created or dispatched.
     pub unsafe fn load_shaders(&self, shaders: GpuShaders) -> Result<(), GpuError> {
-        shaders.validate(&self.device, &self.derived, self.config.channels, self.group_chunks)?;
+        shaders.validate(
+            &self.device,
+            &self.derived,
+            self.config.channels,
+            self.config.gpu_group_chunks,
+        )?;
         self.device.merge_pipeline_cache_data(shaders.pipeline_cache())?;
         *self.shaders.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(shaders));
         Ok(())
@@ -810,7 +807,12 @@ where
             .as_ref()
             .cloned()
             && shaders
-                .validate(&self.device, &self.derived, self.config.channels, self.group_chunks)
+                .validate(
+                    &self.device,
+                    &self.derived,
+                    self.config.channels,
+                    self.config.gpu_group_chunks,
+                )
                 .is_ok()
         {
             return Ok(shaders);
@@ -820,12 +822,17 @@ where
             &self.device,
             &self.derived,
             self.config.channels,
-            self.group_chunks,
+            self.config.gpu_group_chunks,
         )?);
         let mut cached = self.shaders.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(existing) = cached.as_ref()
             && existing
-                .validate(&self.device, &self.derived, self.config.channels, self.group_chunks)
+                .validate(
+                    &self.device,
+                    &self.derived,
+                    self.config.channels,
+                    self.config.gpu_group_chunks,
+                )
                 .is_ok()
         {
             return Ok(Arc::clone(existing));
@@ -844,7 +851,7 @@ where
     }
 
     pub fn group_chunks(&self) -> usize {
-        self.group_chunks
+        self.config.gpu_group_chunks
     }
 
     pub(crate) fn derived(&self) -> &DerivedConfig<T> {
@@ -866,7 +873,6 @@ where
             device: Arc::clone(&self.device),
             config: self.config.clone(),
             derived: self.derived.clone(),
-            group_chunks: self.group_chunks,
             shaders: RwLock::new(shaders),
         }
     }
@@ -1054,19 +1060,21 @@ mod tests {
             }
         };
         let config = Config::new(44_100, 48_000, 1);
-        let source = GpuContext::<f32>::with_device(Arc::clone(&device), config.clone(), 2).expect("source context");
+        let source = GpuContext::<f32>::with_device(Arc::clone(&device), config.clone().with_gpu_group_chunks(2))
+            .expect("source context");
         let encoded = source.shaders().expect("compile shaders").to_bytes();
         // SAFETY: `encoded` was just produced by this crate from shaders compiled for `device`
         // and has not been modified.
         let decoded = unsafe { GpuShaders::from_bytes(&encoded) }.expect("decode shaders");
 
-        let matching =
-            GpuContext::<f32>::with_device(Arc::clone(&device), config.clone(), 2).expect("matching context");
+        let matching = GpuContext::<f32>::with_device(Arc::clone(&device), config.clone().with_gpu_group_chunks(2))
+            .expect("matching context");
         // SAFETY: `decoded` came from the trusted artifact produced immediately above.
         unsafe { matching.load_shaders(decoded.clone()) }.expect("load matching shaders");
         assert_eq!(matching.shaders().unwrap().group_chunks(), 2);
 
-        let mismatched = GpuContext::<f32>::with_device(device, config, 3).expect("mismatched context");
+        let mismatched =
+            GpuContext::<f32>::with_device(device, config.with_gpu_group_chunks(3)).expect("mismatched context");
         assert!(matches!(
             // SAFETY: `decoded` is trusted; this test expects the safe metadata validation to
             // reject its incompatible geometry before use.

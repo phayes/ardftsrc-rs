@@ -184,7 +184,8 @@ mod tests {
         };
 
         let device = Arc::new(context);
-        let context = GpuContext::<f32>::with_device(Arc::clone(&device), config, 1).expect("build GPU context");
+        let context = GpuContext::<f32>::with_device(Arc::clone(&device), config.with_gpu_group_chunks(1))
+            .expect("build GPU context");
         let shaders = context.compiled_shaders().expect("compile shaders");
         let pipeline = GpuTransformPipeline::<f32>::build(
             &device,

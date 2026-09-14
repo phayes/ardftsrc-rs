@@ -34,7 +34,6 @@ use super::planar_gpu_resampler::PlanarGpuResampler;
 /// To end a stream early, call [`reset()`](Self::reset).
 pub struct InterleavedGpuResampler<T = f32> {
     core: GpuCore<T>,
-    config: Config,
     output_delay_frames: usize,
 
     // Staging area for non-planar input/output; GpuCore only speaks per-channel/planar shapes.
@@ -48,23 +47,21 @@ pub struct InterleavedGpuResampler<T = f32> {
 
 #[allow(private_bounds)]
 impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
-    /// Builds a resampler from an already-constructed [`GpuContext`] and ring depth.
+    /// Builds a resampler from an already-constructed [`GpuContext`].
     ///
-    /// `group_chunks` (GPU batching depth) is baked into `context` and cannot be changed later.
+    /// GPU batching and ring depth are baked into `context` and cannot be changed later.
     /// Passing an existing context lets callers share one Vulkan device and compiled-shader cache
     /// across multiple resamplers.
-    pub fn new(context: GpuContext<T>, ring_slots: usize) -> Result<Self, GpuError> {
-        let config = context.config().clone();
+    pub fn new(context: GpuContext<T>) -> Result<Self, GpuError> {
         let output_delay_frames = context.derived().output_offset;
-        let channels = config.channels;
-        let core = GpuCore::new(context, ring_slots)?;
+        let channels = context.config().channels;
+        let core = GpuCore::new(context)?;
 
         let input_staging = vec![vec![T::zero(); core.input_chunk_frames()]; channels];
         let output_staging = vec![vec![T::zero(); core.output_chunk_frames()]; channels];
 
         Ok(Self {
             core,
-            config,
             output_delay_frames,
             input_staging,
             output_staging,
@@ -76,15 +73,15 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
 
     /// Convenience constructor that auto-selects a Vulkan device and builds its own
     /// [`GpuContext`].
-    pub fn with_config(config: Config, group_chunks: usize, ring_slots: usize) -> Result<Self, GpuError> {
-        let context = GpuContext::new(config, group_chunks)?;
-        Self::new(context, ring_slots)
+    pub fn with_config(config: Config) -> Result<Self, GpuError> {
+        let context = GpuContext::new(config)?;
+        Self::new(context)
     }
 
     /// Returns the configuration this instance was built with.
     #[must_use]
     pub fn config(&self) -> &Config {
-        &self.config
+        self.core.context().config()
     }
 
     /// Number of FFT chunks batched into one GPU submission.
@@ -113,14 +110,14 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
     #[must_use]
     #[inline]
     pub fn input_buffer_size(&self) -> usize {
-        self.core.input_chunk_frames() * self.config.channels
+        self.core.input_chunk_frames() * self.config().channels
     }
 
     /// Returns the recommended per-call `output` capacity in interleaved samples.
     #[must_use]
     #[inline]
     pub fn output_buffer_size(&self) -> usize {
-        self.core.output_chunk_frames() * self.config.channels
+        self.core.output_chunk_frames() * self.config().channels
     }
 
     /// Returns algorithmic latency to trim/flush.
@@ -180,7 +177,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
     /// channel count) -- pass a small buffer to poll for a small amount of ready output, the same
     /// way [`GpuCore::pull_output`] accepts channel slices of any length.
     pub fn pull_chunk(&mut self, output: &mut [T]) -> Result<usize, GpuError> {
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         if !output.len().is_multiple_of(channels) {
             return Err(GpuError::MalformedInputLength {
                 channels,
@@ -240,7 +237,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
         if self.finalized {
             self.reset()?;
         }
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         if !input.len().is_multiple_of(channels) {
             return Err(GpuError::MalformedInputLength {
                 channels,
@@ -307,7 +304,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
             if written_frames == 0 {
                 break;
             }
-            let written_samples = written_frames * self.config.channels;
+            let written_samples = written_frames * self.config().channels;
             if total_written + written_samples > output.len() {
                 return Err(GpuError::InsufficientOutputBuffer {
                     expected: total_written + written_samples,
@@ -323,14 +320,14 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
 
     /// Sets previous-track context. See [`crate::InterleavedResampler::pre`].
     pub fn pre(&mut self, pre: Vec<T>) -> Result<(), GpuError> {
-        if !pre.len().is_multiple_of(self.config.channels) {
+        if !pre.len().is_multiple_of(self.config().channels) {
             return Err(GpuError::MalformedInputLength {
-                channels: self.config.channels,
+                channels: self.config().channels,
                 samples: pre.len(),
             });
         }
 
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         let max_samples = self.input_buffer_size();
         let start = pre.len().saturating_sub(max_samples);
         let start = start.div_ceil(channels) * channels;
@@ -344,14 +341,14 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
 
     /// Sets next-track context. See [`crate::InterleavedResampler::post`].
     pub fn post(&mut self, post: Vec<T>) -> Result<(), GpuError> {
-        if !post.len().is_multiple_of(self.config.channels) {
+        if !post.len().is_multiple_of(self.config().channels) {
             return Err(GpuError::MalformedInputLength {
-                channels: self.config.channels,
+                channels: self.config().channels,
                 samples: post.len(),
             });
         }
 
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         let end = post.len().min(self.input_buffer_size());
 
         let deinterleaved: Vec<Vec<T>> = (0..channels)
@@ -376,7 +373,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
         T: Send + Sync,
     {
         let prepared_inputs = self.batch_prepare_interleaved_inputs(inputs)?;
-        let planar = PlanarGpuResampler::new(self.core.context().clone_shared(), self.core.ring_slots())?;
+        let planar = PlanarGpuResampler::new(self.core.context().clone_shared())?;
         planar.batch(prepared_inputs)
     }
 
@@ -391,7 +388,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
         T: Send + Sync,
     {
         let prepared_inputs = self.batch_prepare_interleaved_inputs(inputs)?;
-        let planar = PlanarGpuResampler::new(self.core.context().clone_shared(), self.core.ring_slots())?;
+        let planar = PlanarGpuResampler::new(self.core.context().clone_shared())?;
         planar.batch_gapless(prepared_inputs)
     }
 
@@ -399,10 +396,10 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
     where
         T: Send + Sync,
     {
-        // `channels` is extracted up front rather than read via `self.config.channels` inside the
+        // `channels` is extracted up front rather than read via `self.config().channels` inside the
         // closures below: capturing `self` (and thus `InterleavedGpuResampler`'s `GpuCore`, which
         // is deliberately not `Sync`) would make the closure unusable with `rayon`.
-        let channels = self.config.channels;
+        let channels = self.config().channels;
 
         #[cfg(feature = "rayon")]
         {
@@ -442,14 +439,14 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
 
     #[inline]
     fn ensure_input_buffer_shape(&self, input: &[T], is_final: bool) -> Result<(), GpuError> {
-        if !input.len().is_multiple_of(self.config.channels) {
+        if !input.len().is_multiple_of(self.config().channels) {
             return Err(GpuError::MalformedInputLength {
-                channels: self.config.channels,
+                channels: self.config().channels,
                 samples: input.len(),
             });
         }
 
-        let frames = input.len() / self.config.channels;
+        let frames = input.len() / self.config().channels;
         let expected_frames = self.core.input_chunk_frames();
         if (!is_final && frames != expected_frames) || (is_final && frames > expected_frames) {
             return Err(GpuError::WrongFrameCount {
@@ -474,7 +471,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
     }
 
     fn deinterleave_into_staging(&mut self, input: &[T]) {
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         let frames = input.len() / channels;
 
         for channel in &mut self.input_staging {
@@ -489,7 +486,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
     }
 
     fn interleave_staging_into(&self, output: &mut [T], frames: usize) {
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         for frame_idx in 0..frames {
             for channel_idx in 0..channels {
                 output[frame_idx * channels + channel_idx] = self.output_staging[channel_idx][frame_idx];
@@ -527,7 +524,10 @@ fn run_stream_to_completion<T: Float + GpuScalar + FromF64>(
             let remaining = total_frames - offset;
             let is_final = remaining <= chunk_frames;
             let this_chunk = if is_final { remaining } else { chunk_frames };
-            let refs: Vec<&[T]> = input.iter().map(|channel| &channel[offset..offset + this_chunk]).collect();
+            let refs: Vec<&[T]> = input
+                .iter()
+                .map(|channel| &channel[offset..offset + this_chunk])
+                .collect();
             core.push_input(&refs[..], is_final)?;
             offset += this_chunk;
             if is_final {
@@ -590,7 +590,10 @@ mod tests {
 
     fn max_abs_error(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len());
-        a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max)
     }
 
     /// Builds a GPU wrapper for `config`, or returns `None` (with a diagnostic on stderr) when no
@@ -603,8 +606,11 @@ mod tests {
                 return None;
             }
         };
-        let context = GpuContext::with_device(device, config, group_chunks).expect("build GpuContext");
-        Some(InterleavedGpuResampler::new(context, RING_SLOTS).expect("build InterleavedGpuResampler"))
+        let config = config
+            .with_gpu_group_chunks(group_chunks)
+            .with_gpu_ring_slots(RING_SLOTS);
+        let context = GpuContext::with_device(device, config).expect("build GpuContext");
+        Some(InterleavedGpuResampler::new(context).expect("build InterleavedGpuResampler"))
     }
 
     /// Builds real pre/input/post interleaved context around `total_frames` of useful input, and
@@ -855,10 +861,7 @@ mod tests {
         gpu.process_chunk(&input, &mut scratch).unwrap();
         gpu.finalize(&mut scratch).unwrap();
         assert!(gpu.is_finalized());
-        assert!(matches!(
-            gpu.finalize(&mut scratch),
-            Err(GpuError::AlreadyFinalized)
-        ));
+        assert!(matches!(gpu.finalize(&mut scratch), Err(GpuError::AlreadyFinalized)));
 
         gpu.reset().unwrap();
         assert!(!gpu.is_finalized());
@@ -965,7 +968,13 @@ mod tests {
         let Some(interleaved) = try_build_gpu(config.clone(), GROUP_CHUNKS) else {
             return;
         };
-        let planar = PlanarGpuResampler::<f32>::with_config(config.clone(), GROUP_CHUNKS, RING_SLOTS).unwrap();
+        let planar = PlanarGpuResampler::<f32>::with_config(
+            config
+                .clone()
+                .with_gpu_group_chunks(GROUP_CHUNKS)
+                .with_gpu_ring_slots(RING_SLOTS),
+        )
+        .unwrap();
         let context_chunk_size = chunk_frames_probe(&config);
         let track_frames = context_chunk_size * 2 + 17;
 

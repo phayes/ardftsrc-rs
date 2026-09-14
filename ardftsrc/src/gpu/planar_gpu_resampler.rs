@@ -33,7 +33,6 @@ use super::gpu_core::GpuCore;
 /// To end a stream early, call [`reset()`](Self::reset).
 pub struct PlanarGpuResampler<T = f32> {
     core: GpuCore<T>,
-    config: Config,
     output_delay_frames: usize,
 
     // Bounded scratch used only by the blocking drain helper, so a per-call `pull_output` request
@@ -49,21 +48,19 @@ pub struct PlanarGpuResampler<T = f32> {
 
 #[allow(private_bounds)]
 impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
-    /// Builds a resampler from an already-constructed [`GpuContext`] and ring depth.
+    /// Builds a resampler from an already-constructed [`GpuContext`].
     ///
-    /// `group_chunks` (GPU batching depth) is baked into `context` and cannot be changed later.
+    /// GPU batching and ring depth are baked into `context` and cannot be changed later.
     /// Passing an existing context lets callers share one Vulkan device and compiled-shader cache
     /// across multiple resamplers.
-    pub fn new(context: GpuContext<T>, ring_slots: usize) -> Result<Self, GpuError> {
-        let config = context.config().clone();
+    pub fn new(context: GpuContext<T>) -> Result<Self, GpuError> {
         let output_delay_frames = context.derived().output_offset;
-        let channels = config.channels;
-        let core = GpuCore::new(context, ring_slots)?;
+        let channels = context.config().channels;
+        let core = GpuCore::new(context)?;
         let output_scratch = vec![vec![T::zero(); core.output_chunk_frames()]; channels];
 
         Ok(Self {
             core,
-            config,
             output_delay_frames,
             output_scratch,
             finalized: false,
@@ -74,15 +71,15 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
 
     /// Convenience constructor that auto-selects a Vulkan device and builds its own
     /// [`GpuContext`].
-    pub fn with_config(config: Config, group_chunks: usize, ring_slots: usize) -> Result<Self, GpuError> {
-        let context = GpuContext::new(config, group_chunks)?;
-        Self::new(context, ring_slots)
+    pub fn with_config(config: Config) -> Result<Self, GpuError> {
+        let context = GpuContext::new(config)?;
+        Self::new(context)
     }
 
     /// Returns the configuration this instance was built with.
     #[must_use]
     pub fn config(&self) -> &Config {
-        &self.config
+        self.core.context().config()
     }
 
     /// Number of FFT chunks batched into one GPU submission.
@@ -112,7 +109,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
     #[must_use]
     #[inline]
     pub fn input_buffer_size(&self) -> usize {
-        self.core.input_chunk_frames() * self.config.channels
+        self.core.input_chunk_frames() * self.config().channels
     }
 
     /// Returns the recommended total per-call `output` capacity. Divide by channel count to get
@@ -120,7 +117,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
     #[must_use]
     #[inline]
     pub fn output_buffer_size(&self) -> usize {
-        self.core.output_chunk_frames() * self.config.channels
+        self.core.output_chunk_frames() * self.config().channels
     }
 
     /// Returns algorithmic latency to trim/flush.
@@ -182,7 +179,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
     pub fn pull_chunk<'a>(&mut self, output: &'a mut [&'a mut [T]]) -> Result<usize, GpuError> {
         self.ensure_output_channel_count(output.len())?;
         let written_frames = self.core.pull_output(output)?;
-        let written_samples = written_frames * self.config.channels;
+        let written_samples = written_frames * self.config().channels;
         self.output_sample_processed += written_samples;
         Ok(written_samples)
     }
@@ -271,7 +268,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
     /// the time this is called.
     fn drain_all_ready_into(&mut self, output: &mut [&mut [T]]) -> Result<usize, GpuError> {
         self.ensure_output_buffer_shape(output)?;
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         let output_capacity_frames = output.iter().map(|channel| channel.len()).min().unwrap_or(0);
         let mut total_written_frames = 0;
         loop {
@@ -298,9 +295,9 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
 
     /// Sets previous-track context. See [`crate::PlanarResampler::pre`].
     pub fn pre(&mut self, pre: Vec<Vec<T>>) -> Result<(), GpuError> {
-        if pre.len() != self.config.channels {
+        if pre.len() != self.config().channels {
             return Err(GpuError::WrongChannelCount {
-                expected: self.config.channels,
+                expected: self.config().channels,
                 actual: pre.len(),
             });
         }
@@ -321,9 +318,9 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
 
     /// Sets next-track context. See [`crate::PlanarResampler::post`].
     pub fn post(&mut self, post: Vec<Vec<T>>) -> Result<(), GpuError> {
-        if post.len() != self.config.channels {
+        if post.len() != self.config().channels {
             return Err(GpuError::WrongChannelCount {
-                expected: self.config.channels,
+                expected: self.config().channels,
                 actual: post.len(),
             });
         }
@@ -361,14 +358,13 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
         // fences, not Rust's borrow checker), but `GpuContext` and `usize` are, so per-track work
         // only needs to share those.
         let context = self.core.context();
-        let ring_slots = self.core.ring_slots();
-        let channels = self.config.channels;
+        let channels = self.config().channels;
 
         #[cfg(feature = "rayon")]
         {
             inputs
                 .into_par_iter()
-                .map(|input| Self::batch_process_track(context, ring_slots, channels, &input, None, None))
+                .map(|input| Self::batch_process_track(context, channels, &input, None, None))
                 .collect()
         }
 
@@ -376,7 +372,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
         {
             inputs
                 .into_iter()
-                .map(|input| Self::batch_process_track(context, ring_slots, channels, &input, None, None))
+                .map(|input| Self::batch_process_track(context, channels, &input, None, None))
                 .collect()
         }
     }
@@ -392,8 +388,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
         T: Send + Sync,
     {
         let context = self.core.context();
-        let ring_slots = self.core.ring_slots();
-        let channels = self.config.channels;
+        let channels = self.config().channels;
         let context_chunk_size = self.core.input_chunk_frames();
 
         #[cfg(feature = "rayon")]
@@ -408,7 +403,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
                     let post = inputs
                         .get(track_idx + 1)
                         .map(|next| Self::batch_track_head_context(next, context_chunk_size));
-                    Self::batch_process_track(context, ring_slots, channels, input, pre, post)
+                    Self::batch_process_track(context, channels, input, pre, post)
                 })
                 .collect()
         }
@@ -425,7 +420,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
                     let post = inputs
                         .get(track_idx + 1)
                         .map(|next| Self::batch_track_head_context(next, context_chunk_size));
-                    Self::batch_process_track(context, ring_slots, channels, input, pre, post)
+                    Self::batch_process_track(context, channels, input, pre, post)
                 })
                 .collect()
         }
@@ -433,12 +428,11 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
 
     /// Runs one independent track to completion on its own freshly built [`GpuCore`] (cloned from
     /// `context` via [`GpuContext::clone_shared`], so it shares the device and any already-
-    /// compiled shaders). Takes `context`/`ring_slots`/`channels` explicitly rather than `&self`
+    /// compiled shaders). Takes `context`/`channels` explicitly rather than `&self`
     /// so it can be called from parallel `rayon` closures without requiring `GpuCore` -- which is
     /// deliberately not `Sync` -- to be shared across threads.
     fn batch_process_track(
         context: &GpuContext<T>,
-        ring_slots: usize,
         channels: usize,
         input: &PlanarVecs<T>,
         pre: Option<Vec<Vec<T>>>,
@@ -451,7 +445,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
             });
         }
 
-        let mut track_core = GpuCore::new(context.clone_shared(), ring_slots)?;
+        let mut track_core = GpuCore::new(context.clone_shared())?;
         if let Some(pre) = pre {
             track_core.pre(pre);
         }
@@ -488,9 +482,9 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
 
     #[inline]
     fn ensure_process_all_input_shape(&self, input: &[&[T]]) -> Result<(), GpuError> {
-        if input.len() != self.config.channels {
+        if input.len() != self.config().channels {
             return Err(GpuError::WrongChannelCount {
-                expected: self.config.channels,
+                expected: self.config().channels,
                 actual: input.len(),
             });
         }
@@ -506,9 +500,9 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
 
     #[inline]
     fn ensure_input_buffer_shape(&self, input: &[&[T]], is_final: bool) -> Result<(), GpuError> {
-        if input.len() != self.config.channels {
+        if input.len() != self.config().channels {
             return Err(GpuError::WrongChannelCount {
-                expected: self.config.channels,
+                expected: self.config().channels,
                 actual: input.len(),
             });
         }
@@ -533,9 +527,9 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
 
     #[inline]
     fn ensure_output_channel_count(&self, channel_count: usize) -> Result<(), GpuError> {
-        if channel_count != self.config.channels {
+        if channel_count != self.config().channels {
             return Err(GpuError::WrongChannelCount {
-                expected: self.config.channels,
+                expected: self.config().channels,
                 actual: channel_count,
             });
         }
@@ -589,7 +583,10 @@ fn run_stream_to_completion<T: Float + GpuScalar + FromF64>(
             let remaining = total_frames - offset;
             let is_final = remaining <= chunk_frames;
             let this_chunk = if is_final { remaining } else { chunk_frames };
-            let refs: Vec<&[T]> = input.iter().map(|channel| &channel[offset..offset + this_chunk]).collect();
+            let refs: Vec<&[T]> = input
+                .iter()
+                .map(|channel| &channel[offset..offset + this_chunk])
+                .collect();
             core.push_input(&refs[..], is_final)?;
             offset += this_chunk;
             if is_final {
@@ -652,7 +649,10 @@ mod tests {
 
     fn max_abs_error(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len());
-        a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max)
     }
 
     /// Builds a GPU wrapper for `config`, or returns `None` (with a diagnostic on stderr) when no
@@ -665,8 +665,11 @@ mod tests {
                 return None;
             }
         };
-        let context = GpuContext::with_device(device, config, group_chunks).expect("build GpuContext");
-        Some(PlanarGpuResampler::new(context, RING_SLOTS).expect("build PlanarGpuResampler"))
+        let config = config
+            .with_gpu_group_chunks(group_chunks)
+            .with_gpu_ring_slots(RING_SLOTS);
+        let context = GpuContext::with_device(device, config).expect("build GpuContext");
+        Some(PlanarGpuResampler::new(context).expect("build PlanarGpuResampler"))
     }
 
     /// Builds real pre/input/post planar context around `total_frames` of useful input, and
@@ -710,10 +713,7 @@ mod tests {
             let input_slices: Vec<&[f32]> = input.iter().map(|c| &c[offset..offset + chunk]).collect();
             let mut scratch = vec![vec![0.0f32; out_cap]; channels];
             let mut scratch_refs: Vec<&mut [f32]> = scratch.iter_mut().map(Vec::as_mut_slice).collect();
-            let written = resampler
-                .process_chunk(&input_slices, &mut scratch_refs[..])
-                .unwrap()
-                / channels;
+            let written = resampler.process_chunk(&input_slices, &mut scratch_refs[..]).unwrap() / channels;
             for c in 0..channels {
                 output[c].extend_from_slice(&scratch[c][..written]);
             }
@@ -763,10 +763,7 @@ mod tests {
         let input_slices: Vec<&[f32]> = input_slices.iter().map(|c| &c[offset..]).collect();
         let mut scratch = vec![vec![0.0f32; out_cap]; channels];
         let mut scratch_refs: Vec<&mut [f32]> = scratch.iter_mut().map(Vec::as_mut_slice).collect();
-        let written = gpu
-            .process_chunk_final(&input_slices, &mut scratch_refs[..])
-            .unwrap()
-            / channels;
+        let written = gpu.process_chunk_final(&input_slices, &mut scratch_refs[..]).unwrap() / channels;
         for c in 0..channels {
             output[c].extend_from_slice(&scratch[c][..written]);
         }

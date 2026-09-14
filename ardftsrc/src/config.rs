@@ -295,6 +295,36 @@ pub struct Config {
     #[cfg(feature = "rodio")]
     pub rodio_fast_start: bool,
 
+    /// Number of FFT chunks combined into each GPU submission.
+    ///
+    /// Larger values usually improve throughput by amortizing submission overhead, but increase
+    /// buffering, memory use, and the time before a partially filled group is submitted.
+    ///
+    /// Value guide:
+    /// - `1`: Recommended for realtime resampling when low latency matters most.
+    /// - `4`: Recommended throughput-oriented starting point for offline resampling (default).
+    /// - Values above `4`: May help large offline jobs on some GPUs; benchmark them, since memory
+    ///   use grows and throughput may not improve.
+    ///
+    /// This setting only affects GPU resamplers.
+    #[cfg(feature = "gpu")]
+    pub gpu_group_chunks: usize,
+
+    /// Number of reusable GPU work groups kept in the streaming ring.
+    ///
+    /// The effective minimum is `4`. Additional slots allow more work to queue while the GPU is
+    /// busy, at the cost of GPU and host memory.
+    ///
+    /// Value guide:
+    /// - `4`: Recommended for realtime resampling and as the default for offline work.
+    /// - `8`: Worth benchmarking for offline resampling when host-to-GPU submission is otherwise
+    ///   starved and the extra memory is acceptable.
+    /// - Values above `8`: Usually only useful after workload-specific benchmarking.
+    ///
+    /// This setting only affects GPU resamplers.
+    #[cfg(feature = "gpu")]
+    pub gpu_ring_slots: usize,
+
     /// Selects the `f128`-precision FFT backend.
     ///
     /// The `f128` feature makes this backend available; this setting opts an `f64` resampler
@@ -320,6 +350,10 @@ impl Config {
         extrapolation: Extrapolation::Lpc,
         #[cfg(feature = "rodio")]
         rodio_fast_start: false,
+        #[cfg(feature = "gpu")]
+        gpu_group_chunks: 4,
+        #[cfg(feature = "gpu")]
+        gpu_ring_slots: 4,
         #[cfg(feature = "f128")]
         f128: false,
     };
@@ -475,6 +509,28 @@ impl Config {
         self
     }
 
+    /// Sets the number of FFT chunks combined into each GPU submission.
+    ///
+    /// Use `1` for latency-sensitive realtime resampling. Start with `4` for offline
+    /// resampling, and benchmark larger values before adopting them.
+    #[must_use]
+    #[cfg(feature = "gpu")]
+    pub fn with_gpu_group_chunks(mut self, gpu_group_chunks: usize) -> Self {
+        self.gpu_group_chunks = gpu_group_chunks;
+        self
+    }
+
+    /// Sets the number of reusable GPU work groups in the streaming ring.
+    ///
+    /// Values below `4` are raised to `4`. Use `4` for realtime resampling; for offline
+    /// resampling, benchmark `4` and `8` while considering the additional memory used by `8`.
+    #[must_use]
+    #[cfg(feature = "gpu")]
+    pub fn with_gpu_ring_slots(mut self, gpu_ring_slots: usize) -> Self {
+        self.gpu_ring_slots = gpu_ring_slots;
+        self
+    }
+
     /// EXPERIMENTAL: Enables an optional 2:1 pre-decimation stage ahead of the FFT resampler for very large
     /// downsampling ratios (e.g. 192kHz -> 48kHz).
     ///
@@ -540,6 +596,11 @@ impl Config {
 
         if self.quality == 0 {
             return Err(Error::InvalidQuality(self.quality));
+        }
+
+        #[cfg(feature = "gpu")]
+        if self.gpu_group_chunks == 0 {
+            return Err(Error::InvalidGpuGroupChunks(self.gpu_group_chunks));
         }
 
         if !(0.0..=1.0).contains(&self.bandwidth) || !self.bandwidth.is_finite() {
@@ -828,6 +889,12 @@ mod tests {
         assert!(matches!(
             Config::new(44_100, 48_000, 0).validate(),
             Err(Error::InvalidChannels(0))
+        ));
+
+        #[cfg(feature = "gpu")]
+        assert!(matches!(
+            Config::new(44_100, 48_000, 2).with_gpu_group_chunks(0).validate(),
+            Err(Error::InvalidGpuGroupChunks(0))
         ));
 
         let config = Config {
