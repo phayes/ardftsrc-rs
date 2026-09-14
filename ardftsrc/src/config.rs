@@ -295,13 +295,14 @@ pub struct Config {
     #[cfg(feature = "rodio")]
     pub rodio_fast_start: bool,
 
-    /// Selects the double-double-precision FFT backend.
+    /// Selects the `f128`-precision FFT backend.
     ///
-    /// The `dd_fft` feature makes this backend available; this setting opts an `f64` resampler
+    /// The `f128` feature makes this backend available; this setting opts an `f64` resampler
     /// into using it. It is substantially slower and more memory intensive than the default FFT
-    /// backend, but can produce better results at extreme quality settings.
-    #[cfg(feature = "dd_fft")]
-    pub dd_fft: bool,
+    /// backend, but can produce better results at extreme quality settings. Requires a nightly
+    /// `rustc` to build.
+    #[cfg(feature = "f128")]
+    pub f128: bool,
 }
 
 impl Config {
@@ -319,8 +320,8 @@ impl Config {
         extrapolation: Extrapolation::Lpc,
         #[cfg(feature = "rodio")]
         rodio_fast_start: false,
-        #[cfg(feature = "dd_fft")]
-        dd_fft: false,
+        #[cfg(feature = "f128")]
+        f128: false,
     };
 
     /// Builds a config with explicit sample rates/channel count and default (PRESET_GOOD) quality settings.
@@ -504,15 +505,15 @@ impl Config {
         self
     }
 
-    /// Selects the double-double-precision FFT backend.
+    /// Selects the `f128`-precision FFT backend.
     ///
     /// This backend is substantially slower and more memory intensive than the default
     /// `realfft` backend. It is intended for offline processing at extreme quality settings and
     /// is only compatible with `f64` processing.
     #[must_use]
-    #[cfg(feature = "dd_fft")]
-    pub fn with_dd_fft(mut self, dd_fft: bool) -> Self {
-        self.dd_fft = dd_fft;
+    #[cfg(feature = "f128")]
+    pub fn with_f128(mut self, f128: bool) -> Self {
+        self.f128 = f128;
         self
     }
 
@@ -584,9 +585,9 @@ impl Config {
         // Detect `T == f32` without specialization: only `f32` shares IEEE single max with `f32::MAX`.
         if let Some(f32_max) = num_traits::NumCast::from(f32::MAX) {
             if <T as Float>::max_value() == f32_max {
-                #[cfg(feature = "dd_fft")]
-                if self.dd_fft {
-                    return Err(Error::DdFftIncompatibleWithF32);
+                #[cfg(feature = "f128")]
+                if self.f128 {
+                    return Err(Error::F128IncompatibleWithF32);
                 }
                 if self.quality > 8192 {
                     return Err(Error::QualityTooHighForF32);
@@ -621,8 +622,8 @@ pub struct DerivedConfig<T> {
     pub(crate) decimation_stages: usize,
     /// FIR coefficients shared by every decimation stage (empty when `decimation_stages == 0`).
     pub(crate) decimation_taps: Vec<T>,
-    /// Whether to use the optional double-double-precision FFT backend.
-    pub(crate) dd_fft: bool,
+    /// Whether to use the optional `f128`-precision FFT backend.
+    pub(crate) f128: bool,
     /// Strategy used to synthesize missing start/stop-edge samples; see [`Config::extrapolation`].
     pub(crate) extrapolation: Extrapolation,
 }
@@ -690,10 +691,10 @@ where
             Vec::new()
         };
 
-        #[cfg(feature = "dd_fft")]
-        let dd_fft = config.dd_fft;
-        #[cfg(not(feature = "dd_fft"))]
-        let dd_fft = false;
+        #[cfg(feature = "f128")]
+        let f128 = config.f128;
+        #[cfg(not(feature = "f128"))]
+        let f128 = false;
 
         Self {
             input_sample_rate: config.input_sample_rate,
@@ -707,7 +708,7 @@ where
             spectral,
             decimation_stages,
             decimation_taps,
-            dd_fft,
+            f128,
             extrapolation: config.extrapolation,
         }
     }
@@ -1004,38 +1005,38 @@ mod tests {
         assert!(config.derive_config::<f64>().is_ok());
     }
 
-    #[cfg(feature = "dd_fft")]
+    #[cfg(feature = "f128")]
     #[test]
-    fn rejects_dd_fft_for_f32_derived_config() {
+    fn rejects_f128_for_f32_derived_config() {
         let config = Config {
             input_sample_rate: 48_000,
             output_sample_rate: 48_000,
-            dd_fft: true,
+            f128: true,
             ..Config::default()
         };
         assert!(matches!(
             config.derive_config::<f32>(),
-            Err(Error::DdFftIncompatibleWithF32)
+            Err(Error::F128IncompatibleWithF32)
         ));
     }
 
-    #[cfg(feature = "dd_fft")]
+    #[cfg(feature = "f128")]
     #[test]
-    fn allows_dd_fft_for_f64_derived_config() {
+    fn allows_f128_for_f64_derived_config() {
         let config = Config {
             input_sample_rate: 48_000,
             output_sample_rate: 48_000,
-            dd_fft: true,
+            f128: true,
             ..Config::default()
         };
-        assert!(config.derive_config::<f64>().unwrap().dd_fft);
+        assert!(config.derive_config::<f64>().unwrap().f128);
     }
 
-    #[cfg(feature = "dd_fft")]
+    #[cfg(feature = "f128")]
     #[test]
-    fn leaves_dd_fft_disabled_for_default_f64_derived_config() {
+    fn leaves_f128_disabled_for_default_f64_derived_config() {
         let config = Config::new(48_000, 48_000, 2);
-        assert!(!config.derive_config::<f64>().unwrap().dd_fft);
+        assert!(!config.derive_config::<f64>().unwrap().f128);
     }
 
     #[test]

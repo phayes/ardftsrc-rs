@@ -174,7 +174,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// the caller's call, not something this constructor derives).
     ///
     /// Returns [`GpuError::DecimationUnsupported`] if `config` requests pre-decimation,
-    /// [`GpuError::DdFftUnsupportedOnGpu`] if it requests `dd_fft`, or
+    /// [`GpuError::F128UnsupportedOnGpu`] if it requests `f128`, or
     /// [`GpuError::Fp64Unsupported`] if `T = f64` and `context`'s device cannot run
     /// `shaderFloat64`.
     pub fn new(context: Arc<GpuContext>, config: Config, channels: usize, group_chunks: usize, ring_slots: usize) -> Result<Self, GpuError> {
@@ -190,8 +190,8 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         if derived.decimation_stages > 0 {
             return Err(GpuError::DecimationUnsupported);
         }
-        if derived.dd_fft {
-            return Err(GpuError::DdFftUnsupportedOnGpu);
+        if derived.f128 {
+            return Err(GpuError::F128UnsupportedOnGpu);
         }
 
         let steady_state_modes = normal_window_modes(group_chunks);

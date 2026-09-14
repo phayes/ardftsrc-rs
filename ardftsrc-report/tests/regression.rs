@@ -53,9 +53,9 @@ fn preset_good_192000_to_48000_decimated_1khz_is_well_below_zero_dbfs_thdn() {
     assert!(case.gain_error_db.abs() < 1.0, "gain_error_db={}", case.gain_error_db);
 }
 
-#[cfg(feature = "dd_fft")]
+#[cfg(feature = "f128")]
 #[test]
-fn dd_fft_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
+fn f128_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
     let case = run_case(44_100, 48_000, Preset::Extreme, true, false, 1_000.0, -1.0);
     assert!(
         case.thdn_broadband_db < -100.0,

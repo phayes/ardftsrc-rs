@@ -249,6 +249,6 @@ This is not the same as removing the low-pass filter: the passband is unchanged,
 | `neon`         | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
 | `wasm_simd`    | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
-| `dd_fft`       | Double-double 🇨🇦☕ precision FFT for extreme quality                               | No      |
+| `f128`         | Quad (`f128`, ~113-bit) precision FFT for extreme quality. Requires nightly `rustc`. | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 

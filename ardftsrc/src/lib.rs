@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![cfg_attr(feature = "f128", feature(f128))]
 
 mod as_channels;
 mod beta_reg;
@@ -16,9 +17,9 @@ mod spectral;
 mod taper;
 mod window;
 
-// feature: dd_fft
-#[cfg(feature = "dd_fft")]
-mod dd_fft;
+// feature: f128
+#[cfg(feature = "f128")]
+mod f128_fft;
 
 // feature: gpu
 #[cfg(feature = "gpu")]

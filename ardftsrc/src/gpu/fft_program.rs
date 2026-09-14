@@ -177,7 +177,7 @@ impl<T: GpuScalar + FromF64> GpuRealFft<T> {
                     allocations[allocation_id.0].upload(&flat)?;
                 }
                 ProgramResourceInitialization::ComplexDoubleDouble(_) => {
-                    return Err(GpuError::DdFftUnsupportedOnGpu);
+                    return Err(GpuError::F128UnsupportedOnGpu);
                 }
             }
         }

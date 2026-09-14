@@ -18,8 +18,7 @@ rodio = { version = "0.22", default-features = false, optional = true }
 tracing = { version = "0.1", optional = true }
 pxfm = { version = "0.1.29", optional = true }
 ash = { version = "0.38", optional = true }
-vkfft-rs = { path = "/opt/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
-twofloat = { workspace = true, optional = true }
+vkfft-rs = { path = "https://github.com/phayes/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
 num-complex = { workspace = true, optional = true }
 num-integer = { workspace = true, optional = true }
 
@@ -53,10 +52,10 @@ rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
 tracing = ["dep:tracing"]
 
-# Makes the optional double-double (~106-bit) precision FFT backend available for extreme
-# quality. Select it per f64 resampler with `Config::with_dd_fft(true)`.
-dd_fft = [
-    "dep:twofloat",
+# Makes the optional f128 (~113-bit) precision FFT backend available for extreme quality.
+# Select it per f64 resampler with `Config::with_f128(true)`. Requires a nightly `rustc`
+# (the `f128` primitive type is still unstable).
+f128 = [
     "dep:num-complex",
     "dep:num-integer",
 ]
@@ -85,4 +84,4 @@ name = "rodio_adapter_with_spans"
 required-features = ["rodio-playback"]
 
 [package.metadata.docs.rs]
-features = ["rodio", "dd_fft"]
+features = ["rodio", "f128"]

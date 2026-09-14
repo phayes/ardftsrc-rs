@@ -29,10 +29,10 @@ pub const DEFAULT_RATE_PAIRS: &[(usize, usize)] = &[
 ];
 pub const DEFAULT_PRESETS: &[Preset] = &Preset::ALL;
 
-#[cfg(feature = "dd_fft")]
-pub const DD_FFT_VARIANTS: &[bool] = &[false, true];
-#[cfg(not(feature = "dd_fft"))]
-pub const DD_FFT_VARIANTS: &[bool] = &[false];
+#[cfg(feature = "f128")]
+pub const F128_VARIANTS: &[bool] = &[false, true];
+#[cfg(not(feature = "f128"))]
+pub const F128_VARIANTS: &[bool] = &[false];
 
 /// `Config::decimate`'s pre-decimation stage only ever engages when downsampling by at
 /// least 4x (see its docs); below that it's a documented no-op. So rate pairs under that
@@ -58,21 +58,21 @@ pub fn planned_case_count(
     amplitudes_dbfs: &[f64],
 ) -> usize {
     let decimate_cases: usize = rate_pairs.iter().map(|&(i, o)| decimate_variants(i, o).len()).sum();
-    decimate_cases * presets.len() * DD_FFT_VARIANTS.len() * frequencies_hz.len() * amplitudes_dbfs.len()
+    decimate_cases * presets.len() * F128_VARIANTS.len() * frequencies_hz.len() * amplitudes_dbfs.len()
 }
 
-#[cfg(feature = "dd_fft")]
-fn config_with_dd_fft(config: Config, dd_fft: bool) -> Config {
-    config.with_dd_fft(dd_fft)
+#[cfg(feature = "f128")]
+fn config_with_f128(config: Config, f128: bool) -> Config {
+    config.with_f128(f128)
 }
 
-#[cfg(not(feature = "dd_fft"))]
-fn config_with_dd_fft(config: Config, dd_fft: bool) -> Config {
-    assert!(!dd_fft, "dd_fft requested but this build has no `dd_fft` feature");
+#[cfg(not(feature = "f128"))]
+fn config_with_f128(config: Config, f128: bool) -> Config {
+    assert!(!f128, "f128 requested but this build has no `f128` feature");
     config
 }
 
-/// THD+N and related measurements for one (rate pair, decimate, preset, dd_fft,
+/// THD+N and related measurements for one (rate pair, decimate, preset, f128,
 /// frequency, amplitude) combination.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CaseResult {
@@ -83,7 +83,7 @@ pub struct CaseResult {
     /// [`decimation_eligible`]).
     pub decimate: bool,
     pub preset: Preset,
-    pub dd_fft: bool,
+    pub f128: bool,
     pub freq_hz: f64,
     pub amplitude_dbfs: f64,
     /// THD+N over the full DC-Nyquist bandwidth (time-domain sine fit, no FFT).
@@ -114,12 +114,12 @@ pub fn run_case(
     input_rate: usize,
     output_rate: usize,
     preset: Preset,
-    dd_fft: bool,
+    f128: bool,
     decimate: bool,
     freq_hz: f64,
     amplitude_dbfs: f64,
 ) -> CaseResult {
-    let config = config_with_dd_fft(preset.base_config(), dd_fft)
+    let config = config_with_f128(preset.base_config(), f128)
         .with_input_rate(input_rate)
         .with_output_rate(output_rate)
         .with_channels(1)
@@ -168,7 +168,7 @@ pub fn run_case(
         output_rate,
         decimate,
         preset,
-        dd_fft,
+        f128,
         freq_hz,
         amplitude_dbfs,
         thdn_broadband_db: fit.thdn_db,
@@ -192,14 +192,14 @@ pub fn run_sweep<F: FnMut(&CaseResult)>(
     for &(input_rate, output_rate) in rate_pairs {
         for &decimate in decimate_variants(input_rate, output_rate) {
             for &preset in presets {
-                for &dd_fft in DD_FFT_VARIANTS {
+                for &f128 in F128_VARIANTS {
                     for &freq_hz in frequencies_hz {
                         for &amplitude_dbfs in amplitudes_dbfs {
                             let case = run_case(
                                 input_rate,
                                 output_rate,
                                 preset,
-                                dd_fft,
+                                f128,
                                 decimate,
                                 freq_hz,
                                 amplitude_dbfs,
@@ -278,7 +278,7 @@ impl Report {
     /// Renders a human-readable Markdown *section* (no document title, and no preset
     /// configuration table -- both are the embedding caller's responsibility, since this
     /// is only ever embedded under a preset-scoped report's own title): a worst-case
-    /// summary table followed by one detailed table per (rate pair, preset, dd_fft)
+    /// summary table followed by one detailed table per (rate pair, preset, f128)
     /// configuration. Headings start at `###` on the assumption the caller has already
     /// printed an enclosing `##` heading for this section.
     pub fn to_markdown(&self) -> String {
@@ -299,12 +299,12 @@ impl Report {
         );
         let _ = writeln!(out);
 
-        // Group consecutive cases by (rate pair, decimate, preset, dd_fft); run_sweep
+        // Group consecutive cases by (rate pair, decimate, preset, f128); run_sweep
         // always emits cases in exactly this grouping, so a simple key-change scan
         // reconstructs it.
         let mut groups: Vec<(usize, usize, bool, Preset, bool)> = Vec::new();
         for c in &self.cases {
-            let key = (c.input_rate, c.output_rate, c.decimate, c.preset, c.dd_fft);
+            let key = (c.input_rate, c.output_rate, c.decimate, c.preset, c.f128);
             if groups.last() != Some(&key) {
                 groups.push(key);
             }
@@ -313,12 +313,12 @@ impl Report {
         let _ = writeln!(out, "### Summary (worst case per configuration)");
         let _ = writeln!(out);
         // Sorted (stably) by preset so every preset's rows sit together, grouped across
-        // rate pairs/decimate/dd_fft rather than the other way around.
+        // rate pairs/decimate/f128 rather than the other way around.
         let mut by_preset = groups.clone();
         by_preset.sort_by_key(|&(_, _, _, preset, _)| preset);
         let summary_rows: Vec<Vec<String>> = by_preset
             .iter()
-            .map(|&(input_rate, output_rate, decimate, preset, dd_fft)| {
+            .map(|&(input_rate, output_rate, decimate, preset, f128)| {
                 let group: Vec<&CaseResult> = self
                     .cases
                     .iter()
@@ -327,7 +327,7 @@ impl Report {
                             && c.output_rate == output_rate
                             && c.decimate == decimate
                             && c.preset == preset
-                            && c.dd_fft == dd_fft
+                            && c.f128 == f128
                     })
                     .collect();
                 let worst_broadband = worst_db(group.iter().map(|c| c.thdn_broadband_db));
@@ -337,7 +337,7 @@ impl Report {
                 vec![
                     format!("{input_rate} -> {output_rate}"),
                     decimate.to_string(),
-                    dd_fft.to_string(),
+                    f128.to_string(),
                     format!("{worst_broadband:.2}"),
                     format!("{worst_audio_band:.2}"),
                     format_gain_error_db(worst_gain_error),
@@ -352,7 +352,7 @@ impl Report {
                 &[
                     ("Rate pair", Alignment::left()),
                     ("Decimate", Alignment::left()),
-                    ("dd_fft", Alignment::left()),
+                    ("f128", Alignment::left()),
                     ("Worst broadband THD+N (dB)", Alignment::right()),
                     ("Worst audio-band THD+N (dB)", Alignment::right()),
                     ("Worst gain error (dB)", Alignment::right()),
@@ -370,10 +370,10 @@ impl Report {
             ("Gain error (dB)", Alignment::right()),
             ("Max spur (dB @ Hz)", Alignment::right()),
         ];
-        for &(input_rate, output_rate, decimate, preset, dd_fft) in &groups {
+        for &(input_rate, output_rate, decimate, preset, f128) in &groups {
             let _ = writeln!(
                 out,
-                "### {input_rate} -> {output_rate}, decimate={decimate}, dd_fft={dd_fft}"
+                "### {input_rate} -> {output_rate}, decimate={decimate}, f128={f128}"
             );
             let _ = writeln!(out);
             let detail_rows: Vec<Vec<String>> = self
@@ -384,7 +384,7 @@ impl Report {
                         && c.output_rate == output_rate
                         && c.decimate == decimate
                         && c.preset == preset
-                        && c.dd_fft == dd_fft
+                        && c.f128 == f128
                 })
                 .map(|c| {
                     vec![

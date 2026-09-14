@@ -7,9 +7,10 @@ scores, joined into one Markdown report per preset.
 ## Flow
 
 1. `run thdn` -- pure-Rust THD+N sweep across frequency, amplitude, sample-rate pair,
-   preset, and (by default) FFT backend. Writes `thdn_<preset>_report.json`.
+   preset, and (opt-in, via `--features f128`) FFT backend. Writes
+   `thdn_<preset>_report.json`.
 2. `run hydrogen-src` -- runs ardftsrc through the HydrogenAudio Test Suite's local
-   Octave analysis once per preset (`f64`, `dd_fft` off). Writes
+   Octave analysis once per preset (`f64`, `f128` off). Writes
    `hydrogen_src_<preset>_report.json`, plus copies of that preset's figure PNGs
    (`<preset>_<figure>.png`) into `--out-dir` for the report to embed.
 3. `report` -- reads back whichever of the two JSON files are present per preset and
@@ -31,14 +32,15 @@ progress output on stderr.
 
 ```bash
 cargo run -p ardftsrc-report --release -- run thdn --out-dir reports
-# faster, dd_fft-less run:
-cargo run -p ardftsrc-report --release --no-default-features -- run thdn --out-dir reports
+# slower run that also covers the f128 backend (requires a nightly rustc):
+cargo run -p ardftsrc-report --release --features f128 -- run thdn --out-dir reports
 ```
 
-`dd_fft` is on by default, so this covers both FFT backends in one run -- expect it to
-take several minutes, since the double-double backend is much slower. Writes one
-machine-readable `thdn_<preset>_report.json` per preset (for regression testing -- diff
-it against a checked-in baseline).
+`f128` is opt-in (it requires a nightly `rustc`, since the `f128` primitive type is still
+unstable) rather than on by default. Passing `--features f128` covers both FFT backends
+in one run -- expect it to take several minutes longer, since the `f128` backend is much
+slower. Writes one machine-readable `thdn_<preset>_report.json` per preset (for
+regression testing -- diff it against a checked-in baseline).
 
 ### `run hydrogen-src`
 
@@ -49,7 +51,7 @@ cargo run -p ardftsrc-report --release -- run hydrogen-src --out-dir reports
 Runs the [HydrogenAudio Test Suite](https://src.hydrogenaudio.org/)'s own local
 Octave analysis toolbox (via the external
 [`hydrogen_src`](https://github.com/phayes/hydrogen_src) crate) once per preset, `f64`
-only, `dd_fft` off -- matching the single score already linked per preset in
+only, `f128` off -- matching the single score already linked per preset in
 [`PERFORMANCE.md`](../PERFORMANCE.md).
 
 Requires GNU Octave on `PATH`, with the `signal` and `image` packages installed.
@@ -84,6 +86,7 @@ working directory isn't inside a git repo).
 
 ```bash
 cargo test -p ardftsrc-report --release
-cargo test -p ardftsrc-report --release --no-default-features
+# also exercises the f128 backend (requires a nightly rustc):
+cargo +nightly test -p ardftsrc-report --release --features f128
 ```
 

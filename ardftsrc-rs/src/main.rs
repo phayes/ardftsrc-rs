@@ -180,10 +180,10 @@ struct Args {
     #[arg(long)]
     decimate: bool,
 
-    /// Use the double-double-precision FFT backend. Much slower; intended for extreme quality.
-    #[cfg(feature = "dd_fft")]
-    #[arg(long = "dd-fft", alias = "dd_fft")]
-    dd_fft: bool,
+    /// Use the f128-precision FFT backend. Much slower; intended for extreme quality.
+    #[cfg(feature = "f128")]
+    #[arg(long = "f128")]
+    f128: bool,
 
     /// Output sample format. For .flac output, float formats are rejected.
     #[arg(long = "out-format", value_enum, default_value_t = OutFormatArg::Same)]
@@ -491,9 +491,9 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if args.decimate {
         config.decimate = true;
     }
-    #[cfg(feature = "dd_fft")]
-    if args.dd_fft {
-        config.dd_fft = true;
+    #[cfg(feature = "f128")]
+    if args.f128 {
+        config.f128 = true;
     }
 
     if let Some(taper_type) = args.taper_type {

@@ -18,14 +18,17 @@ rayon = { workspace = true, optional = true }
 wavers.workspace = true
 
 [features]
-default = ["avx", "neon", "sse", "wasm_simd", "rayon", "dd_fft"]
+# f128 requires a nightly rustc, so (unlike the old dd_fft feature this replaces) it is
+# opt-in rather than on by default: pass --features f128 explicitly (with a nightly toolchain)
+# to include it.
+default = ["avx", "neon", "sse", "wasm_simd", "rayon"]
 bessel = ["ardftsrc/bessel"]
 rayon = ["dep:rayon", "ardftsrc/rayon"]
 avx = ["ardftsrc/avx"]
 neon = ["ardftsrc/neon"]
 sse = ["ardftsrc/sse"]
 wasm_simd = ["ardftsrc/wasm_simd"]
-dd_fft = ["ardftsrc/dd_fft"]
+f128 = ["ardftsrc/f128"]
 
 [profile.release]
 opt-level = 3

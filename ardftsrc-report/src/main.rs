@@ -33,7 +33,7 @@ enum Command {
 enum RunTarget {
     /// Run the THD+N sweep and write thdn_<preset>_report.json.
     Thdn(ThdnArgs),
-    /// Run the HydrogenAudio Test Suite once per preset (f64, dd_fft off) and
+    /// Run the HydrogenAudio Test Suite once per preset (f64, f128 off) and
     /// write hydrogen_src_<preset>_report.json. Requires GNU Octave on PATH.
     HydrogenSrc(HydrogenSrcArgs),
 }
@@ -107,10 +107,10 @@ fn run_thdn(args: &ThdnArgs) {
 
     if !args.quiet {
         eprintln!(
-            "thdn: running {total} cases ({} rate pairs (some also run decimate=true) x {} presets x {} dd_fft variant(s) x {} frequencies x {} amplitudes)",
+            "thdn: running {total} cases ({} rate pairs (some also run decimate=true) x {} presets x {} f128 variant(s) x {} frequencies x {} amplitudes)",
             thdn::report::DEFAULT_RATE_PAIRS.len(),
             thdn::report::DEFAULT_PRESETS.len(),
-            thdn::report::DD_FFT_VARIANTS.len(),
+            thdn::report::F128_VARIANTS.len(),
             thdn::report::DEFAULT_FREQUENCIES_HZ.len(),
             thdn::report::DEFAULT_AMPLITUDES_DBFS.len(),
         );
@@ -125,12 +125,12 @@ fn run_thdn(args: &ThdnArgs) {
             done += 1;
             if !args.quiet {
                 eprintln!(
-                    "[{done}/{total}] {} -> {} decimate={} {} dd_fft={} {:.0}Hz {:.0}dBFS: broadband={:.2}dB audio_band={:.2}dB gain_err={:.3}dB spur={:.2}dB@{:.0}Hz",
+                    "[{done}/{total}] {} -> {} decimate={} {} f128={} {:.0}Hz {:.0}dBFS: broadband={:.2}dB audio_band={:.2}dB gain_err={:.3}dB spur={:.2}dB@{:.0}Hz",
                     case.input_rate,
                     case.output_rate,
                     case.decimate,
                     case.preset.label(),
-                    case.dd_fft,
+                    case.f128,
                     case.freq_hz,
                     case.amplitude_dbfs,
                     case.thdn_broadband_db,

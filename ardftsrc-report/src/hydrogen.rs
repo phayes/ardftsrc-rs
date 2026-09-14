@@ -1,6 +1,6 @@
 //! Runs ardftsrc through the HydrogenAudio Test Suite (the external
 //! `hydrogen_src`/`octave` toolchain at <https://github.com/phayes/hydrogen_src>) once
-//! per preset, `f64` only with `dd_fft` off.
+//! per preset, `f64` only with `f128` off.
 //!
 //! Requires GNU Octave on `PATH` (with the `signal` and `image` packages).
 
@@ -226,7 +226,7 @@ fn resample_f64(request: ResampleRequestF64, base: Config) -> Vec<f64> {
         .expect("PlanarResampler output always has exactly one channel for mono input")
 }
 
-/// Runs the HydrogenAudio Test Suite once per preset (`f64`, `dd_fft` off) and
+/// Runs the HydrogenAudio Test Suite once per preset (`f64`, `f128` off) and
 /// writes `hydrogen_src_<preset>_report.json` into `out_dir` as each preset finishes.
 /// `workdir` is passed straight to [`LocalHarness::new`]; `None` uses `hydrogen_src`'s own
 /// default (platform cache directory).

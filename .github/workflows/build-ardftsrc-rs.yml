@@ -23,8 +23,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install nightly Rust
+        # nightly, not stable: the bundled `f128` feature needs the still-unstable `f128`
+        # primitive type.
+        uses: dtolnay/rust-toolchain@nightly
 
       - name: Select SIMD feature for architecture
         id: features
@@ -32,10 +34,10 @@ jobs:
         run: |
           case "${{ runner.arch }}" in
             X64)
-            echo "features=rayon,avx,dd_fft" >> "$GITHUB_OUTPUT"
+            echo "features=rayon,avx,f128" >> "$GITHUB_OUTPUT"
             ;;
             ARM64)
-              echo "features=rayon,neon,dd_fft" >> "$GITHUB_OUTPUT"
+              echo "features=rayon,neon,f128" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "Unsupported architecture: ${{ runner.arch }}"

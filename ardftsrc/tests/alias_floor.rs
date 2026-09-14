@@ -153,10 +153,10 @@ fn gapless_context_keeps_length_with_alias_floor() {
     );
 }
 
-#[cfg(feature = "dd_fft")]
+#[cfg(feature = "f128")]
 #[test]
-fn dd_fft_applies_alias_floor() {
-    let strict = Config::new(96_000, 44_100, 1).with_dd_fft(true);
+fn f128_applies_alias_floor() {
+    let strict = Config::new(96_000, 44_100, 1).with_f128(true);
     let aliased = strict.clone().with_alias_floor_db(-3.0);
     let input = signal(96_000, 1, 22_300.0);
 
