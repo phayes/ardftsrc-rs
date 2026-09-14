@@ -74,4 +74,24 @@ pub enum GpuError {
     /// Vulkan pipeline-cache data could not be imported or exported.
     #[error("Vulkan pipeline cache failed: {0}")]
     PipelineCacheFailed(String),
+
+    /// Wrong number of channel slices/streams were provided.
+    #[error("expected {expected} channels, got {actual}")]
+    WrongChannelCount { expected: usize, actual: usize },
+
+    /// Chunk length does not match the expected stream chunk length (or exceeds it for a final chunk).
+    #[error("expected {expected} frames, got {actual}")]
+    WrongFrameCount { expected: usize, actual: usize },
+
+    /// Interleaved buffer length is not evenly divisible by channel count.
+    #[error("interleaved input length {samples} is not divisible by channel count {channels}")]
+    MalformedInputLength { channels: usize, samples: usize },
+
+    /// Provided output buffer is smaller than required for produced samples.
+    #[error("output buffer can hold {actual} samples, but {expected} samples are required")]
+    InsufficientOutputBuffer { expected: usize, actual: usize },
+
+    /// Additional input (or another finalize) was submitted after the stream was already finalized.
+    #[error("stream has already been finalized")]
+    AlreadyFinalized,
 }

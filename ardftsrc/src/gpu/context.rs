@@ -850,6 +850,26 @@ where
     pub(crate) fn derived(&self) -> &DerivedConfig<T> {
         &self.derived
     }
+
+    /// Creates an independent context for another concurrent/sequential stream over the same
+    /// resampling geometry, sharing this context's Vulkan device and any already-compiled
+    /// shaders -- so a fresh [`GpuCore`](super::GpuCore) built from it skips shader
+    /// recompilation. Deliberately not a [`Clone`] impl: this exists only for spinning up
+    /// independent per-track cores for batch processing, not general-purpose duplication.
+    pub(crate) fn clone_shared(&self) -> Self {
+        let shaders = self
+            .shaders
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        Self {
+            device: Arc::clone(&self.device),
+            config: self.config.clone(),
+            derived: self.derived.clone(),
+            group_chunks: self.group_chunks,
+            shaders: RwLock::new(shaders),
+        }
+    }
 }
 
 /// One pending GPU submission together with every resource its commands may access.

@@ -178,6 +178,13 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         self.ring_slots
     }
 
+    /// The context this core was built from -- exposed so callers that need an independent
+    /// sibling core (for example, one per track in a batch) can clone its geometry/device/shaders
+    /// via [`GpuContext::clone_shared`] without recompiling.
+    pub(crate) fn context(&self) -> &GpuContext<T> {
+        &self.context
+    }
+
     /// Sets per-channel previous-track tail context (see `CpuCore::pre`). Must be called before
     /// the first [`GpuCore::push_input`].
     pub fn pre(&mut self, pre: Vec<Vec<T>>) {

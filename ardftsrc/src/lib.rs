@@ -28,6 +28,7 @@ mod gpu;
 #[cfg(feature = "gpu")]
 pub use gpu::{
     GpuContext, GpuCore, GpuDevice, GpuDeviceId, GpuDeviceType, GpuError, GpuInfo, GpuPipelineCacheId, GpuShaders,
+    InterleavedGpuResampler, PlanarGpuResampler,
 };
 
 pub use as_channels::{AsChannels, AsChannelsMut};
