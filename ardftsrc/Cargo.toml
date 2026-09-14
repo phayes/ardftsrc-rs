@@ -22,6 +22,9 @@ vkfft-rs = { git = "https://github.com/phayes/vkfft-rs", optional = true, featur
 num-complex = { workspace = true, optional = true }
 num-integer = { workspace = true, optional = true }
 
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+ash-molten = { version = "0.20", optional = true, features = ["pre-built"] }
+
 [dev-dependencies]
 audioadapter-buffers.workspace = true
 criterion.workspace = true
@@ -37,7 +40,7 @@ mimalloc.workspace = true
 default = ["avx", "neon", "sse", "wasm_simd"]
 
 # GPU Features (disabled by default)
-gpu = ["dep:ash", "dep:vkfft-rs"]
+gpu = ["dep:ash", "dep:ash-molten", "dep:vkfft-rs"]
 
 # SIMD features (enabled by default)
 avx = ["realfft/avx"]

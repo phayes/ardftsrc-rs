@@ -270,8 +270,14 @@ impl GpuDevice {
     }
 
     fn create_instance() -> Result<(ash::Entry, ash::Instance), GpuError> {
+        // Link MoltenVK directly on macOS and iOS so callers do not need to install or
+        // locate a separate Vulkan loader at runtime.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let entry = ash_molten::load();
+
         // SAFETY: loading the Vulkan loader is inherently unsafe (it dynamically loads a
         // system library); we immediately check the result rather than assuming success.
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
         let entry = unsafe { ash::Entry::load() }
             .map_err(|err| GpuError::VulkanInitFailed(format!("failed to load Vulkan loader: {err}")))?;
 
@@ -282,24 +288,13 @@ impl GpuDevice {
             .engine_name(&app_name)
             .api_version(vk::API_VERSION_1_2);
 
-        // MoltenVK (macOS/iOS) implements Vulkan as a "portability" implementation: since
-        // Vulkan 1.3.216 loaders require VK_KHR_portability_enumeration to even enumerate
-        // such devices, and the corresponding VK_KHR_portability_subset device extension is
-        // mandatory to enable once such a device is selected.
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        let instance_extensions: Vec<*const std::os::raw::c_char> =
-            vec![ash::khr::portability_enumeration::NAME.as_ptr()];
-        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        // Statically linked MoltenVK exposes its portability devices directly and does not
+        // advertise the loader-level VK_KHR_portability_enumeration extension.
         let instance_extensions: Vec<*const std::os::raw::c_char> = Vec::new();
 
-        #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(unused_mut))]
-        let mut instance_create_info = vk::InstanceCreateInfo::default()
+        let instance_create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_extension_names(&instance_extensions);
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        {
-            instance_create_info = instance_create_info.flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR);
-        }
 
         // SAFETY: `entry` was just loaded successfully above, and `instance_create_info`
         // borrows only locals that outlive this call.
@@ -996,11 +991,6 @@ unsafe impl Sync for GpuDevice {}
 mod tests {
     use super::*;
 
-    /// On macOS, `ash::Entry::load()` only searches the default `dlopen` fallback paths,
-    /// which do not include Homebrew's `/opt/homebrew/lib` (where `brew install
-    /// vulkan-loader` puts `libvulkan.dylib`). Run this test with
-    /// `DYLD_LIBRARY_PATH=/opt/homebrew/lib` to exercise real device creation instead of
-    /// just the graceful `VulkanInitFailed` skip path.
     #[test]
     fn reports_capabilities_or_skips_without_vulkan() {
         let devices = match GpuDevice::list() {
