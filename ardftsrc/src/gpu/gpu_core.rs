@@ -20,13 +20,13 @@ const MIN_RING_SLOTS: usize = 4;
 
 /// GPU-accelerated streaming resampler.
 ///
-/// Pass one fixed-size chunk at a time to [`GpuCore::push`]. Each channel must
+/// Pass one fixed-size chunk at a time to [`GpuCore::push_input`]. Each channel must
 /// contain [`GpuCore::input_chunk_frames`] samples, except for the final chunk.
 ///
 /// Chunks are processed using the chunk-group geometry compiled into [`GpuContext`], and several
 /// groups may be buffered while the GPU is busy. Memory use is bounded by the `ring_slots`
-/// supplied to [`GpuCore::new`]. `push` may block when that buffer is full; use
-/// [`GpuCore::pending_ready`] to check GPU progress without blocking.
+/// supplied to [`GpuCore::new`]. `push_input` may block when that buffer is full; use
+/// [`GpuCore::push_input_ready`] to check GPU progress without blocking.
 pub struct GpuCore<T> {
     context: Arc<GpuContext<T>>,
     pre: Vec<Option<Vec<T>>>,
@@ -120,8 +120,10 @@ fn window_input_stride<T: GpuScalar + FromF64>(group: &Group<T>) -> usize {
 #[allow(private_bounds)]
 impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// Builds a streaming core using the context's fixed shader geometry and a ring of
-    /// `ring_slots` runtime buffer sets.
-    pub fn new(context: Arc<GpuContext<T>>, ring_slots: usize) -> Result<Self, GpuError> {
+    /// `ring_slots` runtime buffer sets. The core takes ownership of `context` and shares it
+    /// internally among its GPU resources.
+    pub fn new(context: GpuContext<T>, ring_slots: usize) -> Result<Self, GpuError> {
+        let context = Arc::new(context);
         let ring_slots = ring_slots.max(MIN_RING_SLOTS);
         let channels = context.config().channels;
         let group_chunks = context.group_chunks();
@@ -177,7 +179,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     }
 
     /// Sets per-channel previous-track tail context (see `CpuCore::pre`). Must be called before
-    /// the first [`GpuCore::push`].
+    /// the first [`GpuCore::push_input`].
     pub fn pre(&mut self, pre: Vec<Vec<T>>) {
         for (slot, context) in self.pre.iter_mut().zip(pre) {
             *slot = (!context.is_empty()).then_some(context);
@@ -204,9 +206,12 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     }
 
     /// Non-blocking check for whether the currently-executing GPU submission (if any) has
-    /// finished. Callers that want to avoid ever blocking in [`GpuCore::push`] can poll
+    /// finished. Callers that want to avoid ever blocking in [`GpuCore::push_input`] can poll
     /// this and only push more once it returns `true` (or `executing` is already empty).
-    pub fn pending_ready(&self) -> Result<bool, GpuError> {
+    ///
+    /// This check is cheap: it performs no allocation, submission, or data transfer, and at
+    /// most queries the status of one Vulkan fence.
+    pub fn push_input_ready(&self) -> Result<bool, GpuError> {
         match &self.executing {
             Some(submission) => submission.is_ready(),
             None => Ok(true),
@@ -229,7 +234,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     ///
     /// Blocks only when the fixed ring has no free buffer-set left and one is needed -- i.e.
     /// when GPU work is fully backlogged relative to `ring_slots`.
-    pub fn push<'a>(&mut self, input: impl AsChannels<'a, T>, is_final: bool) -> Result<(), GpuError> {
+    pub fn push_input<'a>(&mut self, input: impl AsChannels<'a, T>, is_final: bool) -> Result<(), GpuError> {
         if self.finalized || self.final_input_seen {
             return Err(GpuError::InvalidSubmissionState(
                 "stream has already been finalized".to_string(),
@@ -260,7 +265,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         self.add_chunk(input, is_final)
     }
 
-    /// Required per-channel input length for a non-final [`GpuCore::push`] call.
+    /// Required per-channel input length for a non-final [`GpuCore::push_input`] call.
     pub fn input_chunk_frames(&self) -> usize {
         self.context.derived().input_chunk_frames
     }
@@ -297,6 +302,34 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         self.drain_ready_output(output)
     }
 
+    /// Copies output samples into `output`, waiting without spinning when GPU work must complete
+    /// before any output can be returned.
+    ///
+    /// Returns immediately when output is already buffered or no submitted/queued GPU work can
+    /// produce more output. A partially filled input group is not submitted implicitly; call
+    /// [`GpuCore::flush`] first when that group should be made available immediately.
+    pub fn pull_output_blocking<'a>(&mut self, mut output: impl AsChannelsMut<'a, T>) -> Result<usize, GpuError> {
+        if output.channel_count() != self.context.config().channels {
+            return self.drain_ready_output(output);
+        }
+        let requested = (0..self.context.config().channels)
+            .map(|c| output.channel_mut(c).len())
+            .min()
+            .unwrap_or(0);
+        if requested == 0 {
+            return Ok(0);
+        }
+
+        while self.ready_output_len() == 0 && (self.executing.is_some() || !self.queued.is_empty()) {
+            self.advance(true)?;
+        }
+        self.drain_ready_output(output)
+    }
+
+    fn ready_output_len(&self) -> usize {
+        self.ready_output.iter().map(Vec::len).min().unwrap_or(0)
+    }
+
     /// Copies up to `min(output channel lengths, buffered sample counts)` samples per channel out
     /// of `self.ready_output` into `output`, then removes exactly that many samples from the
     /// front of each `self.ready_output[c]` (`Vec::drain` shifts the remainder down in place,
@@ -309,7 +342,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
                 output.channel_count()
             )));
         }
-        let available = self.ready_output.iter().map(Vec::len).min().unwrap_or(0);
+        let available = self.ready_output_len();
         let requested = (0..self.context.config().channels)
             .map(|c| output.channel_mut(c).len())
             .min()
@@ -327,8 +360,8 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// submission, then waits for every outstanding GPU submission -- that one included -- to
     /// complete, so every sample pushed so far is guaranteed visible to a following
     /// [`GpuCore::pull_output`] call. Unlike [`GpuCore::finalize`], the stream is not ended:
-    /// further [`GpuCore::push`] calls remain valid afterward. Combined with `group_chunks(1)`,
-    /// this gives a caller a synchronous, per-chunk round trip (`push`, `flush`, `pull_output`)
+    /// further [`GpuCore::push_input`] calls remain valid afterward. Combined with `group_chunks(1)`,
+    /// this gives a caller a synchronous, per-chunk round trip (`push_input`, `flush`, `pull_output`)
     /// at the cost of giving up the pipelining/backpressure that leaving groups unflushed allows.
     pub fn flush(&mut self) -> Result<(), GpuError> {
         if let Some(filling) = self.filling.take() {
@@ -340,7 +373,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         Ok(())
     }
 
-    /// Resets this core so the next [`GpuCore::push`] starts an independent new stream, without
+    /// Resets this core so the next [`GpuCore::push_input`] starts an independent new stream, without
     /// rebuilding the ring's steady-state group buffer-sets. Waits for any outstanding GPU
     /// submission to complete first (recycling what it safely can back into the ring), then
     /// clears `pre`/`post`, window history, and all stream bookkeeping. Safe to call whether or
@@ -348,8 +381,9 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// flight rather than finishing it.
     ///
     /// The one-off true-stream-start group is never kept in the reusable ring, so it is rebuilt
-    /// fresh on the next `push` -- a `reset` therefore carries a small one-time GPU pipeline-build
-    /// cost on the new stream's first `push`, unlike the steady-state ring slots it leaves intact.
+    /// fresh on the next `push_input` -- a `reset` therefore carries a small one-time GPU
+    /// pipeline-build cost on the new stream's first `push_input`, unlike the steady-state ring
+    /// slots it leaves intact.
     pub fn reset(&mut self) -> Result<(), GpuError> {
         if let Some(filling) = self.filling.take()
             && filling.recyclable
@@ -384,7 +418,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     }
 
     /// Terminal call: takes no new input (the final chunk, if any, must already have been given
-    /// to [`GpuCore::push`] with `is_final = true`). If the last chunk `push` saw was
+    /// to [`GpuCore::push_input`] with `is_final = true`). If the last chunk `push_input` saw was
     /// exactly full-length -- so its own forward-tail wasn't already folded into a short-final
     /// window -- appends the finalize-tail window here, exactly mirroring
     /// `CpuCore::add_synthetic_finalize_tail_to_overlap`'s own skip condition. Blocks until every
@@ -859,7 +893,7 @@ mod tests {
 
     /// Streams `total_frames` per-channel input through both `CpuCore` (one instance per
     /// channel) and the pipelined `GpuCore`, both fed one fixed-size FFT chunk at a time
-    /// (the last one possibly short, with `is_final = true`) -- `GpuCore::push` requires
+    /// (the last one possibly short, with `is_final = true`) -- `GpuCore::push_input` requires
     /// this exact contract, matching `CpuCore::process_chunk`.
     /// Uses real `pre`/`post` context on both ends (see
     /// [`lpc_extrapolation_has_known_gpu_divergence_without_context`] for why: `Extrapolation::Lpc`
@@ -885,7 +919,7 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_cores: Vec<CpuCore<f32>> = (0..channels).map(|_| CpuCore::new(derived.clone())).collect();
-        let context = Arc::new(GpuContext::with_device(context, config, group_chunks).expect("build GpuContext"));
+        let context = GpuContext::with_device(context, config, group_chunks).expect("build GpuContext");
         let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build GpuCore");
         assert_eq!(gpu_core.input_chunk_frames(), chunk_frames);
 
@@ -917,7 +951,7 @@ mod tests {
                 cpu_output[c].extend_from_slice(out);
             }
             let refs: Vec<&[f32]> = (0..channels).map(|c| &input[c][offset..offset + this_chunk]).collect();
-            gpu_core.push(&refs[..], is_final).expect("gpu push");
+            gpu_core.push_input(&refs[..], is_final).expect("gpu push");
             drain_all_output(&mut gpu_core, channels, &mut gpu_output);
             offset += this_chunk;
             if is_final {
@@ -1004,7 +1038,7 @@ mod tests {
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
         let mut cpu_core = CpuCore::<f32>::new(derived);
-        let context = Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context"));
+        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context");
         let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
 
         let total_frames = chunk_frames * DEFAULT_GROUP_CHUNKS + 137;
@@ -1032,7 +1066,7 @@ mod tests {
                 .expect("cpu process_chunk");
             cpu_output.extend_from_slice(out);
             let refs: [&[f32]; 1] = [&input[0][offset..offset + this_chunk]];
-            gpu_core.push(&refs[..], is_final).expect("gpu push");
+            gpu_core.push_input(&refs[..], is_final).expect("gpu push");
 
             // Deliberately tiny relative to a group's real output size, to force multiple
             // `pull_output` calls to drain whatever a single completed group produced.
@@ -1072,13 +1106,11 @@ mod tests {
                 return;
             }
         };
-        let context = Arc::new(
-            GpuContext::with_device(context, Config::new(44_100, 48_000, 1), DEFAULT_GROUP_CHUNKS)
-                .expect("build context"),
-        );
+        let context = GpuContext::with_device(context, Config::new(44_100, 48_000, 1), DEFAULT_GROUP_CHUNKS)
+            .expect("build context");
         let mut core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
         let wrong_size = vec![0.0f32; core.input_chunk_frames() + 1];
-        assert!(core.push(&[&wrong_size[..]][..], false).is_err());
+        assert!(core.push_input(&[&wrong_size[..]][..], false).is_err());
     }
 
     #[test]
@@ -1095,7 +1127,7 @@ mod tests {
             GpuContext::<f32>::with_device(Arc::clone(&context), config.clone(), 0),
             Err(GpuError::InvalidConfig(_))
         ));
-        let context = Arc::new(GpuContext::with_device(context, config, 1).expect("build context"));
+        let context = GpuContext::with_device(context, config, 1).expect("build context");
         let core = GpuCore::<f32>::new(context, 1).expect("build");
         assert_eq!(core.ring_slots(), MIN_RING_SLOTS);
         assert_eq!(core.group_chunks(), 1);
@@ -1112,7 +1144,7 @@ mod tests {
         };
         let config = Config::new(44_100, 48_000, 1);
         let derived = config.derive_config::<f32>().expect("valid config");
-        let context = Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context"));
+        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context");
         let core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
         assert_eq!(core.output_chunk_frames(), derived.output_chunk_frames);
     }
@@ -1133,7 +1165,7 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_core = CpuCore::<f32>::new(derived.clone());
-        let context = Arc::new(GpuContext::with_device(context, config, group_chunks).expect("build context"));
+        let context = GpuContext::with_device(context, config, group_chunks).expect("build context");
         let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
 
         // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
@@ -1162,15 +1194,17 @@ mod tests {
         cpu_output.extend_from_slice(out);
 
         let refs: [&[f32]; 1] = [&input[..chunk_frames]];
-        gpu_core.push(&refs[..], false).expect("push 1");
+        gpu_core.push_input(&refs[..], false).expect("push 1");
         let refs: [&[f32]; 1] = [&input[chunk_frames..chunk_frames * 2]];
-        gpu_core.push(&refs[..], false).expect("push 2");
+        gpu_core.push_input(&refs[..], false).expect("push 2");
 
         let mut scratch = vec![vec![0.0f32; 16_384]; channels];
-        let written = gpu_core.pull_output(&mut scratch).expect("pull_output before flush");
+        let written = gpu_core
+            .pull_output_blocking(&mut scratch)
+            .expect("pull_output_blocking before flush");
         assert_eq!(
             written, 0,
-            "a partial group shouldn't have any real output ready before flush"
+            "a blocking pull shouldn't submit a partial group implicitly"
         );
 
         gpu_core.flush().expect("flush");
@@ -1195,7 +1229,7 @@ mod tests {
                 .expect("cpu process_chunk");
             cpu_output.extend_from_slice(out);
             let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
-            gpu_core.push(&refs[..], is_final).expect("push");
+            gpu_core.push_input(&refs[..], is_final).expect("push");
             drain_all_output(&mut gpu_core, channels, &mut gpu_output);
             offset += this_chunk;
             if is_final {
@@ -1231,7 +1265,7 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
         let total_frames = chunk_frames * 3 + 111;
 
-        let context = Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context"));
+        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context");
         let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
 
         // Two structurally identical streams with different content (a different synthetic tone,
@@ -1260,7 +1294,7 @@ mod tests {
                     .expect("cpu process_chunk");
                 cpu_output.extend_from_slice(out);
                 let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
-                gpu_core.push(&refs[..], is_final).expect("gpu push");
+                gpu_core.push_input(&refs[..], is_final).expect("gpu push");
                 drain_all_output(&mut gpu_core, channels, &mut gpu_output);
                 offset += this_chunk;
                 if is_final {
@@ -1312,8 +1346,7 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_core = CpuCore::<f32>::new(derived.clone());
-        let context =
-            Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build GpuContext"));
+        let context = GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build GpuContext");
         let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build GpuCore");
 
         let input: Vec<f32> = tone_channels(1, total_frames, input_rate).remove(0);
@@ -1332,7 +1365,7 @@ mod tests {
             cpu_output.extend_from_slice(out);
 
             let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
-            gpu_core.push(&refs[..], is_final).expect("gpu push");
+            gpu_core.push_input(&refs[..], is_final).expect("gpu push");
             drain_all_output(&mut gpu_core, 1, &mut gpu_output);
 
             offset += this_chunk;
