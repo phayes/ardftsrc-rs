@@ -288,7 +288,7 @@ impl<T: GpuScalar> RemapShader<T> {
     }
 
     /// Total GPU-buffer bytes this shader owns (its gain/phase lookup tables), for sizing a
-    /// `GpuBatchCore` ring slot against a memory budget.
+    /// `GpuCore` ring slot against a memory budget.
     pub(crate) fn total_bytes(&self) -> u64 {
         self._gain.byte_len() + self._phase.as_ref().map_or(0, GpuBuffer::byte_len)
     }

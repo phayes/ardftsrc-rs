@@ -11,8 +11,8 @@ use super::remap_shader::{RemapGeometry, RemapShader};
 
 /// One complete "forward R2C -> spectral remap -> inverse C2R" GPU pipeline for a fixed
 /// `(input_fft_size, output_fft_size, batch_count)` -- the whole of `gpu_plan.md` milestone 5,
-/// and the building block both `GpuStreamingCore` and `GpuBatchCore` record their
-/// overlap-add/normalization work around.
+/// and the building block [`GpuCore`](super::GpuCore) records its overlap-add/normalization work
+/// around.
 ///
 /// [`GpuTransformPipeline::record`] appends every pass of the forward FFT, the remap
 /// dispatch, and every pass of the inverse FFT (each followed by a full compute barrier) into
@@ -80,7 +80,7 @@ impl<T: GpuScalar + FromF64> GpuTransformPipeline<T> {
     }
 
     /// Total GPU-buffer bytes this pipeline owns (forward FFT + remap + inverse FFT), for sizing
-    /// a `GpuBatchCore` ring slot against a memory budget.
+    /// a `GpuCore` ring slot against a memory budget.
     pub(crate) fn total_bytes(&self) -> u64 {
         self.forward.total_bytes() + self.remap.total_bytes() + self.inverse.total_bytes()
     }

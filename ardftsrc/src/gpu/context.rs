@@ -443,7 +443,7 @@ impl GpuContext {
 
     /// Records `record` into a fresh one-time-submit command buffer and submits it, *without*
     /// waiting for it to complete -- the asynchronous counterpart to [`GpuContext::run_one_shot`],
-    /// for callers (currently [`super::batch_core::GpuBatchCore`]) that want to keep preparing
+    /// for callers (currently [`super::gpu_core::GpuCore`]) that want to keep preparing
     /// the *next* piece of work (reading from disk, building the next FFT window, uploading it)
     /// while this GPU submission is still executing, rather than blocking on it immediately.
     ///

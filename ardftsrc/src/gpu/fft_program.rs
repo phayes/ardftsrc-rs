@@ -35,8 +35,8 @@ impl FromF64 for f64 {
 
 /// Packs `real` (a real-valued window) into `dst` as `Complex<T>` (`im = 0`), at batch index
 /// `batch` of a buffer laid out `stride` complex slots per batch -- the packing convention every
-/// [`GpuRealFft`] input buffer expects. Shared by [`crate::gpu::streaming_core`] (`batch` =
-/// channel) and `crate::gpu::batch_core` (`batch` = `window_index * channels + channel`).
+/// [`GpuRealFft`] input buffer expects (`batch` = `window_index * channels + channel`, see
+/// `crate::gpu::gpu_core`).
 pub(crate) fn pack_complex_batch<T: Float>(dst: &mut [T], batch: usize, stride: usize, real: &[T]) {
     let base = batch * stride * 2;
     for (i, &value) in real.iter().enumerate() {
@@ -264,7 +264,7 @@ impl<T: GpuScalar + FromF64> GpuRealFft<T> {
     }
 
     /// Total GPU-buffer bytes this FFT owns across every `ProgramAllocation` (input, output,
-    /// scratch, lookup tables), for sizing a `GpuBatchCore` ring slot against a memory budget.
+    /// scratch, lookup tables), for sizing a `GpuCore` ring slot against a memory budget.
     pub(crate) fn total_bytes(&self) -> u64 {
         self.allocations.iter().map(GpuBuffer::byte_len).sum()
     }

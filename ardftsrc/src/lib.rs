@@ -25,7 +25,7 @@ mod dd_fft;
 mod gpu;
 
 #[cfg(feature = "gpu")]
-pub use gpu::{GpuBatchCore, GpuCapabilities, GpuContext, GpuError, GpuStreamingCore};
+pub use gpu::{GpuCapabilities, GpuContext, GpuCore, GpuError};
 
 pub use as_channels::{AsChannels, AsChannelsMut};
 pub use config::{AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};

@@ -18,11 +18,11 @@ use super::remap_shader::RemapGeometry;
 use super::transform_pipeline::GpuTransformPipeline;
 
 /// Default number of FFT chunks batched into one GPU submission ("group"), used only by tests
-/// and examples -- [`GpuBatchCore::new`] always requires the caller to pass `group_chunks`
+/// and examples -- [`GpuCore::new`] always requires the caller to pass `group_chunks`
 /// explicitly (see the type's own doc for why).
 pub const DEFAULT_GROUP_CHUNKS: usize = 4;
 
-/// [`GpuBatchCore::new`] floors any requested `ring_slots` to this minimum -- below it, the ring
+/// [`GpuCore::new`] floors any requested `ring_slots` to this minimum -- below it, the ring
 /// is not just "smaller," it is unable to function at all: steady-state, three ring slots are
 /// always occupied independent of any read-ahead (the seed-copy source, the currently-executing
 /// group, and one queued-and-uploaded group), so a fourth is the minimum that lets a *new* group
@@ -34,12 +34,12 @@ const MIN_RING_SLOTS: usize = 4;
 /// GPU-resident, memory-bounded, pipelined GPU resampler core:
 ///
 /// Unlike a one-shot "build every window for the whole file, submit once" design,
-/// [`GpuBatchCore::push`] takes one fixed-size FFT chunk at a time (exactly
-/// [`GpuBatchCore::input_chunk_frames`] samples per channel -- the same contract
-/// `CpuCore::process_chunk`/`GpuStreamingCore::process_chunk` already use; a caller that wants to
+/// [`GpuCore::push`] takes one fixed-size FFT chunk at a time (exactly
+/// [`GpuCore::input_chunk_frames`] samples per channel -- the same contract
+/// `CpuCore::process_chunk` already uses; a caller that wants to
 /// feed arbitrary-sized reads assembles them into fixed-size chunks itself, the same way
 /// `PlanarResampler` already does on top of `CpuCore`) and submits GPU work in bounded *groups*
-/// of [`GpuBatchCore::group_chunks`] such chunks at a time -- each group is one GPU submission
+/// of [`GpuCore::group_chunks`] such chunks at a time -- each group is one GPU submission
 /// (batched forward FFT / spectral remap / inverse FFT / overlap-add across every chunk in the
 /// group, in one command buffer). This bounds GPU memory use to a small, fixed ring of
 /// pre-allocated group buffer-sets (`ring_slots`, set once at construction and never grown or
@@ -61,11 +61,11 @@ const MIN_RING_SLOTS: usize = 4;
 ///
 /// # Pipelining and backpressure
 ///
-/// While one group executes on the GPU, [`GpuBatchCore::push`] can keep accumulating and
+/// While one group executes on the GPU, [`GpuCore::push`] can keep accumulating and
 /// uploading *later* groups into other ring slots without waiting -- this is what lets a
 /// disk-bound caller's read loop overlap with GPU compute. `push` only blocks (backpressure)
 /// when every ring slot is occupied (filling, queued, executing, or held as the current
-/// seed-copy source) and a new one is needed; [`GpuBatchCore::pending_ready`] offers a
+/// seed-copy source) and a new one is needed; [`GpuCore::pending_ready`] offers a
 /// non-blocking check for callers that want to avoid blocking. There is no internal thread: all
 /// of this happens on the caller's own thread, matching `gpu_plan.md` section 11's stated scope
 /// ("actual wrapper threading is out of scope, but the core API must make nonblocking
@@ -73,7 +73,7 @@ const MIN_RING_SLOTS: usize = 4;
 ///
 /// # Sizing is the caller's responsibility
 ///
-/// [`GpuBatchCore::new`] takes `group_chunks` and `ring_slots` directly, as plain counts -- there
+/// [`GpuCore::new`] takes `group_chunks` and `ring_slots` directly, as plain counts -- there
 /// is no GPU-memory budget, no device-memory query, and no attempt by this crate to guess a
 /// "reasonable" size from bytes. This crate has no way to know what "reasonable" means for a
 /// given caller's use case -- a disk-bound batch job tolerant of extra latency wants a deep ring
@@ -82,7 +82,7 @@ const MIN_RING_SLOTS: usize = 4;
 /// this type enforces is `MIN_RING_SLOTS` itself, a correctness minimum below which the ring
 /// simply cannot provide any read-ahead at all (see its own doc). The ring is *fixed* after
 /// construction: it is never grown or shrunk at runtime.
-pub struct GpuBatchCore<T> {
+pub struct GpuCore<T> {
     context: Arc<GpuContext>,
     derived: DerivedConfig<T>,
     channels: usize,
@@ -110,8 +110,7 @@ pub struct GpuBatchCore<T> {
     /// `CpuCore::prev_input_window`); irrelevant to the steady-state group machinery above.
     prev_input_window: Vec<Vec<T>>,
     /// Reused scratch window buffer (`input_fft_size` samples), overwritten once per channel per
-    /// chunk. Never reallocated after construction (mirrors `GpuStreamingCore`'s field of the
-    /// same name).
+    /// chunk. Never reallocated after construction.
     window_scratch: Vec<T>,
     /// Reused host download buffer for a completed group's per-chunk output, sized for the
     /// steady-state max (`channels * group_chunks * output_chunk_frames`); a group with fewer
@@ -123,7 +122,7 @@ pub struct GpuBatchCore<T> {
     /// `channels * output_chunk_frames`, regardless of group size). Never reallocated after
     /// construction.
     overlap_output_scratch: Vec<T>,
-    /// Drainable via [`GpuBatchCore::pull_output`].
+    /// Drainable via [`GpuCore::pull_output`].
     ready_output: Vec<Vec<T>>,
 
     started: bool,
@@ -168,8 +167,8 @@ fn window_input_stride<T: GpuScalar + FromF64>(group: &Group<T>) -> usize {
     group.pipeline.input_stride()
 }
 
-impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
-    /// Builds a batch core for `channels` channels of `config`, with `group_chunks` FFT chunks
+impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
+    /// Builds a core for `channels` channels of `config`, with `group_chunks` FFT chunks
     /// batched into one GPU submission and a fixed ring of `ring_slots` pre-allocated group
     /// buffer-sets (floored to `MIN_RING_SLOTS`, see the type's own doc for why picking this is
     /// the caller's call, not something this constructor derives).
@@ -244,7 +243,7 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
     }
 
     /// Sets per-channel previous-track tail context (see `CpuCore::pre`). Must be called before
-    /// the first [`GpuBatchCore::push`].
+    /// the first [`GpuCore::push`].
     pub fn pre(&mut self, pre: Vec<Vec<T>>) {
         for (slot, context) in self.pre.iter_mut().zip(pre) {
             *slot = (!context.is_empty()).then_some(context);
@@ -252,7 +251,7 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
     }
 
     /// Sets per-channel next-track head context (see `CpuCore::post`). Must be called before
-    /// [`GpuBatchCore::finalize`].
+    /// [`GpuCore::finalize`].
     pub fn post(&mut self, post: Vec<Vec<T>>) {
         for (slot, context) in self.post.iter_mut().zip(post) {
             *slot = (!context.is_empty()).then_some(context);
@@ -271,7 +270,7 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
     }
 
     /// Non-blocking check for whether the currently-executing GPU submission (if any) has
-    /// finished. Callers that want to avoid ever blocking in [`GpuBatchCore::push`] can poll
+    /// finished. Callers that want to avoid ever blocking in [`GpuCore::push`] can poll
     /// this and only push more once it returns `true` (or `executing` is already empty).
     pub fn pending_ready(&self) -> Result<bool, GpuError> {
         match &self.executing {
@@ -286,9 +285,9 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
     /// a `&PlanarVecs<T>` -- so a caller already holding one of those doesn't need to collect a
     /// temporary `Vec<&[T]>` just to call this.
     ///
-    /// `input` must be a *fixed*-size chunk (exactly [`GpuBatchCore::input_chunk_frames`]
-    /// samples per channel), matching `CpuCore::process_chunk`/`GpuStreamingCore::process_chunk`'s
-    /// own contract -- the only exception is the final call (`is_final = true`), which may be
+    /// `input` must be a *fixed*-size chunk (exactly [`GpuCore::input_chunk_frames`]
+    /// samples per channel), matching `CpuCore::process_chunk`'s own contract -- the only
+    /// exception is the final call (`is_final = true`), which may be
     /// shorter (or empty). A caller that wants to feed arbitrary-sized reads assembles them into
     /// fixed-size chunks itself (the same split `PlanarResampler`/`InterleavedResampler` already
     /// do on top of the fixed-size `CpuCore::process_chunk`), rather than this core buffering
@@ -319,9 +318,14 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
         self.add_chunk(input, is_final)
     }
 
-    /// Required per-channel input length for a non-final [`GpuBatchCore::push`] call.
+    /// Required per-channel input length for a non-final [`GpuCore::push`] call.
     pub fn input_chunk_frames(&self) -> usize {
         self.derived.input_chunk_frames
+    }
+
+    /// Per-channel output length produced by one full (non-final, non-short) input chunk.
+    pub fn output_chunk_frames(&self) -> usize {
+        self.derived.output_chunk_frames
     }
 
     /// Copies as many output samples as fit into `output` (one channel of equal length per
@@ -338,7 +342,7 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
     /// return value less than `output`'s length (`0` included) means the internal buffer was
     /// fully drained on this call, not just that this one call happened to run out of room.
     ///
-    /// After [`GpuBatchCore::finalize`] has returned, every sample the stream will ever produce
+    /// After [`GpuCore::finalize`] has returned, every sample the stream will ever produce
     /// is already sitting in that internal buffer (`finalize` itself blocks until all
     /// outstanding GPU work is done and processed) -- so looping `pull_output` until it returns
     /// `0` at that point is a reliable, terminating "have I drained everything" check, with
@@ -374,13 +378,73 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
         Ok(written)
     }
 
+    /// Forces any partially-filled group out as its own (possibly smaller-than-`group_chunks`)
+    /// submission, then waits for every outstanding GPU submission -- that one included -- to
+    /// complete, so every sample pushed so far is guaranteed visible to a following
+    /// [`GpuCore::pull_output`] call. Unlike [`GpuCore::finalize`], the stream is not ended:
+    /// further [`GpuCore::push`] calls remain valid afterward. Combined with `group_chunks(1)`,
+    /// this gives a caller a synchronous, per-chunk round trip (`push`, `flush`, `pull_output`)
+    /// at the cost of giving up the pipelining/backpressure that leaving groups unflushed allows.
+    pub fn flush(&mut self) -> Result<(), GpuError> {
+        if let Some(filling) = self.filling.take() {
+            self.enqueue_filled(filling)?;
+        }
+        while !self.queued.is_empty() || self.executing.is_some() {
+            self.advance(true)?;
+        }
+        Ok(())
+    }
+
+    /// Resets this core so the next [`GpuCore::push`] starts an independent new stream, without
+    /// rebuilding the ring's steady-state group buffer-sets. Waits for any outstanding GPU
+    /// submission to complete first (recycling what it safely can back into the ring), then
+    /// clears `pre`/`post`, window history, and all stream bookkeeping. Safe to call whether or
+    /// not the previous stream was finalized -- a mid-stream reset abandons whatever was in
+    /// flight rather than finishing it.
+    ///
+    /// The one-off true-stream-start group is never kept in the reusable ring, so it is rebuilt
+    /// fresh on the next `push` -- a `reset` therefore carries a small one-time GPU pipeline-build
+    /// cost on the new stream's first `push`, unlike the steady-state ring slots it leaves intact.
+    pub fn reset(&mut self) -> Result<(), GpuError> {
+        if let Some(filling) = self.filling.take()
+            && filling.recyclable
+        {
+            self.free_groups.push(filling.group);
+        }
+        while !self.queued.is_empty() || self.executing.is_some() {
+            self.advance(true)?;
+        }
+        if let Some(prev) = self.prev_completed.take()
+            && prev.recyclable
+        {
+            self.free_groups.push(prev.group);
+        }
+
+        for slot in self.pre.iter_mut().chain(self.post.iter_mut()) {
+            *slot = None;
+        }
+        for window in &mut self.prev_input_window {
+            window.fill(T::zero());
+        }
+        for channel in &mut self.ready_output {
+            channel.clear();
+        }
+        self.started = false;
+        self.final_input_seen = false;
+        self.finalized = false;
+        self.trim_remaining = self.derived.output_offset;
+        self.input_sample_count = 0;
+        self.output_sample_count = 0;
+        Ok(())
+    }
+
     /// Terminal call: takes no new input (the final chunk, if any, must already have been given
-    /// to [`GpuBatchCore::push`] with `is_final = true`). If the last chunk `push` saw was
+    /// to [`GpuCore::push`] with `is_final = true`). If the last chunk `push` saw was
     /// exactly full-length -- so its own forward-tail wasn't already folded into a short-final
     /// window -- appends the finalize-tail window here, exactly mirroring
     /// `CpuCore::add_synthetic_finalize_tail_to_overlap`'s own skip condition. Blocks until every
     /// outstanding GPU submission completes, then marks the stream finalized. Does not return
-    /// output itself -- call [`GpuBatchCore::pull_output`] in a loop afterward, same as
+    /// output itself -- call [`GpuCore::pull_output`] in a loop afterward, same as
     /// mid-stream, until it returns `0`; see that method's doc for why that loop is guaranteed
     /// to terminate once this has returned.
     pub fn finalize(&mut self) -> Result<(), GpuError> {
@@ -645,7 +709,7 @@ impl<T: Float + GpuScalar + FromF64> GpuBatchCore<T> {
     }
 
     /// Downloads `filled`'s per-chunk outputs, applies the same trim/output-budget accounting
-    /// `CpuCore`/`GpuStreamingCore` apply per chunk, and appends the result to `ready_output`; if
+    /// `CpuCore` applies per chunk, and appends the result to `ready_output`; if
     /// `filled.is_final`, also downloads and appends the finalize-tail from its ending overlap
     /// state.
     fn download_and_process(&mut self, filled: &Filled<T>) -> Result<(), GpuError> {
@@ -730,6 +794,7 @@ fn normal_window_modes(windows: usize) -> Vec<OverlapMode> {
 mod tests {
     use super::*;
     use crate::cpu_core::CpuCore;
+    use crate::extrapolation::Extrapolation;
 
     fn tone_channels(channels: usize, frames: usize, sample_rate: usize) -> Vec<Vec<f32>> {
         (0..channels)
@@ -745,7 +810,7 @@ mod tests {
     /// Drains everything currently ready from `core` (looping `pull_output` until it returns
     /// `0`, since more may be ready than fits in one fixed-size scratch buffer) and appends it
     /// onto `dst`, one `Vec<f32>` per channel.
-    fn drain_all_output(core: &mut GpuBatchCore<f32>, channels: usize, dst: &mut [Vec<f32>]) {
+    fn drain_all_output(core: &mut GpuCore<f32>, channels: usize, dst: &mut [Vec<f32>]) {
         let mut scratch = vec![vec![0.0f32; 16_384]; channels];
         loop {
             let written = core.pull_output(&mut scratch).expect("gpu pull_output");
@@ -759,12 +824,13 @@ mod tests {
     }
 
     /// Streams `total_frames` per-channel input through both `CpuCore` (one instance per
-    /// channel) and the pipelined `GpuBatchCore`, both fed one fixed-size FFT chunk at a time
-    /// (the last one possibly short, with `is_final = true`) -- `GpuBatchCore::push` requires
-    /// this exact contract, matching `CpuCore::process_chunk`/`GpuStreamingCore::process_chunk`.
-    /// Uses real `pre`/`post` context on both ends (see `gpu::streaming_core::tests` for why:
-    /// `Extrapolation::Lpc` has a known, separately tracked GPU divergence without real context,
-    /// unrelated to what this test checks).
+    /// channel) and the pipelined `GpuCore`, both fed one fixed-size FFT chunk at a time
+    /// (the last one possibly short, with `is_final = true`) -- `GpuCore::push` requires
+    /// this exact contract, matching `CpuCore::process_chunk`.
+    /// Uses real `pre`/`post` context on both ends (see
+    /// [`lpc_extrapolation_has_known_gpu_divergence_without_context`] for why: `Extrapolation::Lpc`
+    /// has a known, separately tracked GPU divergence without real context, unrelated to what
+    /// this test checks).
     fn assert_batch_matches_cpu(input_rate: usize, output_rate: usize, channels: usize, total_frames: usize, group_chunks: usize) {
         let context = match GpuContext::new() {
             Ok(context) => Arc::new(context),
@@ -779,7 +845,7 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_cores: Vec<CpuCore<f32>> = (0..channels).map(|_| CpuCore::new(derived.clone())).collect();
-        let mut gpu_core = GpuBatchCore::<f32>::new(context, config, channels, group_chunks, MIN_RING_SLOTS).expect("build GpuBatchCore");
+        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, group_chunks, MIN_RING_SLOTS).expect("build GpuCore");
         assert_eq!(gpu_core.input_chunk_frames(), chunk_frames);
 
         let full = tone_channels(channels, chunk_frames + total_frames + chunk_frames, input_rate);
@@ -886,7 +952,7 @@ mod tests {
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
         let mut cpu_core = CpuCore::<f32>::new(derived);
-        let mut gpu_core = GpuBatchCore::<f32>::new(context, config, channels, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
 
         let total_frames = chunk_frames * DEFAULT_GROUP_CHUNKS + 137;
         // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
@@ -947,7 +1013,7 @@ mod tests {
                 return;
             }
         };
-        let mut core = GpuBatchCore::<f32>::new(context, Config::new(44_100, 48_000, 1), 1, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+        let mut core = GpuCore::<f32>::new(context, Config::new(44_100, 48_000, 1), 1, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
         let wrong_size = vec![0.0f32; core.input_chunk_frames() + 1];
         assert!(core.push(&[&wrong_size[..]][..], false).is_err());
     }
@@ -963,8 +1029,243 @@ mod tests {
         };
         // Requesting fewer than `MIN_RING_SLOTS`/1 must be floored, not honored or rejected --
         // there is no other "sizing" logic left in this constructor to second-guess the caller.
-        let core = GpuBatchCore::<f32>::new(context, Config::new(44_100, 48_000, 2), 2, 0, 1).expect("build");
+        let core = GpuCore::<f32>::new(context, Config::new(44_100, 48_000, 2), 2, 0, 1).expect("build");
         assert_eq!(core.ring_slots(), MIN_RING_SLOTS);
         assert_eq!(core.group_chunks(), 1);
+    }
+
+    #[test]
+    fn output_chunk_frames_matches_derived_config() {
+        let context = match GpuContext::new() {
+            Ok(context) => Arc::new(context),
+            Err(err) => {
+                eprintln!("skipping: {err}");
+                return;
+            }
+        };
+        let config = Config::new(44_100, 48_000, 1);
+        let derived = config.derive_config::<f32>().expect("valid config");
+        let core = GpuCore::<f32>::new(context, config, 1, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+        assert_eq!(core.output_chunk_frames(), derived.output_chunk_frames);
+    }
+
+    #[test]
+    fn flush_makes_partial_group_output_available_without_ending_the_stream() {
+        let context = match GpuContext::new() {
+            Ok(context) => Arc::new(context),
+            Err(err) => {
+                eprintln!("skipping: {err}");
+                return;
+            }
+        };
+        let channels = 1;
+        let group_chunks = 4;
+        let config = Config::new(44_100, 48_000, channels);
+        let derived = config.derive_config::<f32>().expect("valid config");
+        let chunk_frames = derived.raw_input_chunk_frames();
+
+        let mut cpu_core = CpuCore::<f32>::new(derived.clone());
+        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, group_chunks, MIN_RING_SLOTS).expect("build");
+
+        // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
+        // the separately tracked `Extrapolation::Lpc`/GPU divergence unrelated to what this
+        // test checks.
+        let full = tone_channels(channels, chunk_frames * 6, 44_100);
+        let pre = full[0][..chunk_frames].to_vec();
+        let input = full[0][chunk_frames..chunk_frames * 5].to_vec();
+        let post = full[0][chunk_frames * 5..].to_vec();
+        cpu_core.pre(pre.clone());
+        cpu_core.post(post.clone());
+        gpu_core.pre(vec![pre]);
+        gpu_core.post(vec![post]);
+
+        // Two chunks into a group of four: nowhere near a natural group boundary, so nothing
+        // would normally be submitted (let alone ready) without an explicit `flush`. Feed
+        // `cpu_core` the same two chunks so it stays the correctness oracle for the whole stream.
+        let mut cpu_output = Vec::new();
+        let out = cpu_core.process_chunk(&input[..chunk_frames], false).expect("cpu process_chunk");
+        cpu_output.extend_from_slice(out);
+        let out = cpu_core.process_chunk(&input[chunk_frames..chunk_frames * 2], false).expect("cpu process_chunk");
+        cpu_output.extend_from_slice(out);
+
+        let refs: [&[f32]; 1] = [&input[..chunk_frames]];
+        gpu_core.push(&refs[..], false).expect("push 1");
+        let refs: [&[f32]; 1] = [&input[chunk_frames..chunk_frames * 2]];
+        gpu_core.push(&refs[..], false).expect("push 2");
+
+        let mut scratch = vec![vec![0.0f32; 16_384]; channels];
+        let written = gpu_core.pull_output(&mut scratch).expect("pull_output before flush");
+        assert_eq!(written, 0, "a partial group shouldn't have any real output ready before flush");
+
+        gpu_core.flush().expect("flush");
+        let written = gpu_core.pull_output(&mut scratch).expect("pull_output after flush");
+        assert!(written > 0, "flush should force the partial group out and make its output available");
+
+        // The stream is still usable afterward: finish it off (exercising the differently-shaped
+        // overlap pipeline a partial, forced-early group builds) and confirm the result still
+        // matches `CpuCore`.
+        let mut gpu_output = vec![Vec::new(); channels];
+        gpu_output[0].extend_from_slice(&scratch[0][..written]);
+        let mut offset = chunk_frames * 2;
+        loop {
+            let remaining = input.len() - offset;
+            let is_final = remaining <= chunk_frames;
+            let this_chunk = if is_final { remaining } else { chunk_frames };
+            let out = cpu_core.process_chunk(&input[offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+            cpu_output.extend_from_slice(out);
+            let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
+            gpu_core.push(&refs[..], is_final).expect("push");
+            drain_all_output(&mut gpu_core, channels, &mut gpu_output);
+            offset += this_chunk;
+            if is_final {
+                break;
+            }
+        }
+        cpu_output.extend_from_slice(cpu_core.finalize().expect("cpu finalize"));
+        gpu_core.finalize().expect("gpu finalize");
+        drain_all_output(&mut gpu_core, channels, &mut gpu_output);
+
+        assert_eq!(cpu_output.len(), gpu_output[0].len());
+        let max_abs_error = cpu_output.iter().zip(gpu_output[0].iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(max_abs_error < 1e-3, "max abs error {max_abs_error}");
+    }
+
+    #[test]
+    fn reset_allows_reuse_for_an_independent_stream() {
+        let context = match GpuContext::new() {
+            Ok(context) => Arc::new(context),
+            Err(err) => {
+                eprintln!("skipping: {err}");
+                return;
+            }
+        };
+        let channels = 1;
+        let input_rate = 44_100;
+        let config = Config::new(input_rate, 48_000, channels);
+        let derived = config.derive_config::<f32>().expect("valid config");
+        let chunk_frames = derived.raw_input_chunk_frames();
+        let total_frames = chunk_frames * 3 + 111;
+
+        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+
+        // Two structurally identical streams with different content (a different synthetic tone,
+        // via a different phase-generation rate) run through the *same* `GpuCore` instance, with
+        // a `reset` between them -- proving `reset` leaves no state behind from the first stream.
+        for phase_rate in [input_rate, input_rate + 1_234] {
+            let mut cpu_core = CpuCore::<f32>::new(derived.clone());
+            let full = tone_channels(channels, chunk_frames + total_frames + chunk_frames, phase_rate);
+            let pre = full[0][..chunk_frames].to_vec();
+            let input = full[0][chunk_frames..chunk_frames + total_frames].to_vec();
+            let post = full[0][chunk_frames + total_frames..].to_vec();
+            cpu_core.pre(pre.clone());
+            cpu_core.post(post.clone());
+            gpu_core.pre(vec![pre]);
+            gpu_core.post(vec![post]);
+
+            let mut cpu_output = Vec::new();
+            let mut gpu_output = vec![Vec::new(); channels];
+            let mut offset = 0;
+            loop {
+                let remaining = total_frames - offset;
+                let is_final = remaining <= chunk_frames;
+                let this_chunk = if is_final { remaining } else { chunk_frames };
+                let out = cpu_core.process_chunk(&input[offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+                cpu_output.extend_from_slice(out);
+                let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
+                gpu_core.push(&refs[..], is_final).expect("gpu push");
+                drain_all_output(&mut gpu_core, channels, &mut gpu_output);
+                offset += this_chunk;
+                if is_final {
+                    break;
+                }
+            }
+            cpu_output.extend_from_slice(cpu_core.finalize().expect("cpu finalize"));
+            gpu_core.finalize().expect("gpu finalize");
+            drain_all_output(&mut gpu_core, channels, &mut gpu_output);
+
+            assert_eq!(cpu_output.len(), gpu_output[0].len(), "phase_rate {phase_rate}: output length mismatch");
+            let max_abs_error = cpu_output.iter().zip(gpu_output[0].iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(max_abs_error < 1e-3, "phase_rate {phase_rate}: max abs error {max_abs_error}");
+
+            gpu_core.reset().expect("reset");
+        }
+    }
+
+    /// Runs the same CPU-vs-GPU comparison as [`assert_batch_matches_cpu`], but with no
+    /// `pre`/`post` context at all (forcing whichever `extrapolation` strategy `config` selects)
+    /// and returns the max abs error instead of asserting, so different strategies can be
+    /// compared against each other by the tests below.
+    fn max_batch_error_no_context(input_rate: usize, output_rate: usize, total_frames: usize, extrapolation: Extrapolation) -> f32 {
+        let context = match GpuContext::new() {
+            Ok(context) => Arc::new(context),
+            Err(err) => {
+                eprintln!("skipping GPU batch investigation: {err}");
+                return 0.0;
+            }
+        };
+        let config = Config::new(input_rate, output_rate, 1).with_extrapolation(extrapolation);
+        let derived = config.derive_config::<f32>().expect("valid config");
+        let chunk_frames = derived.raw_input_chunk_frames();
+
+        let mut cpu_core = CpuCore::<f32>::new(derived.clone());
+        let mut gpu_core = GpuCore::<f32>::new(context, config, 1, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build GpuCore");
+
+        let input: Vec<f32> = tone_channels(1, total_frames, input_rate).remove(0);
+
+        let mut cpu_output = Vec::new();
+        let mut gpu_output = vec![Vec::new(); 1];
+        let mut offset = 0;
+        loop {
+            let remaining = total_frames - offset;
+            let is_final = remaining <= chunk_frames;
+            let this_chunk = if is_final { remaining } else { chunk_frames };
+
+            let out = cpu_core.process_chunk(&input[offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+            cpu_output.extend_from_slice(out);
+
+            let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
+            gpu_core.push(&refs[..], is_final).expect("gpu push");
+            drain_all_output(&mut gpu_core, 1, &mut gpu_output);
+
+            offset += this_chunk;
+            if is_final {
+                break;
+            }
+        }
+        cpu_output.extend_from_slice(cpu_core.finalize().expect("cpu finalize"));
+        gpu_core.finalize().expect("gpu finalize");
+        drain_all_output(&mut gpu_core, 1, &mut gpu_output);
+
+        assert_eq!(cpu_output.len(), gpu_output[0].len());
+        cpu_output.iter().zip(gpu_output[0].iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max)
+    }
+
+    #[test]
+    fn mirror_and_zero_extrapolation_avoid_lpc_gpu_divergence() {
+        for strategy in [Extrapolation::Mirror, Extrapolation::Zero] {
+            let err = max_batch_error_no_context(44_100, 96_000, 44_100 + 777, strategy);
+            assert!(err < 1e-3, "{strategy:?}: unexpectedly large GPU/CPU divergence with no pre/post context: {err}");
+        }
+    }
+
+    /// Documents a known, not-yet-root-caused issue (see project memory): with no `pre`/`post`
+    /// context, `Extrapolation::Lpc`'s tail window -- bit-identical between the CPU and GPU cores
+    /// (same shared `crate::window`/`crate::extrapolation` code, same input) -- produces a much
+    /// larger GPU-vs-CPU divergence than the same rate ratio with `Mirror`/`Zero` content (see
+    /// [`mirror_and_zero_extrapolation_avoid_lpc_gpu_divergence`], which stays within 1e-3). Since
+    /// the window content is identical either way, this points at a real precision gap
+    /// specifically in how vkfft-rs's generated shader FFT handles this particular window's
+    /// content on the GPU, not a general windowing/buffer bug. Real usage should prefer supplying
+    /// real `pre`/`post` context, or `Extrapolation::Mirror`/`Zero`, until this is root-caused.
+    /// This test asserts the bug is still present so a fix gets noticed (and this test updated)
+    /// rather than silently regressing back to a large, unexplained error.
+    #[test]
+    fn lpc_extrapolation_has_known_gpu_divergence_without_context() {
+        let err = max_batch_error_no_context(44_100, 96_000, 44_100 + 777, Extrapolation::Lpc);
+        assert!(
+            err > 0.05,
+            "expected the known Extrapolation::Lpc/GPU divergence to still reproduce (got err={err}); \
+             if this now passes, the underlying issue may be fixed -- update this test and project memory"
+        );
     }
 }

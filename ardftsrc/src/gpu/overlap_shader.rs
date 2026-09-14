@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use ash::vk;
 use vkfft_rs::backend::vulkan::runtime::{VulkanBufferSlice, VulkanComputePipeline};
 use vkfft_rs::backend::vulkan::{VulkanDescriptorBinding, VulkanDescriptorType, VulkanShaderSource};
 use vkfft_rs::{BufferAccess, BufferRole, DispatchGeometry, ScalarType, WorkgroupSize};
 
-use super::buffer::{GpuBuffer, GpuScalar};
+use super::buffer::GpuScalar;
 use super::context::GpuContext;
 use super::error::GpuError;
-use super::fft_program::record_compute_barrier;
 
 const WORKGROUP_SIZE: u32 = 64;
 
@@ -25,25 +23,6 @@ pub(crate) enum OverlapMode {
     /// Finalize-tail block: accumulate `ifft_first_half` into `overlap` (no output emitted;
     /// the caller reads `overlap` directly afterward, as `CpuCore::finalize` does).
     End,
-}
-
-/// The streaming overlap-add compute shader from `gpu_plan.md` section 10.
-///
-/// Built once per `GpuStreamingCore` channel batch, with one persistent GPU-resident
-/// `overlap` buffer and three pipelines (one per [`OverlapMode`]) all bound to the same
-/// `ifft_output`/`overlap`/`output` buffers; [`OverlapAddShader::record`] just picks which
-/// pipeline to append per chunk. Keeping `overlap` device-resident and only ever touched by
-/// this shader (never downloaded/re-uploaded between chunks) is what satisfies `gpu_plan.md`'s
-/// "the CPU should never download overlap data between chunks" rule.
-pub(crate) struct OverlapAddShader<T> {
-    normal: VulkanComputePipeline,
-    start: VulkanComputePipeline,
-    end: VulkanComputePipeline,
-    /// Persistent GPU-resident overlap state, `batch_count * output_chunk_frames` real `T`s.
-    overlap: GpuBuffer<T>,
-    /// This chunk's output, `batch_count * output_chunk_frames` real `T`s (meaningless after
-    /// an [`OverlapMode::Start`]/[`OverlapMode::End`] dispatch, which never write it).
-    output: GpuBuffer<T>,
 }
 
 pub(crate) fn glsl_scalar_name(scalar: ScalarType) -> Result<&'static str, GpuError> {
@@ -122,11 +101,10 @@ void main() {{
     Ok(glsl)
 }
 
-/// Builds one overlap-add pipeline bound to explicit buffer slices, so callers can either bind
-/// whole buffers (the streaming case, [`OverlapAddShader`]) or byte-range windows into a larger
-/// shared buffer (the batch case, `super::batch_overlap_shader::BatchOverlapShader`, which packs
-/// every window's forward/inverse FFT batch contiguously and slices this same shader's `ifft_in`
-/// binding into the right window's region).
+/// Builds one overlap-add pipeline bound to explicit buffer slices -- byte-range windows into a
+/// larger shared buffer (`super::batch_overlap_shader::BatchOverlapShader`, which packs every
+/// window's forward/inverse FFT batch contiguously and slices this shader's `ifft_in` binding
+/// into the right window's region).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_pipeline_with_slices<T: GpuScalar>(
     context: &Arc<GpuContext>,
@@ -197,97 +175,4 @@ pub(crate) fn build_pipeline_with_slices<T: GpuScalar>(
         .map_err(|err| GpuError::PlanCreationFailed(format!("failed to bind overlap-add buffers ({mode:?}): {err}")))?;
 
     Ok(pipeline)
-}
-
-impl<T: GpuScalar> OverlapAddShader<T> {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn build(
-        context: &Arc<GpuContext>,
-        scalar: ScalarType,
-        ifft_output: &GpuBuffer<T>,
-        ifft_stride: usize,
-        output_chunk_frames: usize,
-        input_chunk_frames: usize,
-        batch_count: usize,
-    ) -> Result<Self, GpuError> {
-        let element_count = output_chunk_frames * batch_count;
-        let overlap = GpuBuffer::<T>::new(context, element_count, vk::BufferUsageFlags::empty())?;
-        let zeros = vec![T::default(); element_count];
-        overlap.upload(&zeros)?;
-        let output = GpuBuffer::<T>::new(context, element_count, vk::BufferUsageFlags::empty())?;
-
-        let ifft_slice = VulkanBufferSlice::whole(ifft_output.handle());
-        let output_slice = VulkanBufferSlice::whole(output.handle());
-        let overlap_slice = VulkanBufferSlice::whole(overlap.handle());
-
-        let normal = build_pipeline_with_slices::<T>(
-            context,
-            scalar,
-            OverlapMode::Normal,
-            ifft_slice,
-            ifft_stride,
-            output_chunk_frames,
-            input_chunk_frames,
-            batch_count,
-            output_slice,
-            overlap_slice,
-        )?;
-        let start = build_pipeline_with_slices::<T>(
-            context,
-            scalar,
-            OverlapMode::Start,
-            ifft_slice,
-            ifft_stride,
-            output_chunk_frames,
-            input_chunk_frames,
-            batch_count,
-            output_slice,
-            overlap_slice,
-        )?;
-        let end = build_pipeline_with_slices::<T>(
-            context,
-            scalar,
-            OverlapMode::End,
-            ifft_slice,
-            ifft_stride,
-            output_chunk_frames,
-            input_chunk_frames,
-            batch_count,
-            output_slice,
-            overlap_slice,
-        )?;
-
-        Ok(Self { normal, start, end, overlap, output })
-    }
-
-    /// This chunk's output buffer (only meaningful after an [`OverlapMode::Normal`] dispatch).
-    pub(crate) fn output_buffer(&self) -> &GpuBuffer<T> {
-        &self.output
-    }
-
-    /// The persistent overlap state buffer (meaningful to read directly after an
-    /// [`OverlapMode::End`] dispatch, matching `CpuCore::finalize`'s direct read of `overlap`).
-    pub(crate) fn overlap_buffer(&self) -> &GpuBuffer<T> {
-        &self.overlap
-    }
-
-    /// Resets the persistent overlap state to zero (for `reset()`-style stream restarts).
-    pub(crate) fn reset_overlap(&self) -> Result<(), GpuError> {
-        let zeros = vec![T::default(); self.overlap.len()];
-        self.overlap.upload(&zeros)
-    }
-
-    /// Records `mode`'s dispatch, followed by a full compute barrier, into `command_buffer`
-    /// (which must already be in the recording state).
-    pub(crate) fn record(&self, device: &ash::Device, command_buffer: vk::CommandBuffer, mode: OverlapMode) {
-        let pipeline = match mode {
-            OverlapMode::Normal => &self.normal,
-            OverlapMode::Start => &self.start,
-            OverlapMode::End => &self.end,
-        };
-        // SAFETY: `command_buffer` is in the recording state (caller contract); `pipeline` was
-        // fully built (pipeline + bound descriptor set) in `build` above.
-        unsafe { pipeline.record_dispatch(command_buffer) };
-        record_compute_barrier(device, command_buffer);
-    }
 }

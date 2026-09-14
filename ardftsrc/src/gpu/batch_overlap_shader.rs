@@ -10,7 +10,7 @@ use super::error::GpuError;
 use super::fft_program::record_compute_barrier;
 use super::overlap_shader::{OverlapMode, build_pipeline_with_slices};
 
-/// Sequential-but-single-submission overlap-add assembly for [`super::batch_core::GpuBatchCore`]
+/// Sequential-but-single-submission overlap-add assembly for [`super::batch_core::GpuCore`]
 /// (`gpu_plan.md` sections 14-16).
 ///
 /// The forward FFT / spectral remap / inverse FFT for *every* window in a batch (one synthetic
@@ -156,7 +156,7 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
     }
 
     /// Total GPU-buffer bytes this shader owns (`overlap` + `scratch_output` + `output`), for
-    /// sizing a `GpuBatchCore` ring slot against a memory budget.
+    /// sizing a `GpuCore` ring slot against a memory budget.
     pub(crate) fn total_bytes(&self) -> u64 {
         self.overlap.byte_len() + self.scratch_output.byte_len() + self.output.byte_len()
     }
@@ -165,7 +165,7 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
     /// [`BatchOverlapShader::overlap_buffer`], the previous group's ending overlap state) into
     /// this shader's own `overlap` buffer, followed by a barrier making that write visible to
     /// the compute dispatches [`BatchOverlapShader::record`] appends after it in the same
-    /// command buffer. This is how the pipelined `GpuBatchCore` carries overlap state from one
+    /// command buffer. This is how the pipelined `GpuCore` carries overlap state from one
     /// group's GPU submission into the next without ever downloading it to the host: the whole
     /// carry stays device-resident, recorded as the first commands of the *next* group's own
     /// submission rather than a separate round-trip.
@@ -175,7 +175,7 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
         let region = vk::BufferCopy::default().size(self.overlap.byte_len());
         // SAFETY: `command_buffer` is in the recording state (caller contract); `src` and
         // `self.overlap` are both live buffers of identical length (every `BatchOverlapShader`
-        // for a given `GpuBatchCore` is built with the same `channels`/`output_chunk_frames`).
+        // for a given `GpuCore` is built with the same `channels`/`output_chunk_frames`).
         unsafe { device.cmd_copy_buffer(command_buffer, src.handle(), self.overlap.handle(), &[region]) };
 
         let barrier = vk::MemoryBarrier::default()
