@@ -1,9 +1,9 @@
 use std::fmt::Write as _;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use ash::vk;
 use realfft::num_complex::Complex;
-use vkfft_rs::backend::vulkan::runtime::VulkanBufferSlice;
 use vkfft_rs::backend::vulkan::{VulkanDescriptorBinding, VulkanDescriptorType, VulkanShaderSource, VulkanSpirvShader};
 use vkfft_rs::{BufferAccess, BufferRole, DispatchGeometry, ScalarType, WorkgroupSize};
 
@@ -24,10 +24,7 @@ const WORKGROUP_SIZE: u32 = 64;
 /// `(batch, output bin)` pair instead of a CPU loop over output bins.
 pub(crate) struct RemapShader<T> {
     pipeline: GpuComputePipeline,
-    /// Kept alive only because `pipeline`'s bound descriptor set references its buffer;
-    /// unused otherwise (never re-uploaded after construction).
-    _gain: GpuBuffer<T>,
-    _phase: Option<GpuBuffer<T>>,
+    _marker: PhantomData<T>,
 }
 
 /// Bin-domain geometry the remap shader needs, mirroring
@@ -291,7 +288,7 @@ impl<T: GpuScalar> RemapShader<T> {
         geometry: &RemapGeometry<'_, T>,
         spirv: &VulkanSpirvShader,
     ) -> Result<Self, GpuError> {
-        let pipeline = context.create_compute_pipeline(spirv)?;
+        let mut pipeline = context.create_compute_pipeline(spirv)?;
 
         let gain_buffer = GpuBuffer::<T>::new(context, geometry.gain.len(), vk::BufferUsageFlags::empty())?;
         gain_buffer.upload(geometry.gain)?;
@@ -311,22 +308,20 @@ impl<T: GpuScalar> RemapShader<T> {
         };
 
         let mut bindings = vec![
-            (0u32, VulkanBufferSlice::whole(src.handle())),
-            (1u32, VulkanBufferSlice::whole(dst.handle())),
-            (2u32, VulkanBufferSlice::whole(gain_buffer.handle())),
+            (0u32, src.storage_binding()?),
+            (1u32, dst.storage_binding()?),
+            (2u32, gain_buffer.storage_binding()?),
         ];
         if let Some(phase_buffer) = &phase_buffer {
-            bindings.push((3u32, VulkanBufferSlice::whole(phase_buffer.handle())));
+            bindings.push((3u32, phase_buffer.storage_binding()?));
         }
-        // SAFETY: every bound buffer was created above (or passed in, already live) for this
-        // exact purpose, and no submission referencing this descriptor set exists yet.
-        unsafe { pipeline.update_storage_buffers(&bindings) }
+        pipeline
+            .bind_storage_buffers(bindings)
             .map_err(|err| GpuError::PlanCreationFailed(format!("failed to bind spectral remap buffers: {err}")))?;
 
         Ok(Self {
             pipeline,
-            _gain: gain_buffer,
-            _phase: phase_buffer,
+            _marker: PhantomData,
         })
     }
 

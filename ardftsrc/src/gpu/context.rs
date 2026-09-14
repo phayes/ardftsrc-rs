@@ -4,10 +4,10 @@ use std::sync::{Arc, Mutex, RwLock};
 use ash::vk;
 use num_traits::Float;
 use vkfft_rs::backend::vulkan::VulkanSpirvShader;
-use vkfft_rs::backend::vulkan::runtime::{VulkanBufferSlice, VulkanComputePipeline};
+use vkfft_rs::backend::vulkan::runtime::VulkanComputePipeline;
 use vkfft_rs::{Backend, DeviceProfile, GpuVendor};
 
-use super::buffer::GpuScalar;
+use super::buffer::{GpuScalar, GpuStorageBufferSlice};
 use super::error::GpuError;
 use super::fft_program::FromF64;
 use super::shaders::GpuShaders;
@@ -92,6 +92,7 @@ pub struct GpuDevice {
     pipeline_cache: vk::PipelineCache,
     pipeline_cache_lock: Mutex<()>,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    storage_buffer_offset_alignment: vk::DeviceSize,
     device_profile: DeviceProfile,
     info: GpuInfo,
     /// Serializes command-pool recording/release and queue submission: `vk::CommandPool` is not
@@ -108,17 +109,48 @@ pub struct GpuDevice {
 pub(crate) struct GpuComputePipeline {
     pipeline: VulkanComputePipeline,
     device: Arc<GpuDevice>,
+    expected_scalar: vkfft_rs::ScalarType,
+    expected_bindings: Vec<u32>,
+    _bindings: Vec<GpuStorageBufferSlice>,
 }
 
 impl GpuComputePipeline {
-    /// # Safety
-    ///
-    /// Every supplied slice must refer to a live storage buffer from `self.device`, remain live
-    /// through every dispatch using this pipeline, and satisfy the shader's size/access contract.
-    pub(crate) unsafe fn update_storage_buffers(&self, buffers: &[(u32, VulkanBufferSlice)]) -> Result<(), GpuError> {
-        // SAFETY: the caller upholds the buffer provenance, lifetime, and descriptor contract.
-        unsafe { self.pipeline.update_storage_buffers(buffers) }
-            .map_err(|err| GpuError::PlanCreationFailed(format!("failed to update storage buffers: {err}")))
+    /// Binds validated storage-buffer slices and retains their allocations for this pipeline's
+    /// full lifetime.
+    pub(crate) fn bind_storage_buffers(&mut self, buffers: Vec<(u32, GpuStorageBufferSlice)>) -> Result<(), GpuError> {
+        let actual_bindings = buffers.iter().map(|(binding, _)| *binding).collect::<Vec<_>>();
+        if actual_bindings != self.expected_bindings {
+            return Err(GpuError::PlanCreationFailed(format!(
+                "storage-buffer bindings {actual_bindings:?} do not match shader contract {:?}",
+                self.expected_bindings
+            )));
+        }
+        for (_, buffer) in &buffers {
+            if !Arc::ptr_eq(&self.device, buffer.device()) {
+                return Err(GpuError::PlanCreationFailed(
+                    "cannot bind a storage buffer from a different Vulkan device".to_string(),
+                ));
+            }
+            if buffer.scalar() != self.expected_scalar {
+                return Err(GpuError::PlanCreationFailed(format!(
+                    "storage-buffer scalar {:?} does not match shader scalar {:?}",
+                    buffer.scalar(),
+                    self.expected_scalar
+                )));
+            }
+        }
+
+        let raw = buffers
+            .iter()
+            .map(|(binding, buffer)| (*binding, buffer.raw()))
+            .collect::<Vec<_>>();
+        // SAFETY: each typed slice validated its bounds/alignment during construction, all
+        // allocations belong to this pipeline's device, and `_bindings` retains them after
+        // the descriptor update. Binding IDs and scalar types match the shader metadata.
+        unsafe { self.pipeline.update_storage_buffers(&raw) }
+            .map_err(|err| GpuError::PlanCreationFailed(format!("failed to update storage buffers: {err}")))?;
+        self._bindings = buffers.into_iter().map(|(_, buffer)| buffer).collect();
+        Ok(())
     }
 
     fn record(&self, command: &RecordingCommandBuffer<'_>) {
@@ -285,6 +317,7 @@ impl GpuDevice {
             physical_device,
             queue_family,
             info,
+            storage_buffer_offset_alignment,
             supports_portability_subset,
             vendor,
         } = selected;
@@ -381,6 +414,7 @@ impl GpuDevice {
             pipeline_cache,
             pipeline_cache_lock: Mutex::new(()),
             memory_properties,
+            storage_buffer_offset_alignment,
             device_profile,
             info,
             execution_lock: Mutex::new(()),
@@ -470,6 +504,7 @@ impl GpuDevice {
                 physical_device,
                 queue_family,
                 info,
+                storage_buffer_offset_alignment: properties.limits.min_storage_buffer_offset_alignment.max(1),
                 supports_portability_subset,
                 vendor: gpu_vendor_from_pci_id(properties.vendor_id),
             });
@@ -519,11 +554,20 @@ impl GpuDevice {
         &self.memory_properties
     }
 
+    pub(crate) fn storage_buffer_offset_alignment(&self) -> vk::DeviceSize {
+        self.storage_buffer_offset_alignment
+    }
+
     /// Builds one live compute pipeline while externally synchronizing the shared Vulkan cache.
     pub(crate) fn create_compute_pipeline(
         self: &Arc<Self>,
         shader: &VulkanSpirvShader,
     ) -> Result<GpuComputePipeline, GpuError> {
+        if shader.descriptors.iter().any(|descriptor| descriptor.set != 0) {
+            return Err(GpuError::PlanCreationFailed(
+                "only descriptor set 0 is supported by the typed pipeline wrapper".to_string(),
+            ));
+        }
         let _guard = self
             .pipeline_cache_lock
             .lock()
@@ -538,6 +582,9 @@ impl GpuDevice {
         Ok(GpuComputePipeline {
             pipeline,
             device: Arc::clone(self),
+            expected_scalar: shader.scalar,
+            expected_bindings: shader.descriptors.iter().map(|descriptor| descriptor.binding).collect(),
+            _bindings: Vec::new(),
         })
     }
 
@@ -574,7 +621,7 @@ impl GpuDevice {
     ///
     /// The returned [`GpuSubmission`] owns everything the commands may reference. It releases
     /// those resources only after fence completion, including when dropped during unwinding.
-    pub(crate) fn submit_async<R>(
+    pub(crate) fn submit_async<R: 'static>(
         self: &Arc<Self>,
         resources: R,
         record: for<'a> fn(&RecordingCommandBuffer<'a>, &R),
@@ -895,6 +942,7 @@ struct SelectedDevice {
     physical_device: vk::PhysicalDevice,
     queue_family: u32,
     info: GpuInfo,
+    storage_buffer_offset_alignment: vk::DeviceSize,
     supports_portability_subset: bool,
     vendor: GpuVendor,
 }
@@ -924,15 +972,9 @@ const fn device_score(device_type: GpuDeviceType) -> u8 {
 
 impl Drop for GpuDevice {
     fn drop(&mut self) {
-        // SAFETY: these are destroyed in strict reverse-creation order. `self.device` is an
-        // `Arc`, shared with every `VulkanComputePipeline`/`GpuBuffer` built on this context,
-        // so destroying it here is only sound because every such consumer holds an
-        // `Arc<GpuDevice>` alongside its device clone and, within its own struct, declares
-        // that device-touching field *before* the `Arc<GpuDevice>` field -- Rust drops
-        // struct fields in declaration order, so those consumers' Vulkan objects (and their
-        // device-Arc clones) are always dropped before the last `Arc<GpuDevice>` (and hence
-        // this `Drop`) can run. No GPU work is in flight for the same reason: nothing reaches
-        // this point while a core still holds work submitted against this device.
+        // SAFETY: every buffer allocation, bound pipeline, and pending submission owns an
+        // `Arc<GpuDevice>`, so the last Arc cannot reach this destructor while a child object or
+        // command is still live. Device-level objects are destroyed in reverse creation order.
         unsafe {
             self.device.destroy_pipeline_cache(self.pipeline_cache, None);
             self.device.destroy_command_pool(self.command_pool, None);

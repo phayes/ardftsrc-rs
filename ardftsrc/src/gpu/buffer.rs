@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use ash::vk;
+use vkfft_rs::backend::vulkan::runtime::VulkanBufferSlice;
 
 use super::context::GpuDevice;
 use super::error::GpuError;
@@ -22,10 +23,9 @@ use super::error::GpuError;
 /// staging buffer and an immediate command-buffer copy, submitted and waited on synchronously.
 /// Callers never see which path is in use -- the API shape is identical either way.
 ///
-/// Holds `Arc<GpuDevice>` (not a bare `Arc<ash::Device>`) so that, as long as every struct
-/// embedding a `GpuBuffer<T>` also declares it before any `Arc<GpuDevice>` field of its own,
-/// Rust's declaration-order field drop takes care of destroying this buffer before the
-/// context it was built from.
+/// Its allocation owns the originating [`GpuDevice`], and typed descriptor slices clone the
+/// allocation itself, so neither device nor memory lifetime depends on containing-struct field
+/// order.
 pub(crate) struct GpuBuffer<T> {
     allocation: Arc<BufferAllocation>,
     len: usize,
@@ -52,6 +52,35 @@ unsafe impl Send for BufferAllocation {}
 // SAFETY: shared references held by submission lifetime guards do not access or mutate the
 // allocation; all actual mapped-memory access remains serialized by `GpuBuffer`'s `!Sync` API.
 unsafe impl Sync for BufferAllocation {}
+
+/// An owned, bounds-checked storage-buffer descriptor range.
+///
+/// Cloning the allocation into this value keeps the Vulkan memory alive for as long as a bound
+/// pipeline retains the descriptor.
+pub(crate) struct GpuStorageBufferSlice {
+    allocation: Arc<BufferAllocation>,
+    offset: vk::DeviceSize,
+    range: vk::DeviceSize,
+    scalar: vkfft_rs::ScalarType,
+}
+
+impl GpuStorageBufferSlice {
+    pub(super) fn device(&self) -> &Arc<GpuDevice> {
+        &self.allocation.context
+    }
+
+    pub(super) fn scalar(&self) -> vkfft_rs::ScalarType {
+        self.scalar
+    }
+
+    pub(super) fn raw(&self) -> VulkanBufferSlice {
+        VulkanBufferSlice {
+            buffer: self.allocation.buffer,
+            offset: self.offset,
+            range: self.range,
+        }
+    }
+}
 
 /// A persistent mapping of a [`GpuBuffer`]'s own device memory, used only when that memory is
 /// host-visible (see [`GpuBuffer`]'s own doc).
@@ -285,9 +314,47 @@ impl<T: GpuScalar> GpuBuffer<T> {
         (self.len * std::mem::size_of::<T>()) as u64
     }
 
-    /// The raw Vulkan buffer handle, for binding into a compute pipeline's descriptor set.
+    /// The raw Vulkan buffer handle, used only by typed command-recording operations.
     pub(crate) fn handle(&self) -> vk::Buffer {
         self.allocation.buffer
+    }
+
+    pub(crate) fn storage_binding(&self) -> Result<GpuStorageBufferSlice, GpuError> {
+        self.storage_binding_range(0, self.byte_len())
+    }
+
+    pub(crate) fn storage_binding_range(
+        &self,
+        offset: vk::DeviceSize,
+        range: vk::DeviceSize,
+    ) -> Result<GpuStorageBufferSlice, GpuError> {
+        let byte_len = self.byte_len();
+        let end = offset
+            .checked_add(range)
+            .ok_or_else(|| GpuError::AllocationFailed("storage-buffer descriptor range overflows".to_string()))?;
+        if range == 0 || end > byte_len {
+            return Err(GpuError::AllocationFailed(format!(
+                "storage-buffer descriptor range {offset}..{end} exceeds buffer length {byte_len}"
+            )));
+        }
+        let alignment = self.allocation.context.storage_buffer_offset_alignment();
+        if !offset.is_multiple_of(alignment) {
+            return Err(GpuError::AllocationFailed(format!(
+                "storage-buffer descriptor offset {offset} is not aligned to device requirement {alignment}"
+            )));
+        }
+        if range > self.allocation.context.info().max_storage_buffer_range {
+            return Err(GpuError::AllocationFailed(format!(
+                "storage-buffer descriptor range {range} exceeds device limit {}",
+                self.allocation.context.info().max_storage_buffer_range
+            )));
+        }
+        Ok(GpuStorageBufferSlice {
+            allocation: Arc::clone(&self.allocation),
+            offset,
+            range,
+            scalar: T::scalar_type(),
+        })
     }
 
     /// Uploads `values` (which must have length [`GpuBuffer::len`]) into this buffer. On
@@ -571,6 +638,11 @@ mod tests {
         };
 
         let buffer = GpuBuffer::<f32>::new(&context, 1024, vk::BufferUsageFlags::empty()).expect("allocate buffer");
+        assert!(buffer.storage_binding().is_ok());
+        assert!(buffer.storage_binding_range(buffer.byte_len(), 1).is_err());
+        if context.storage_buffer_offset_alignment() > 1 {
+            assert!(buffer.storage_binding_range(1, buffer.byte_len() - 1).is_err());
+        }
         eprintln!(
             "GpuBuffer<f32> on {}: direct-mapped = {}",
             context.device_name(),

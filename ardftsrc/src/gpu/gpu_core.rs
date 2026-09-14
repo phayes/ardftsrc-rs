@@ -79,8 +79,6 @@ pub struct GpuCore<T> {
 /// the whole stream once built (steady-state groups are structurally identical; only the
 /// one-off true start/end groups, built separately, differ in shape and are never recycled).
 struct Group<T> {
-    // Must be dropped before `pipeline`: its descriptors bind the transform output buffer.
-    // Rust drops struct fields in declaration order.
     overlap: BatchOverlapShader<T>,
     pipeline: GpuTransformPipeline<T>,
     upload_staging: Vec<T>,

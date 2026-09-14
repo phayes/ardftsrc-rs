@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use vkfft_rs::backend::vulkan::runtime::VulkanBufferSlice;
 use vkfft_rs::backend::vulkan::{VulkanDescriptorBinding, VulkanDescriptorType, VulkanShaderSource, VulkanSpirvShader};
 use vkfft_rs::{BufferAccess, BufferRole, DispatchGeometry, ScalarType, WorkgroupSize};
 
-use super::buffer::GpuScalar;
+use super::buffer::GpuStorageBufferSlice;
 use super::context::{GpuComputePipeline, GpuDevice};
 use super::error::GpuError;
 
@@ -177,22 +176,21 @@ pub(crate) fn compile_overlap_shader(
 /// window's forward/inverse FFT batch contiguously and slices this shader's `ifft_in` binding
 /// into the right window's region).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn build_pipeline_with_slices<T: GpuScalar>(
+pub(crate) fn build_pipeline_with_slices(
     context: &Arc<GpuDevice>,
     mode: OverlapMode,
     spirv: &VulkanSpirvShader,
-    ifft_slice: VulkanBufferSlice,
-    output_slice: VulkanBufferSlice,
-    overlap_slice: VulkanBufferSlice,
+    ifft_slice: GpuStorageBufferSlice,
+    output_slice: GpuStorageBufferSlice,
+    overlap_slice: GpuStorageBufferSlice,
 ) -> Result<GpuComputePipeline, GpuError> {
-    let pipeline = context.create_compute_pipeline(spirv).map_err(|err| {
+    let mut pipeline = context.create_compute_pipeline(spirv).map_err(|err| {
         GpuError::PlanCreationFailed(format!("failed to build overlap-add pipeline ({mode:?}): {err}"))
     })?;
 
-    let bindings = [(0u32, ifft_slice), (1u32, output_slice), (2u32, overlap_slice)];
-    // SAFETY: every bound buffer is live and sized for this exact purpose, and no submission
-    // referencing this descriptor set exists yet.
-    unsafe { pipeline.update_storage_buffers(&bindings) }
+    let bindings = vec![(0u32, ifft_slice), (1u32, output_slice), (2u32, overlap_slice)];
+    pipeline
+        .bind_storage_buffers(bindings)
         .map_err(|err| GpuError::PlanCreationFailed(format!("failed to bind overlap-add buffers ({mode:?}): {err}")))?;
 
     Ok(pipeline)

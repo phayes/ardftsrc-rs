@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use ash::vk;
-use vkfft_rs::backend::vulkan::runtime::VulkanBufferSlice;
 
 use super::buffer::{GpuBuffer, GpuScalar};
 use super::context::{GpuComputePipeline, GpuDevice, RecordingCommandBuffer};
@@ -24,7 +23,7 @@ use super::shaders::OverlapShaders;
 /// (`gpu_plan.md` section 16's `Y[k] = A[k] + B[k-1]`). Rather than a single fully-parallel 3D
 /// `(sample, channel, chunk)` dispatch, this reuses [`super::overlap_shader`]'s existing
 /// Normal/Start/End GLSL bodies and simply builds one small pipeline per window, each bound (via
-/// [`VulkanBufferSlice`] byte-range offsets, not separate buffers) to that window's own slice of
+/// bounds-checked byte-range offsets, not separate buffers) to that window's own slice of
 /// the big transform-pipeline output and to a shared, tiny persistent overlap buffer -- then
 /// [`BatchOverlapShader::record`] dispatches all of them in window order into one command buffer.
 /// This is still one GPU submission with no CPU-side serial overlap-add (satisfying "do not
@@ -81,36 +80,29 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
         let elem_size = std::mem::size_of::<T>() as vk::DeviceSize;
         let window_stride_bytes = (channels as vk::DeviceSize) * (ifft_stride as vk::DeviceSize) * 2 * elem_size;
         let chunk_output_bytes = (channels as vk::DeviceSize) * (output_chunk_frames as vk::DeviceSize) * elem_size;
-        let overlap_slice = VulkanBufferSlice::whole(overlap.handle());
-        let scratch_output_slice = VulkanBufferSlice::whole(scratch_output.handle());
-
         let mut pipelines = Vec::with_capacity(window_modes.len());
         let mut chunk_index = 0;
         for (window_index, &mode) in window_modes.iter().enumerate() {
-            let ifft_slice = VulkanBufferSlice {
-                buffer: ifft_output.handle(),
-                offset: window_index as vk::DeviceSize * window_stride_bytes,
-                range: window_stride_bytes,
-            };
+            let ifft_slice = ifft_output.storage_binding_range(
+                window_index as vk::DeviceSize * window_stride_bytes,
+                window_stride_bytes,
+            )?;
             let output_slice = if mode == OverlapMode::Normal {
-                let slice = VulkanBufferSlice {
-                    buffer: output.handle(),
-                    offset: chunk_index as vk::DeviceSize * chunk_output_bytes,
-                    range: chunk_output_bytes,
-                };
+                let slice = output
+                    .storage_binding_range(chunk_index as vk::DeviceSize * chunk_output_bytes, chunk_output_bytes)?;
                 chunk_index += 1;
                 slice
             } else {
-                scratch_output_slice
+                scratch_output.storage_binding()?
             };
 
-            let pipeline = build_pipeline_with_slices::<T>(
+            let pipeline = build_pipeline_with_slices(
                 context,
                 mode,
                 shaders.get(mode),
                 ifft_slice,
                 output_slice,
-                overlap_slice,
+                overlap.storage_binding()?,
             )?;
             pipelines.push(pipeline);
         }

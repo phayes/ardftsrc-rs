@@ -21,8 +21,6 @@ use super::shaders::TransformShaders;
 /// between the forward and inverse FFT -- satisfying `gpu_plan.md`'s design rule against a
 /// host round-trip there, without touching `vkfft-rs` internals.
 pub(crate) struct GpuTransformPipeline<T> {
-    // Must be dropped before `forward` and `inverse`: its descriptors bind buffers owned by
-    // both FFTs. Rust drops struct fields in declaration order.
     remap: RemapShader<T>,
     forward: GpuRealFft<T>,
     inverse: GpuRealFft<T>,

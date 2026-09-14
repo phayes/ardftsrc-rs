@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use ash::vk;
 use num_traits::Float;
-use vkfft_rs::backend::vulkan::runtime::VulkanBufferSlice;
 use vkfft_rs::backend::vulkan::{VulkanGlslBackend, VulkanSpirvShader};
 use vkfft_rs::{
     Complex64, FftConfig, Precision, ProgramIr, ProgramResourceInitialization, ProgramResourceKind, RealFftIr,
@@ -84,15 +83,6 @@ pub(crate) struct GpuRealFft<T> {
     /// Complex elements per batch row in [`GpuRealFft::output_buffer`] -- may exceed
     /// the half-spectrum length (R2C) or transform length (C2R).
     output_stride: usize,
-}
-
-impl<T> Drop for GpuRealFft<T> {
-    fn drop(&mut self) {
-        // Descriptor sets owned by these pipelines reference `allocations`. Rust drops fields
-        // in declaration order, so explicitly clear the pipelines before automatic field
-        // destruction reaches the buffers.
-        self.pipelines.clear();
-    }
 }
 
 pub(crate) struct CompiledFft {
@@ -250,26 +240,17 @@ impl<T: GpuScalar + FromF64> GpuRealFft<T> {
                     shader.scalar
                 )));
             }
-            // SAFETY: `context.device()` is a live logical device that this `GpuRealFft` keeps
-            // alive indirectly (every consumer of a `GpuRealFft` also holds `Arc<GpuDevice>`,
-            // per the field-ordering discipline documented on `GpuBuffer`); `shader` is a
-            // freshly compiled, valid SPIR-V module.
-            let pipeline = context.create_compute_pipeline(shader)?;
+            let mut pipeline = context.create_compute_pipeline(shader)?;
 
             let mut bindings = Vec::with_capacity(pass.bindings.len());
             for binding in &pass.bindings {
                 let allocation_id = memory_plan
                     .allocation_for(binding.resource)
                     .map_err(|err| vkfft_err("FFT pass binding has no allocation", err))?;
-                bindings.push((
-                    binding.binding,
-                    VulkanBufferSlice::whole(allocations[allocation_id.0].handle()),
-                ));
+                bindings.push((binding.binding, allocations[allocation_id.0].storage_binding()?));
             }
-            // SAFETY: every buffer in `bindings` was just created above for exactly this
-            // purpose (storage-buffer usage, correctly sized), and no submission referencing
-            // this pipeline's descriptor set exists yet.
-            unsafe { pipeline.update_storage_buffers(&bindings) }
+            pipeline
+                .bind_storage_buffers(bindings)
                 .map_err(|err| vkfft_err("failed to bind FFT pass buffers", err))?;
 
             pipelines.push(pipeline);
