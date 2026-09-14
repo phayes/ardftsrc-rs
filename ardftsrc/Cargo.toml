@@ -17,6 +17,8 @@ rayon = { workspace = true, optional = true }
 rodio = { version = "0.22", default-features = false, optional = true }
 tracing = { version = "0.1", optional = true }
 pxfm = { version = "0.1.29", optional = true }
+ash = { version = "0.38", optional = true }
+vkfft-rs = { path = "/opt/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
 twofloat = { workspace = true, optional = true }
 num-complex = { workspace = true, optional = true }
 num-integer = { workspace = true, optional = true }
@@ -34,6 +36,9 @@ mimalloc.workspace = true
 
 [features]
 default = ["avx", "neon", "sse", "wasm_simd"]
+
+# GPU Features (disabled by default)
+gpu = ["dep:ash", "dep:vkfft-rs"]
 
 # SIMD features (enabled by default)
 avx = ["realfft/avx"]

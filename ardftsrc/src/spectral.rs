@@ -421,7 +421,7 @@ mod tests {
 mod tone_tests {
     use super::*;
     use crate::Config;
-    use crate::core::ArdftsrcCore;
+    use crate::cpu_core::CpuCore;
 
     const AMP: f64 = 0.5;
     const BW: f32 = 0.9114534;
@@ -435,7 +435,7 @@ mod tone_tests {
     }
 
     fn resample(config: Config, input: &[f64]) -> Vec<f64> {
-        let mut core = ArdftsrcCore::<f64>::new(config.derive_config::<f64>().unwrap());
+        let mut core = CpuCore::<f64>::new(config.derive_config::<f64>().unwrap());
         let output = core.process_all(input).unwrap();
         assert!(output.iter().all(|sample| sample.is_finite()), "non-finite output");
         output

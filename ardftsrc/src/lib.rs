@@ -1,10 +1,12 @@
 #![doc = include_str!("../README.md")]
 
+mod as_channels;
 mod beta_reg;
 mod config;
-mod core;
+mod cpu_core;
 mod decimate;
 mod error;
+mod extrapolation;
 mod interleaved_resampler;
 mod lpc;
 mod planar_resampler;
@@ -12,19 +14,30 @@ mod planar_vecs;
 mod realtime;
 mod spectral;
 mod taper;
+mod window;
 
 // feature: dd_fft
 #[cfg(feature = "dd_fft")]
 mod dd_fft;
 
+// feature: gpu
+#[cfg(feature = "gpu")]
+mod gpu;
+
+#[cfg(feature = "gpu")]
+pub use gpu::{GpuBatchCore, GpuCapabilities, GpuContext, GpuError, GpuStreamingCore};
+
+pub use as_channels::{AsChannels, AsChannelsMut};
 pub use config::{AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 pub use error::Error;
+pub use extrapolation::Extrapolation;
 pub use interleaved_resampler::InterleavedResampler;
 pub use planar_resampler::PlanarResampler;
 pub use planar_vecs::PlanarVecs;
 pub use realtime::RealtimeResampler;
 pub use realtime::SamplesLeftInSpan;
 pub use taper::TaperType;
+pub use cpu_core::CpuCore;
 
 #[cfg(test)]
 mod test_utils;

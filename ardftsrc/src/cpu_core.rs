@@ -7,9 +7,9 @@ use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
 use crate::Error;
 use crate::config::DerivedConfig;
 use crate::decimate::DecimationChain;
-use crate::lpc::{ExtrapolateFallback, extrapolate_backward, extrapolate_forward};
+use crate::window;
 
-pub(crate) struct ArdftsrcCore<T = f64>
+pub struct CpuCore<T = f64>
 where
     T: Float + FftNum,
 {
@@ -83,7 +83,7 @@ enum TransformMode {
     End,
 }
 
-impl<T> ArdftsrcCore<T>
+impl<T> CpuCore<T>
 where
     T: Float + FftNum,
 {
@@ -469,13 +469,13 @@ where
 
         let is_first_input = self.input_sample_count == 0;
         if is_first_input {
-            self.synthesize_start_context(input_samples)?;
+            self.synthesize_start_context(&input[..input_samples])?;
             self.copy_input_to_window(input, input_samples);
         }
 
         let is_short_final = is_final && input_samples < self.input_chunk_len_samples();
         if is_short_final {
-            self.synthesize_final_block_missing_samples(input, input_samples);
+            self.synthesize_final_block_missing_samples(&input[..input_samples]);
         }
 
         self.transform_chunk(TransformMode::Normal)?;
@@ -511,131 +511,41 @@ where
     /// Loads input samples into the FFT window at the configured offset.
     #[inline]
     fn copy_input_to_window(&mut self, input: &[T], input_samples: usize) {
-        self.scratch.rdft_in.fill(T::zero());
-        let dst = &mut self.scratch.rdft_in[self.derived.input_offset..self.derived.input_offset + input_samples];
-        dst.copy_from_slice(&input[..input_samples]);
-    }
-
-    /// Copies up to `dst.len()` trailing samples from `pre` into `dst`'s tail.
-    fn copy_pre_tail(&self, dst: &mut [T]) -> usize {
-        let Some(pre) = &self.pre else {
-            return 0;
-        };
-        let copied = pre.len().min(dst.len());
-        let start = pre.len() - copied;
-        let dst_start = dst.len() - copied;
-        dst[dst_start..].copy_from_slice(&pre[start..start + copied]);
-        copied
-    }
-
-    /// Copies up to `dst.len()` leading samples from `post` into `dst`'s head.
-    fn copy_post_head(&self, dst: &mut [T]) -> usize {
-        let Some(post) = &self.post else {
-            return 0;
-        };
-        let copied = post.len().min(dst.len());
-        dst[..copied].copy_from_slice(&post[..copied]);
-        copied
+        window::write_normal_window(&mut self.scratch.rdft_in, self.derived.input_offset, &input[..input_samples]);
     }
 
     /// Synthesizes start-edge context by backward extrapolation for the first non-empty chunk.
     ///
     /// Returns `Ok(())` after start context is prepared (or when no work is needed), or an error
     /// if the FFT pipeline fails while staging overlap state.
-    fn synthesize_start_context(&mut self, input_samples: usize) -> Result<(), Error> {
-        if input_samples == 0 {
+    fn synthesize_start_context(&mut self, input: &[T]) -> Result<(), Error> {
+        if input.is_empty() {
             return Ok(());
         }
 
-        let input_start = self.derived.input_offset;
-        let input_end = input_start + input_samples;
-        let mut predicted = vec![T::zero(); input_start];
-        let copied = self.copy_pre_tail(&mut predicted);
-        if copied < input_start {
-            let fallback_len = input_start - copied;
-            let fallback = extrapolate_backward(
-                &self.scratch.rdft_in[input_start..input_end],
-                fallback_len,
-                ExtrapolateFallback::Hold,
-            );
-            predicted[..fallback_len].copy_from_slice(&fallback);
-        }
-
-        self.scratch.rdft_in.fill(T::zero());
-        let tail_start = self.input_chunk_len_samples();
-        self.scratch.rdft_in[tail_start..tail_start + predicted.len()].copy_from_slice(&predicted);
+        window::write_start_window(
+            &mut self.scratch.rdft_in,
+            self.derived.input_chunk_frames,
+            self.derived.input_offset,
+            self.pre.as_deref(),
+            input,
+            self.derived.extrapolation,
+        );
         self.transform_chunk(TransformMode::Start)?;
         Ok(())
     }
 
-    /// Fills a synthetic forward tail from `post` first, then LPC extrapolation fallback.
-    fn build_tail_prediction(&self, base: &[T], needed: usize) -> Vec<T> {
-        let mut predicted = vec![T::zero(); needed];
-        let copied = self.copy_post_head(&mut predicted);
-        if copied < needed {
-            let mut seed = Vec::with_capacity(base.len() + copied);
-            seed.extend_from_slice(base);
-            seed.extend_from_slice(&predicted[..copied]);
-            let fallback = extrapolate_forward(&seed, needed - copied, ExtrapolateFallback::Hold);
-            predicted[copied..].copy_from_slice(&fallback);
-        }
-        predicted
-    }
-
-    /// Builds stop-edge work window from prior history for a final short chunk.
-    fn assemble_short_final_work_window(
-        &self,
-        input: &[T],
-        input_samples: usize,
-        chunk_samples: usize,
-        pad_samples: usize,
-    ) -> Vec<T> {
-        let mut work = vec![T::zero(); chunk_samples * 2];
-        work[..pad_samples].copy_from_slice(&self.prev_input_window[input_samples..input_samples + pad_samples]);
-        work[pad_samples..pad_samples + input_samples].copy_from_slice(&input[..input_samples]);
-        work
-    }
-
-    /// Predicts and writes the synthetic short-final tail into `work`.
-    fn fill_short_final_predicted_tail(&self, work: &mut [T], chunk_samples: usize) -> Vec<T> {
-        let predicted = self.build_tail_prediction(&work[..chunk_samples], chunk_samples);
-        work[chunk_samples..chunk_samples * 2].copy_from_slice(&predicted);
-        predicted
-    }
-
-    /// Commits short-final history mutations used by later finalize paths.
-    fn commit_short_final_history(
-        &mut self,
-        input_samples: usize,
-        pad_samples: usize,
-        predicted: &[T],
-        chunk_samples: usize,
-    ) {
-        if input_samples == 0 {
-            return;
-        }
-        self.prev_input_window[..input_samples].copy_from_slice(&predicted[pad_samples..pad_samples + input_samples]);
-        self.prev_input_window[input_samples..chunk_samples].fill(T::zero());
-        self.prev_input_window[chunk_samples..chunk_samples * 2].fill(T::zero());
-    }
-
-    /// Stages synthesized short-final window into `scratch.rdft_in`.
-    fn stage_short_final_rdft_input_from_work(&mut self, work: &[T], pad_samples: usize, chunk_samples: usize) {
-        self.scratch.rdft_in.fill(T::zero());
-        let window_start = self.derived.input_offset;
-        self.scratch.rdft_in[window_start..window_start + chunk_samples]
-            .copy_from_slice(&work[pad_samples..pad_samples + chunk_samples]);
-    }
-
     /// Builds stop-edge window from prior history for a final short chunk.
-    fn synthesize_final_block_missing_samples(&mut self, input: &[T], input_samples: usize) {
-        let chunk_samples = self.input_chunk_len_samples();
-        let pad_samples = chunk_samples - input_samples;
-
-        let mut work = self.assemble_short_final_work_window(input, input_samples, chunk_samples, pad_samples);
-        let predicted = self.fill_short_final_predicted_tail(&mut work, chunk_samples);
-        self.commit_short_final_history(input_samples, pad_samples, &predicted, chunk_samples);
-        self.stage_short_final_rdft_input_from_work(&work, pad_samples, chunk_samples);
+    fn synthesize_final_block_missing_samples(&mut self, input: &[T]) {
+        window::write_short_final_window(
+            &mut self.scratch.rdft_in,
+            &mut self.prev_input_window,
+            input,
+            self.derived.input_chunk_frames,
+            self.derived.input_offset,
+            self.post.as_deref(),
+            self.derived.extrapolation,
+        );
     }
 
     /// Runs one chunk through the FFT-domain resampling pipeline for the current window.
@@ -705,11 +615,12 @@ where
 
     /// Persists the current window so later stop extrapolation has sample-local history.
     fn save_current_window(&mut self) {
-        let chunk_samples = self.input_chunk_len_samples();
-        let history_start = self.derived.input_offset;
-        let history_end = history_start + chunk_samples;
-        self.prev_input_window[..chunk_samples].copy_from_slice(&self.scratch.rdft_in[history_start..history_end]);
-        self.prev_input_window[chunk_samples..].fill(T::zero());
+        window::save_current_window(
+            &mut self.prev_input_window,
+            &self.scratch.rdft_in,
+            self.derived.input_offset,
+            self.derived.input_chunk_frames,
+        );
     }
 
     /// Adds synthetic stop tails into overlap when the final chunk was not short.
@@ -722,23 +633,21 @@ where
             return Ok(());
         }
 
-        self.scratch.rdft_in.fill(T::zero());
-        let chunk_samples = self.input_chunk_len_samples();
-        let input_offset = self.derived.input_offset;
-        let base = self.prev_input_window[..chunk_samples].to_vec();
-        let predicted = self.build_tail_prediction(&base, input_offset);
-        self.prev_input_window[chunk_samples..chunk_samples * 2].fill(T::zero());
-        self.prev_input_window[chunk_samples..chunk_samples + predicted.len()].copy_from_slice(&predicted);
-        let input_start = self.derived.input_offset;
-        self.scratch.rdft_in[input_start..input_start + chunk_samples]
-            .copy_from_slice(&self.prev_input_window[chunk_samples..chunk_samples + chunk_samples]);
+        window::write_finalize_tail_window(
+            &mut self.scratch.rdft_in,
+            &mut self.prev_input_window,
+            self.derived.input_chunk_frames,
+            self.derived.input_offset,
+            self.post.as_deref(),
+            self.derived.extrapolation,
+        );
 
         self.transform_chunk(TransformMode::End)?;
         Ok(())
     }
 }
 
-/// Plans the forward real FFT for one [`ArdftsrcCore`] instance.
+/// Plans the forward real FFT for one [`CpuCore`] instance.
 ///
 /// When the `dd_fft` feature is compiled in, `use_dd_fft` selects the double-double-precision
 /// engine for `f64`; otherwise the stock `realfft` planner is used. `T` is a compile-time generic
@@ -770,7 +679,7 @@ fn plan_forward<T: Float + FftNum>(
     planner.plan_fft_forward(len)
 }
 
-/// Inverse counterpart of [`plan_forward`]. Plans the inverse real FFT for one [`ArdftsrcCore`] instance.
+/// Inverse counterpart of [`plan_forward`]. Plans the inverse real FFT for one [`CpuCore`] instance.
 ///
 /// When the `dd_fft` feature is compiled in, `use_dd_fft` selects the double-double-precision
 /// engine for `f64`; otherwise the stock `realfft` planner is used. `T` is a compile-time generic
@@ -821,7 +730,7 @@ mod dd_backend_wiring_tests {
 
     fn assert_f64_core_resamples_a_sine_correctly(config: Config) {
         let derived = config.derive_config::<f64>().unwrap();
-        let mut core = ArdftsrcCore::<f64>::new(derived);
+        let mut core = CpuCore::<f64>::new(derived);
 
         let input_hz = 1_000.0;
         let input_rate = 44_100.0;

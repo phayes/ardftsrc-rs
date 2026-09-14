@@ -1,4 +1,5 @@
 use crate::TaperType;
+use crate::extrapolation::Extrapolation;
 use crate::spectral::SpectralPlan;
 use num_traits::Float;
 
@@ -272,6 +273,13 @@ pub struct Config {
     /// Default value is `false`.
     pub decimate: bool,
 
+    /// Strategy used to synthesize missing start/stop-edge samples whenever real `pre`/`post`
+    /// context (set via a core's `pre()`/`post()` methods) doesn't cover everything a window
+    /// needs.
+    ///
+    /// Default value is [`Extrapolation::Lpc`].
+    pub extrapolation: Extrapolation,
+
     /// For [`RodioResampler`](crate::RodioResampler), this setting controls whether to use a fast start mode.
     ///
     /// Fast start mode will prime the resampler with initial samples to get it up to speed, and avoid start-up silence.
@@ -308,6 +316,7 @@ impl Config {
         phase_intensity: 50.0,
         alias_floor: AliasFloor::Fraction(1.0),
         decimate: false,
+        extrapolation: Extrapolation::Lpc,
         #[cfg(feature = "rodio")]
         rodio_fast_start: false,
         #[cfg(feature = "dd_fft")]
@@ -485,6 +494,16 @@ impl Config {
         self
     }
 
+    /// Strategy used to synthesize missing start/stop-edge samples whenever real `pre`/`post`
+    /// context doesn't cover everything a window needs.
+    ///
+    /// Default value is [`Extrapolation::Lpc`].
+    #[must_use]
+    pub fn with_extrapolation(mut self, extrapolation: Extrapolation) -> Self {
+        self.extrapolation = extrapolation;
+        self
+    }
+
     /// Selects the double-double-precision FFT backend.
     ///
     /// This backend is substantially slower and more memory intensive than the default
@@ -604,6 +623,8 @@ pub struct DerivedConfig<T> {
     pub(crate) decimation_taps: Vec<T>,
     /// Whether to use the optional double-double-precision FFT backend.
     pub(crate) dd_fft: bool,
+    /// Strategy used to synthesize missing start/stop-edge samples; see [`Config::extrapolation`].
+    pub(crate) extrapolation: Extrapolation,
 }
 
 impl<T> DerivedConfig<T> {
@@ -663,7 +684,7 @@ where
         let decimation_taps = if decimation_stages > 0 {
             // Cap each stage's group delay to roughly the (decimated-domain) chunk size, so
             // flushing the cascade's trailing state at end-of-stream stays effectively lossless
-            // (see `decimate::design_decimation_taps` and `ArdftsrcCore`'s finalize handling).
+            // (see `decimate::design_decimation_taps` and `CpuCore`'s finalize handling).
             crate::decimate::design_decimation_taps(config.bandwidth, input_chunk_frames)
         } else {
             Vec::new()
@@ -687,6 +708,7 @@ where
             decimation_stages,
             decimation_taps,
             dd_fft,
+            extrapolation: config.extrapolation,
         }
     }
 }

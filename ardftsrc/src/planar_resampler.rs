@@ -3,7 +3,7 @@ use num_traits::Float;
 use rayon::prelude::*;
 use realfft::FftNum;
 
-use crate::{Config, Error, PlanarVecs, config::DerivedConfig, core::ArdftsrcCore};
+use crate::{Config, Error, PlanarVecs, config::DerivedConfig, cpu_core::CpuCore};
 
 /// Chunked sample-rate converter for planar audio buffers.
 ///
@@ -26,7 +26,7 @@ where
 {
     config: Config,
     derived: DerivedConfig<T>,
-    pub(crate) cores: Vec<ArdftsrcCore<T>>,
+    pub(crate) cores: Vec<CpuCore<T>>,
 }
 
 impl<T> PlanarResampler<T>
@@ -40,7 +40,7 @@ where
     pub fn new(config: Config) -> Result<Self, Error> {
         let derived = config.derive_config::<T>()?;
         let cores = (0..config.channels)
-            .map(|_| ArdftsrcCore::new(derived.clone()))
+            .map(|_| CpuCore::new(derived.clone()))
             .collect();
 
         Ok(Self { config, derived, cores })
@@ -55,13 +55,13 @@ where
     /// Returns the total number of input samples processed across all channels.
     #[inline]
     pub fn input_sample_processed(&self) -> usize {
-        self.cores.iter().map(ArdftsrcCore::input_sample_processed).sum()
+        self.cores.iter().map(CpuCore::input_sample_processed).sum()
     }
 
     /// Returns the total number of output samples processed across all channels.
     #[inline]
     pub fn output_sample_processed(&self) -> usize {
-        self.cores.iter().map(ArdftsrcCore::output_sample_processed).sum()
+        self.cores.iter().map(CpuCore::output_sample_processed).sum()
     }
 
     /// Returns the required total `input` length for each [`process_chunk()`](Self::process_chunk) call.
@@ -215,7 +215,7 @@ where
 
     #[inline]
     fn process_chunk_inner(
-        cores: &mut [ArdftsrcCore<T>],
+        cores: &mut [CpuCore<T>],
         input: &[&[T]],
         output: &mut [&mut [T]],
         is_final: bool,
@@ -570,7 +570,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TaperType, core::ArdftsrcCore, test_utils::assert_no_nans};
+    use crate::{TaperType, cpu_core::CpuCore, test_utils::assert_no_nans};
     use dasp_signal::Signal;
 
     fn input_chunk_frames(resampler: &PlanarResampler<f32>) -> usize {
@@ -731,7 +731,7 @@ mod tests {
         (max_abs_error, max_abs_error_idx)
     }
 
-    fn run_core_process_all(core: &mut ArdftsrcCore<f32>, input: &[f32]) -> Vec<f32> {
+    fn run_core_process_all(core: &mut CpuCore<f32>, input: &[f32]) -> Vec<f32> {
         let mut output = Vec::new();
         let mut offset = 0;
         let input_chunk = core.input_buffer_size();
@@ -878,8 +878,8 @@ mod tests {
             ..config.clone()
         };
         let derived = mono_config.derive_config::<f32>().unwrap();
-        let mut left_core = ArdftsrcCore::<f32>::new(derived.clone());
-        let mut right_core = ArdftsrcCore::<f32>::new(derived);
+        let mut left_core = CpuCore::<f32>::new(derived.clone());
+        let mut right_core = CpuCore::<f32>::new(derived);
 
         left_core.pre(deinterleave_channel(&pre, 2, 0));
         right_core.pre(deinterleave_channel(&pre, 2, 1));
