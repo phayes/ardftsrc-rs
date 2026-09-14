@@ -3,14 +3,13 @@ use std::sync::Arc;
 
 use ash::vk;
 use realfft::num_complex::Complex;
-use vkfft_rs::backend::vulkan::runtime::{VulkanBufferSlice, VulkanComputePipeline};
-use vkfft_rs::backend::vulkan::{VulkanDescriptorBinding, VulkanDescriptorType, VulkanShaderSource};
+use vkfft_rs::backend::vulkan::runtime::VulkanBufferSlice;
+use vkfft_rs::backend::vulkan::{VulkanDescriptorBinding, VulkanDescriptorType, VulkanShaderSource, VulkanSpirvShader};
 use vkfft_rs::{BufferAccess, BufferRole, DispatchGeometry, ScalarType, WorkgroupSize};
 
 use super::buffer::{GpuBuffer, GpuScalar};
-use super::context::GpuContext;
+use super::context::{GpuComputePipeline, GpuDevice, RecordingCommandBuffer};
 use super::error::GpuError;
-use super::fft_program::record_compute_barrier;
 
 const WORKGROUP_SIZE: u32 = 64;
 
@@ -24,7 +23,7 @@ const WORKGROUP_SIZE: u32 = 64;
 /// once on the CPU and uploaded here unchanged), reparameterized as one GPU invocation per
 /// `(batch, output bin)` pair instead of a CPU loop over output bins.
 pub(crate) struct RemapShader<T> {
-    pipeline: VulkanComputePipeline,
+    pipeline: GpuComputePipeline,
     /// Kept alive only because `pipeline`'s bound descriptor set references its buffer;
     /// unused otherwise (never re-uploaded after construction).
     _gain: GpuBuffer<T>,
@@ -53,7 +52,9 @@ fn glsl_scalar_names(scalar: ScalarType) -> Result<(&'static str, &'static str),
     match scalar {
         ScalarType::F32 => Ok(("float", "vec2")),
         ScalarType::F64 => Ok(("double", "dvec2")),
-        _ => Err(GpuError::PlanCreationFailed("spectral remap shader only supports f32/f64".to_string())),
+        _ => Err(GpuError::PlanCreationFailed(
+            "spectral remap shader only supports f32/f64".to_string(),
+        )),
     }
 }
 
@@ -81,11 +82,27 @@ fn build_glsl<T>(
     // buffer with GLSL's `writeonly` qualifier (`StorageAddressSpaceWriteOnlyNotSupported`);
     // `vkfft-rs`'s own generated shaders declare their output buffer as plain read-write
     // `buffer` for the same reason, so this matches that convention.
-    writeln!(glsl, "layout(set = 0, binding = 0, std430) readonly buffer SrcBuf {{ {cvec_ty} src[]; }};").unwrap();
-    writeln!(glsl, "layout(set = 0, binding = 1, std430) buffer DstBuf {{ {cvec_ty} dst[]; }};").unwrap();
-    writeln!(glsl, "layout(set = 0, binding = 2, std430) readonly buffer GainBuf {{ {float_ty} gain[]; }};").unwrap();
+    writeln!(
+        glsl,
+        "layout(set = 0, binding = 0, std430) readonly buffer SrcBuf {{ {cvec_ty} src[]; }};"
+    )
+    .unwrap();
+    writeln!(
+        glsl,
+        "layout(set = 0, binding = 1, std430) buffer DstBuf {{ {cvec_ty} dst[]; }};"
+    )
+    .unwrap();
+    writeln!(
+        glsl,
+        "layout(set = 0, binding = 2, std430) readonly buffer GainBuf {{ {float_ty} gain[]; }};"
+    )
+    .unwrap();
     if phase_enabled {
-        writeln!(glsl, "layout(set = 0, binding = 3, std430) readonly buffer PhaseBuf {{ {cvec_ty} phase[]; }};").unwrap();
+        writeln!(
+            glsl,
+            "layout(set = 0, binding = 3, std430) readonly buffer PhaseBuf {{ {cvec_ty} phase[]; }};"
+        )
+        .unwrap();
     }
     writeln!(
         glsl,
@@ -130,8 +147,16 @@ void main() {{
         }}
     }}
 ",
-            phase_direct = if phase_enabled { "value = vkfft_ardftsrc_cmul(value, phase[j]);" } else { "" },
-            phase_k = if phase_enabled { "s = vkfft_ardftsrc_cmul(s, phase[k]);" } else { "" },
+            phase_direct = if phase_enabled {
+                "value = vkfft_ardftsrc_cmul(value, phase[j]);"
+            } else {
+                ""
+            },
+            phase_k = if phase_enabled {
+                "s = vkfft_ardftsrc_cmul(s, phase[k]);"
+            } else {
+                ""
+            },
         )
         .unwrap();
     } else {
@@ -153,9 +178,21 @@ void main() {{
         value = {cvec_ty}(s.x * gain[n] * {fold}, 0.0);
     }}
 ",
-            phase_direct = if phase_enabled { "value = vkfft_ardftsrc_cmul(value, phase[j]);" } else { "" },
-            phase_fold = if phase_enabled { "value = vkfft_ardftsrc_cmul(value, phase[j]);" } else { "" },
-            phase_nyquist = if phase_enabled { "s = vkfft_ardftsrc_cmul(s, phase[n]);" } else { "" },
+            phase_direct = if phase_enabled {
+                "value = vkfft_ardftsrc_cmul(value, phase[j]);"
+            } else {
+                ""
+            },
+            phase_fold = if phase_enabled {
+                "value = vkfft_ardftsrc_cmul(value, phase[j]);"
+            } else {
+                ""
+            },
+            phase_nyquist = if phase_enabled {
+                "s = vkfft_ardftsrc_cmul(s, phase[n]);"
+            } else {
+                ""
+            },
             fold = format!("{:?}", geometry.nyquist_fold),
         )
         .unwrap();
@@ -175,80 +212,86 @@ void main() {{
     Ok(glsl)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compile_remap_shader<T>(
+    scalar: ScalarType,
+    src_stride: usize,
+    dst_stride: usize,
+    dst_len: usize,
+    batch_count: usize,
+    geometry: &RemapGeometry<'_, T>,
+) -> Result<VulkanSpirvShader, GpuError> {
+    let glsl = build_glsl(scalar, src_stride, dst_stride, dst_len, batch_count, geometry)?;
+    let total_invocations = (dst_len * batch_count) as u32;
+    let dispatch_x = total_invocations.div_ceil(WORKGROUP_SIZE).max(1);
+    let mut descriptors = vec![
+        VulkanDescriptorBinding {
+            set: 0,
+            binding: 0,
+            descriptor_type: VulkanDescriptorType::StorageBuffer,
+            access: BufferAccess::ReadOnly,
+            role: BufferRole::Input,
+        },
+        VulkanDescriptorBinding {
+            set: 0,
+            binding: 1,
+            descriptor_type: VulkanDescriptorType::StorageBuffer,
+            access: BufferAccess::WriteOnly,
+            role: BufferRole::Output,
+        },
+        VulkanDescriptorBinding {
+            set: 0,
+            binding: 2,
+            descriptor_type: VulkanDescriptorType::StorageBuffer,
+            access: BufferAccess::ReadOnly,
+            role: BufferRole::LookupTable,
+        },
+    ];
+    if geometry.phase.is_some() {
+        descriptors.push(VulkanDescriptorBinding {
+            set: 0,
+            binding: 3,
+            descriptor_type: VulkanDescriptorType::StorageBuffer,
+            access: BufferAccess::ReadOnly,
+            role: BufferRole::LookupTable,
+        });
+    }
+    VulkanShaderSource {
+        entry_point: "main",
+        glsl,
+        scalar,
+        sequence_len: dst_len.max(1),
+        batch_count: batch_count.max(1),
+        workgroup_size: WorkgroupSize {
+            x: WORKGROUP_SIZE,
+            y: 1,
+            z: 1,
+        },
+        dispatch: DispatchGeometry {
+            x: dispatch_x,
+            y: 1,
+            z: 1,
+        },
+        descriptors,
+        required_shared_memory_bytes: 0,
+        required_subgroup_size: None,
+    }
+    .compile_spirv()
+    .map_err(|err| GpuError::PlanCreationFailed(format!("failed to compile spectral remap shader: {err}")))
+}
+
 impl<T: GpuScalar> RemapShader<T> {
     /// Builds the remap shader for one fixed `(src, dst)` buffer pair and geometry, binding its
     /// descriptor set once; [`RemapShader::record`] only ever records a dispatch afterwards.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn build(
-        context: &Arc<GpuContext>,
-        scalar: ScalarType,
+        context: &Arc<GpuDevice>,
         src: &GpuBuffer<T>,
-        src_stride: usize,
         dst: &GpuBuffer<T>,
-        dst_stride: usize,
-        dst_len: usize,
-        batch_count: usize,
         geometry: &RemapGeometry<'_, T>,
+        spirv: &VulkanSpirvShader,
     ) -> Result<Self, GpuError> {
-        let glsl = build_glsl(scalar, src_stride, dst_stride, dst_len, batch_count, geometry)?;
-
-        let total_invocations = (dst_len * batch_count) as u32;
-        let dispatch_x = total_invocations.div_ceil(WORKGROUP_SIZE).max(1);
-
-        let mut descriptors = vec![
-            VulkanDescriptorBinding {
-                set: 0,
-                binding: 0,
-                descriptor_type: VulkanDescriptorType::StorageBuffer,
-                access: BufferAccess::ReadOnly,
-                role: BufferRole::Input,
-            },
-            VulkanDescriptorBinding {
-                set: 0,
-                binding: 1,
-                descriptor_type: VulkanDescriptorType::StorageBuffer,
-                access: BufferAccess::WriteOnly,
-                role: BufferRole::Output,
-            },
-            VulkanDescriptorBinding {
-                set: 0,
-                binding: 2,
-                descriptor_type: VulkanDescriptorType::StorageBuffer,
-                access: BufferAccess::ReadOnly,
-                role: BufferRole::LookupTable,
-            },
-        ];
-        if geometry.phase.is_some() {
-            descriptors.push(VulkanDescriptorBinding {
-                set: 0,
-                binding: 3,
-                descriptor_type: VulkanDescriptorType::StorageBuffer,
-                access: BufferAccess::ReadOnly,
-                role: BufferRole::LookupTable,
-            });
-        }
-
-        let shader_source = VulkanShaderSource {
-            entry_point: "main",
-            glsl,
-            scalar,
-            sequence_len: dst_len.max(1),
-            batch_count: batch_count.max(1),
-            workgroup_size: WorkgroupSize { x: WORKGROUP_SIZE, y: 1, z: 1 },
-            dispatch: DispatchGeometry { x: dispatch_x, y: 1, z: 1 },
-            descriptors,
-            required_shared_memory_bytes: 0,
-            required_subgroup_size: None,
-        };
-        let spirv = shader_source
-            .compile_spirv()
-            .map_err(|err| GpuError::PlanCreationFailed(format!("failed to compile spectral remap shader: {err}")))?;
-
-        // SAFETY: `context.device()` is a live logical device kept alive alongside this
-        // `RemapShader` (see the field-ordering discipline documented on `GpuBuffer`); `spirv`
-        // was just compiled successfully above.
-        let pipeline = unsafe { VulkanComputePipeline::new_with_pipeline_cache(Arc::clone(context.device()), &spirv, context.pipeline_cache()) }
-            .map_err(|err| GpuError::PlanCreationFailed(format!("failed to build spectral remap pipeline: {err}")))?;
+        let pipeline = context.create_compute_pipeline(spirv)?;
 
         let gain_buffer = GpuBuffer::<T>::new(context, geometry.gain.len(), vk::BufferUsageFlags::empty())?;
         gain_buffer.upload(geometry.gain)?;
@@ -287,18 +330,9 @@ impl<T: GpuScalar> RemapShader<T> {
         })
     }
 
-    /// Total GPU-buffer bytes this shader owns (its gain/phase lookup tables), for sizing a
-    /// `GpuCore` ring slot against a memory budget.
-    pub(crate) fn total_bytes(&self) -> u64 {
-        self._gain.byte_len() + self._phase.as_ref().map_or(0, GpuBuffer::byte_len)
-    }
-
-    /// Records this shader's dispatch, followed by a full compute barrier, into
-    /// `command_buffer` (which must already be in the recording state).
-    pub(crate) fn record(&self, device: &ash::Device, command_buffer: vk::CommandBuffer) {
-        // SAFETY: `command_buffer` is in the recording state (caller contract); `self.pipeline`
-        // was fully built (pipeline + bound descriptor set) in `build` above.
-        unsafe { self.pipeline.record_dispatch(command_buffer) };
-        record_compute_barrier(device, command_buffer);
+    /// Records this shader's dispatch followed by a full compute barrier.
+    pub(crate) fn record(&self, command: &RecordingCommandBuffer<'_>) {
+        command.dispatch(&self.pipeline);
+        command.compute_barrier();
     }
 }

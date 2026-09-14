@@ -54,12 +54,7 @@ impl FftNum for F128 {
 // Marked cold and inline never to keep all formatting code out of the many monomorphized process_inplace methods
 #[cold]
 #[inline(never)]
-pub fn fft_error_inplace(
-    expected_len: usize,
-    actual_len: usize,
-    expected_scratch: usize,
-    actual_scratch: usize,
-) {
+pub fn fft_error_inplace(expected_len: usize, actual_len: usize, expected_scratch: usize, actual_scratch: usize) {
     assert!(
         actual_len >= expected_len,
         "Provided FFT buffer was too small. Expected len = {}, got len = {}",
@@ -92,7 +87,11 @@ pub fn fft_error_outofplace(
     expected_scratch: usize,
     actual_scratch: usize,
 ) {
-    assert_eq!(actual_input, actual_output, "Provided FFT input buffer and output buffer must have the same length. Got input.len() = {}, output.len() = {}", actual_input, actual_output);
+    assert_eq!(
+        actual_input, actual_output,
+        "Provided FFT input buffer and output buffer must have the same length. Got input.len() = {}, output.len() = {}",
+        actual_input, actual_output
+    );
     assert!(
         actual_input >= expected_len,
         "Provided FFT buffer was too small. Expected len = {}, got len = {}",
@@ -125,7 +124,11 @@ pub fn fft_error_immut(
     expected_scratch: usize,
     actual_scratch: usize,
 ) {
-    assert_eq!(actual_input, actual_output, "Provided FFT input buffer and output buffer must have the same length. Got input.len() = {}, output.len() = {}", actual_input, actual_output);
+    assert_eq!(
+        actual_input, actual_output,
+        "Provided FFT input buffer and output buffer must have the same length. Got input.len() = {}, output.len() = {}",
+        actual_input, actual_output
+    );
     assert!(
         actual_input >= expected_len,
         "Provided FFT buffer was too small. Expected len = {}, got len = {}",
@@ -162,9 +165,7 @@ macro_rules! boilerplate_fft_oop {
                     scratch,
                     self.len(),
                     self.get_immutable_scratch_len(),
-                    |in_chunk, out_chunk, scratch| {
-                        self.perform_fft_immut(in_chunk, out_chunk, scratch)
-                    },
+                    |in_chunk, out_chunk, scratch| self.perform_fft_immut(in_chunk, out_chunk, scratch),
                 );
             }
             fn process_outofplace_with_scratch(
@@ -179,9 +180,7 @@ macro_rules! boilerplate_fft_oop {
                     scratch,
                     self.len(),
                     self.get_outofplace_scratch_len(),
-                    |in_chunk, out_chunk, scratch| {
-                        self.perform_fft_out_of_place(in_chunk, out_chunk, scratch)
-                    },
+                    |in_chunk, out_chunk, scratch| self.perform_fft_out_of_place(in_chunk, out_chunk, scratch),
                 );
             }
             fn process_with_scratch(&self, buffer: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
@@ -240,9 +239,7 @@ macro_rules! boilerplate_fft {
                     scratch,
                     self.len(),
                     self.get_immutable_scratch_len(),
-                    |in_chunk, out_chunk, scratch| {
-                        self.perform_fft_immut(in_chunk, out_chunk, scratch)
-                    },
+                    |in_chunk, out_chunk, scratch| self.perform_fft_immut(in_chunk, out_chunk, scratch),
                 );
             }
 
@@ -258,9 +255,7 @@ macro_rules! boilerplate_fft {
                     scratch,
                     self.len(),
                     self.get_outofplace_scratch_len(),
-                    |in_chunk, out_chunk, scratch| {
-                        self.perform_fft_out_of_place(in_chunk, out_chunk, scratch)
-                    },
+                    |in_chunk, out_chunk, scratch| self.perform_fft_out_of_place(in_chunk, out_chunk, scratch),
                 );
             }
             fn process_with_scratch(&self, buffer: &mut [Complex<T>], scratch: &mut [Complex<T>]) {

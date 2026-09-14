@@ -3108,6 +3108,7 @@ dependencies = [
 [[package]]
 name = "vkfft-rs"
 version = "0.1.1"
+source = "git+https://github.com/phayes/vkfft-rs#db167c7e5b5cf54b652eb57801c4b3b959379379"
 dependencies = [
  "ash",
  "naga",

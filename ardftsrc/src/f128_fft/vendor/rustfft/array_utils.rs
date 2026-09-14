@@ -1,6 +1,6 @@
-use crate::f128_fft::vendor::rustfft::common::RadixFactor;
 use crate::f128_fft::vendor::rustfft::Complex;
 use crate::f128_fft::vendor::rustfft::FftNum;
+use crate::f128_fft::vendor::rustfft::common::RadixFactor;
 use std::ops::{Deref, DerefMut};
 
 /// Given an array of size width * height, representing a flattened 2D array,
@@ -107,7 +107,6 @@ impl<T: FftNum, const N: usize> Load<T> for &[Complex<T>; N] {
     }
 }
 
-
 // A utility that validates the following conditions, then calls chunk_fn() on each chunk of buffer. Passes the entire scratch buffer with each call.
 // - buffer1.len() % chunk_size == 0
 // - scratch.len() >= required_scratch
@@ -134,11 +133,7 @@ pub fn validate_and_iter<T>(
     }
 
     // We have a remainder if there's still data in the buffers -- in which case we want to indicate to the caller that there was an unwanted remainder
-    if buffer.len() == 0 {
-        Ok(())
-    } else {
-        Err(())
-    }
+    if buffer.len() == 0 { Ok(()) } else { Err(()) }
 }
 
 // A utility that validates that buffer1.len() % chunk_size == 0, then calls chunk_fn() on each chunk of buffer.
@@ -203,11 +198,7 @@ pub fn validate_and_zip<T>(
     }
 
     // We have a remainder if the 2 chunks were uneven to start with, or if there's still data in the buffers -- in which case we want to indicate to the caller that there was an unwanted remainder
-    if buffer1.len() == 0 {
-        Ok(())
-    } else {
-        Err(())
-    }
+    if buffer1.len() == 0 { Ok(()) } else { Err(()) }
 }
 
 // A utility that validates the following conditions, then calls chunk_fn() on each chunk of buffer1 and buffer 2 zipped together. Passes the entire scratch buffer with each call.
@@ -284,11 +275,7 @@ pub fn validate_and_zip_mut<T>(
     }
 
     // We have a remainder if the 2 chunks were uneven to start with, or if there's still data in the buffers -- in which case we want to indicate to the caller that there was an unwanted remainder
-    if buffer1.len() == 0 {
-        Ok(())
-    } else {
-        Err(())
-    }
+    if buffer1.len() == 0 { Ok(()) } else { Err(()) }
 }
 
 // A utility that validates the following conditions, then calls chunk_fn() on each chunk of buffer1 and buffer 2 zipped together. Passes the entire scratch buffer with each call.
@@ -334,11 +321,7 @@ pub fn validate_and_zip_mut_unroll2x<T>(
 // Use a lookup table to avoid repeating the slow bit reverse operations.
 // Unrolling the outer loop by a factor D helps speed things up.
 // const parameter D (for Divisor) determines the divisor to use for the "bit reverse", and how much to unroll. `input.len() / height` must be a power of D.
-pub fn bitreversed_transpose<T: Copy, const D: usize>(
-    height: usize,
-    input: &[T],
-    output: &mut [T],
-) {
+pub fn bitreversed_transpose<T: Copy, const D: usize>(height: usize, input: &[T], output: &mut [T]) {
     let width = input.len() / height;
 
     // Let's make sure the arguments are ok

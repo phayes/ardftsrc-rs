@@ -1,22 +1,15 @@
-use crate::f128_fft::vendor::rustfft::{common::FftNum, FftDirection};
+use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum};
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::strength_reduce::{StrengthReducedU128, StrengthReducedU64};
+use crate::f128_fft::vendor::strength_reduce::{StrengthReducedU64, StrengthReducedU128};
 
-pub fn compute_twiddle<T: FftNum>(
-    index: usize,
-    fft_len: usize,
-    direction: FftDirection,
-) -> Complex<T> {
+pub fn compute_twiddle<T: FftNum>(index: usize, fft_len: usize, direction: FftDirection) -> Complex<T> {
     // Delegate to T::twiddle rather than computing the angle/sin/cos here in f64: see the
     // `FftNum` doc comment in `common.rs` for why that distinction matters for `F128`.
     T::twiddle(index, fft_len, direction)
 }
 
-pub fn fill_bluesteins_twiddles<T: FftNum>(
-    destination: &mut [Complex<T>],
-    direction: FftDirection,
-) {
+pub fn fill_bluesteins_twiddles<T: FftNum>(destination: &mut [Complex<T>], direction: FftDirection) {
     let twice_len = destination.len() * 2;
 
     // Standard bluestein's twiddle computation requires us to square the index before usingit to compute a twiddle factor

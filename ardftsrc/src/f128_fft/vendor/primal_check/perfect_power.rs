@@ -30,7 +30,7 @@ fn wrapping_pow(mut base: u64, mut exp: u32) -> u64 {
 /// ```
 pub fn as_perfect_power(x: u64) -> (u64, u8) {
     if x == 0 || x == 1 {
-        return (x, 1)
+        return (x, 1);
     }
 
     let floor_log_2 = 64 - x.leading_zeros() as u32 - 1;
@@ -43,7 +43,7 @@ pub fn as_perfect_power(x: u64) -> (u64, u8) {
     let mut expn: u32 = 2;
     let mut step = 1;
     while expn <= floor_log_2 {
-        let factor = x_.powf(1.0/expn as f64).round() as u64;
+        let factor = x_.powf(1.0 / expn as f64).round() as u64;
         // the only case this will wrap is if x is close to 2^64 and
         // the round() rounds up, pushing this calculation over the
         // edge, however, the overflow will be well away from x, so we
@@ -82,10 +82,5 @@ pub fn as_perfect_power(x: u64) -> (u64, u8) {
 /// ```
 pub fn as_prime_power(x: u64) -> Option<(u64, u8)> {
     let (y, k) = as_perfect_power(x);
-    if super::miller_rabin(y) {
-        Some((y, k))
-    } else {
-        None
-    }
+    if super::miller_rabin(y) { Some((y, k)) } else { None }
 }
-

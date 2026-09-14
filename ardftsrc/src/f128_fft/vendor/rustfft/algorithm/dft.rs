@@ -1,8 +1,8 @@
 use num_complex::Complex;
 use num_traits::Zero;
 
-use crate::f128_fft::vendor::rustfft::{twiddles, FftDirection};
 use crate::f128_fft::vendor::rustfft::{Direction, Fft, FftNum, Length};
+use crate::f128_fft::vendor::rustfft::{FftDirection, twiddles};
 
 /// Naive O(n^2 ) Discrete Fourier Transform implementation
 ///
@@ -27,13 +27,8 @@ pub struct Dft<T> {
 impl<T: FftNum> Dft<T> {
     /// Preallocates necessary arrays and precomputes necessary data to efficiently compute Dft
     pub fn new(len: usize, direction: FftDirection) -> Self {
-        let twiddles = (0..len)
-            .map(|i| twiddles::compute_twiddle(i, len, direction))
-            .collect();
-        Self {
-            twiddles,
-            direction,
-        }
+        let twiddles = (0..len).map(|i| twiddles::compute_twiddle(i, len, direction)).collect();
+        Self { twiddles, direction }
     }
 
     fn inplace_scratch_len(&self) -> usize {
@@ -46,12 +41,7 @@ impl<T: FftNum> Dft<T> {
         0
     }
 
-    fn perform_fft_immut(
-        &self,
-        signal: &[Complex<T>],
-        spectrum: &mut [Complex<T>],
-        _scratch: &mut [Complex<T>],
-    ) {
+    fn perform_fft_immut(&self, signal: &[Complex<T>], spectrum: &mut [Complex<T>], _scratch: &mut [Complex<T>]) {
         for k in 0..spectrum.len() {
             let output_cell = spectrum.get_mut(k).unwrap();
 
@@ -80,4 +70,3 @@ impl<T: FftNum> Dft<T> {
     }
 }
 boilerplate_fft_oop!(Dft, |this: &Dft<_>| this.twiddles.len());
-

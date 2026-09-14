@@ -34,7 +34,10 @@ fn to_f128(input: &[f64]) -> Vec<F128> {
 }
 
 fn to_f128_complex(input: &[Complex<f64>]) -> Vec<Complex<F128>> {
-    input.iter().map(|c| Complex::new(F128::from_f64(c.re), F128::from_f64(c.im))).collect()
+    input
+        .iter()
+        .map(|c| Complex::new(F128::from_f64(c.re), F128::from_f64(c.im)))
+        .collect()
 }
 
 fn write_from_f128(dst: &mut [f64], src: &[F128]) {
@@ -172,7 +175,12 @@ impl realfft::RealToComplex<f64> for F128RealToComplex {
         F128RealToComplex::process(self, input, output).map_err(map_error)
     }
 
-    fn process_with_scratch(&self, input: &mut [f64], output: &mut [Complex<f64>], _scratch: &mut [Complex<f64>]) -> Result<(), realfft::FftError> {
+    fn process_with_scratch(
+        &self,
+        input: &mut [f64],
+        output: &mut [Complex<f64>],
+        _scratch: &mut [Complex<f64>],
+    ) -> Result<(), realfft::FftError> {
         F128RealToComplex::process(self, input, output).map_err(map_error)
     }
 
@@ -202,7 +210,12 @@ impl realfft::ComplexToReal<f64> for F128ComplexToReal {
         F128ComplexToReal::process(self, input, output).map_err(map_error)
     }
 
-    fn process_with_scratch(&self, input: &mut [Complex<f64>], output: &mut [f64], _scratch: &mut [Complex<f64>]) -> Result<(), realfft::FftError> {
+    fn process_with_scratch(
+        &self,
+        input: &mut [Complex<f64>],
+        output: &mut [f64],
+        _scratch: &mut [Complex<f64>],
+    ) -> Result<(), realfft::FftError> {
         F128ComplexToReal::process(self, input, output).map_err(map_error)
     }
 
@@ -289,7 +302,9 @@ mod tests {
     #[test]
     fn forward_spectrum_is_more_accurate_than_f64() {
         let len = 512usize;
-        let original: Vec<f64> = (0..len).map(|i| (i as f64 * 0.083).sin() * 0.9 + (i as f64 * 1.7).cos() * 0.1).collect();
+        let original: Vec<f64> = (0..len)
+            .map(|i| (i as f64 * 0.083).sin() * 0.9 + (i as f64 * 1.7).cos() * 0.1)
+            .collect();
 
         let mut planner = F128RealFftPlanner::new();
         let r2c = planner.plan_fft_forward(len);

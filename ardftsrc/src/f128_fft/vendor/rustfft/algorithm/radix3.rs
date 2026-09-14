@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::rustfft::algorithm::butterflies::{Butterfly1, Butterfly27, Butterfly3, Butterfly9};
+use crate::f128_fft::vendor::rustfft::algorithm::butterflies::{Butterfly1, Butterfly3, Butterfly9, Butterfly27};
 use crate::f128_fft::vendor::rustfft::algorithm::radixn::butterfly_3;
 use crate::f128_fft::vendor::rustfft::array_utils::{bitreversed_transpose, compute_logarithm};
-use crate::f128_fft::vendor::rustfft::{common::FftNum, twiddles, FftDirection};
 use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
+use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// FFT algorithm optimized for power-of-three sizes
 ///
@@ -41,12 +41,8 @@ impl<T: FftNum> Radix3<T> {
     /// Preallocates necessary arrays and precomputes necessary data to efficiently compute the power-of-three FFT
     pub fn new(len: usize, direction: FftDirection) -> Self {
         // Compute the total power of 3 for this length. IE, len = 3^exponent
-        let exponent = compute_logarithm::<3>(len).unwrap_or_else(|| {
-            panic!(
-                "Radix3 algorithm requires a power-of-three input size. Got {}",
-                len
-            )
-        });
+        let exponent = compute_logarithm::<3>(len)
+            .unwrap_or_else(|| panic!("Radix3 algorithm requires a power-of-three input size. Got {}", len));
 
         // figure out which base length we're going to use
         let (base_exponent, base_fft) = match exponent {
@@ -123,12 +119,7 @@ impl<T: FftNum> Radix3<T> {
         self.immut_scratch_len
     }
 
-    fn perform_fft_immut(
-        &self,
-        input: &[Complex<T>],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) {
+    fn perform_fft_immut(&self, input: &[Complex<T>], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
         // copy the data into the output vector
         if self.len() == self.base_len {
             output.copy_from_slice(input);
@@ -196,4 +187,3 @@ impl<T: FftNum> Radix3<T> {
     }
 }
 boilerplate_fft_oop!(Radix3, |this: &Radix3<_>| this.len);
-

@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use ash::vk;
-use vkfft_rs::backend::vulkan::runtime::{VulkanBufferSlice, VulkanComputePipeline};
-use vkfft_rs::ScalarType;
+use vkfft_rs::backend::vulkan::runtime::VulkanBufferSlice;
 
 use super::buffer::{GpuBuffer, GpuScalar};
-use super::context::GpuContext;
+use super::context::{GpuComputePipeline, GpuDevice, RecordingCommandBuffer};
 use super::error::GpuError;
-use super::fft_program::record_compute_barrier;
 use super::overlap_shader::{OverlapMode, build_pipeline_with_slices};
+use super::shaders::OverlapShaders;
 
 /// Sequential-but-single-submission overlap-add assembly for [`super::batch_core::GpuCore`]
 /// (`gpu_plan.md` sections 14-16).
@@ -37,7 +36,7 @@ pub(crate) struct BatchOverlapShader<T> {
     /// windows `1..=num_real_chunks` are always `OverlapMode::Normal`; an optional final window
     /// is `OverlapMode::End`), each already bound to its own slice of the transform pipeline's
     /// output buffer and to `output`/`overlap` below.
-    pipelines: Vec<VulkanComputePipeline>,
+    pipelines: Vec<GpuComputePipeline>,
     /// Real per-chunk output, `channels * num_real_chunks * output_chunk_frames` real `T`s,
     /// laid out `[chunk][channel][sample]`; only `OverlapMode::Normal` windows write into it (at
     /// their own `(chunk_index * channels * output_chunk_frames)` offset).
@@ -48,10 +47,7 @@ pub(crate) struct BatchOverlapShader<T> {
     /// Throwaway target for `OverlapMode::Start`/`End` dispatches, which write zeros into their
     /// bound output buffer but never have their output read; reused across every such window
     /// instead of allocating one per window.
-    scratch_output: GpuBuffer<T>,
-    num_real_chunks: usize,
-    output_chunk_frames: usize,
-    channels: usize,
+    _scratch_output: GpuBuffer<T>,
 }
 
 impl<T: GpuScalar> BatchOverlapShader<T> {
@@ -62,21 +58,25 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
     /// out `[window][channel]`).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn build(
-        context: &Arc<GpuContext>,
-        scalar: ScalarType,
+        context: &Arc<GpuDevice>,
         ifft_output: &GpuBuffer<T>,
         ifft_stride: usize,
         output_chunk_frames: usize,
-        input_chunk_frames: usize,
         channels: usize,
         window_modes: &[OverlapMode],
+        shaders: &OverlapShaders,
     ) -> Result<Self, GpuError> {
         let num_real_chunks = window_modes.iter().filter(|mode| **mode == OverlapMode::Normal).count();
 
         let overlap = GpuBuffer::<T>::new(context, channels * output_chunk_frames, vk::BufferUsageFlags::empty())?;
         overlap.upload(&vec![T::default(); overlap.len()])?;
-        let scratch_output = GpuBuffer::<T>::new(context, channels * output_chunk_frames, vk::BufferUsageFlags::empty())?;
-        let output = GpuBuffer::<T>::new(context, channels * num_real_chunks * output_chunk_frames, vk::BufferUsageFlags::empty())?;
+        let scratch_output =
+            GpuBuffer::<T>::new(context, channels * output_chunk_frames, vk::BufferUsageFlags::empty())?;
+        let output = GpuBuffer::<T>::new(
+            context,
+            channels * num_real_chunks * output_chunk_frames,
+            vk::BufferUsageFlags::empty(),
+        )?;
 
         let elem_size = std::mem::size_of::<T>() as vk::DeviceSize;
         let window_stride_bytes = (channels as vk::DeviceSize) * (ifft_stride as vk::DeviceSize) * 2 * elem_size;
@@ -106,13 +106,9 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
 
             let pipeline = build_pipeline_with_slices::<T>(
                 context,
-                scalar,
                 mode,
+                shaders.get(mode),
                 ifft_slice,
-                ifft_stride,
-                output_chunk_frames,
-                input_chunk_frames,
-                channels,
                 output_slice,
                 overlap_slice,
             )?;
@@ -123,10 +119,7 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
             pipelines,
             output,
             overlap,
-            scratch_output,
-            num_real_chunks,
-            output_chunk_frames,
-            channels,
+            _scratch_output: scratch_output,
         })
     }
 
@@ -143,24 +136,6 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
         &self.overlap
     }
 
-    pub(crate) fn num_real_chunks(&self) -> usize {
-        self.num_real_chunks
-    }
-
-    pub(crate) fn output_chunk_frames(&self) -> usize {
-        self.output_chunk_frames
-    }
-
-    pub(crate) fn channels(&self) -> usize {
-        self.channels
-    }
-
-    /// Total GPU-buffer bytes this shader owns (`overlap` + `scratch_output` + `output`), for
-    /// sizing a `GpuCore` ring slot against a memory budget.
-    pub(crate) fn total_bytes(&self) -> u64 {
-        self.overlap.byte_len() + self.scratch_output.byte_len() + self.output.byte_len()
-    }
-
     /// Records a device-to-device copy of `src` (another `BatchOverlapShader`'s
     /// [`BatchOverlapShader::overlap_buffer`], the previous group's ending overlap state) into
     /// this shader's own `overlap` buffer, followed by a barrier making that write visible to
@@ -171,39 +146,24 @@ impl<T: GpuScalar> BatchOverlapShader<T> {
     /// submission rather than a separate round-trip.
     ///
     /// Must be recorded before [`BatchOverlapShader::record`] in the same command buffer.
-    pub(crate) fn record_seed_copy(&self, device: &ash::Device, command_buffer: vk::CommandBuffer, src: &GpuBuffer<T>) {
-        let region = vk::BufferCopy::default().size(self.overlap.byte_len());
-        // SAFETY: `command_buffer` is in the recording state (caller contract); `src` and
-        // `self.overlap` are both live buffers of identical length (every `BatchOverlapShader`
-        // for a given `GpuCore` is built with the same `channels`/`output_chunk_frames`).
-        unsafe { device.cmd_copy_buffer(command_buffer, src.handle(), self.overlap.handle(), &[region]) };
-
-        let barrier = vk::MemoryBarrier::default()
-            .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-            .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE);
-        // SAFETY: `command_buffer` is in the recording state; this makes the copy above visible
-        // to the compute dispatches recorded after it.
-        unsafe {
-            device.cmd_pipeline_barrier(
-                command_buffer,
-                vk::PipelineStageFlags::TRANSFER,
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::DependencyFlags::empty(),
-                &[barrier],
-                &[],
-                &[],
-            )
-        };
+    pub(crate) fn record_seed_copy(&self, command: &RecordingCommandBuffer<'_>, src: &GpuBuffer<T>) {
+        assert_eq!(
+            src.byte_len(),
+            self.overlap.byte_len(),
+            "overlap seed buffers must have identical lengths"
+        );
+        // SAFETY: both typed buffers were created by the same `GpuCore` on `command`'s device,
+        // include transfer usage, and the equality check above proves the copy bounds.
+        unsafe { command.copy_raw_buffer(src.handle(), self.overlap.handle(), self.overlap.byte_len()) };
+        command.transfer_to_compute_barrier();
     }
 
     /// Records every window's dispatch, in order, each followed by a full compute barrier so
     /// the next window's read of `overlap` observes the previous window's write.
-    pub(crate) fn record(&self, device: &ash::Device, command_buffer: vk::CommandBuffer) {
+    pub(crate) fn record(&self, command: &RecordingCommandBuffer<'_>) {
         for pipeline in &self.pipelines {
-            // SAFETY: `command_buffer` is in the recording state (caller contract); every
-            // pipeline was fully built (pipeline + bound descriptor set) in `build` above.
-            unsafe { pipeline.record_dispatch(command_buffer) };
-            record_compute_barrier(device, command_buffer);
+            command.dispatch(pipeline);
+            command.compute_barrier();
         }
     }
 }

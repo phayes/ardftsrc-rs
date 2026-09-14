@@ -17,8 +17,7 @@ pub fn fft_helper_inplace<T>(
         return;
     }
 
-    let result =
-        array_utils::validate_and_iter(buffer, scratch, chunk_size, required_scratch, chunk_fn);
+    let result = array_utils::validate_and_iter(buffer, scratch, chunk_size, required_scratch, chunk_fn);
 
     if result.is_err() {
         // We want to trigger a panic, because the passed parameters failed validation in some way.
@@ -65,25 +64,12 @@ pub fn fft_helper_immut<T>(
         return;
     }
 
-    let result = array_utils::validate_and_zip(
-        input,
-        output,
-        scratch,
-        chunk_size,
-        required_scratch,
-        chunk_fn,
-    );
+    let result = array_utils::validate_and_zip(input, output, scratch, chunk_size, required_scratch, chunk_fn);
 
     if result.is_err() {
         // We want to trigger a panic, because the passed parameters failed validation in some way.
         // But we want to avoid doing it in this function to reduce code size, so call a function marked cold and inline(never) that will do it for us
-        fft_error_immut(
-            chunk_size,
-            input.len(),
-            output.len(),
-            required_scratch,
-            scratch.len(),
-        );
+        fft_error_immut(chunk_size, input.len(), output.len(), required_scratch, scratch.len());
     }
 }
 
@@ -102,8 +88,7 @@ pub fn fft_helper_immut_unroll2x<T>(
         return;
     }
 
-    let result =
-        array_utils::validate_and_zip_unroll2x(input, output, chunk_size, chunk2x_fn, chunk_fn);
+    let result = array_utils::validate_and_zip_unroll2x(input, output, chunk_size, chunk2x_fn, chunk_fn);
 
     if result.is_err() {
         // We want to trigger a panic, because the passed parameters failed validation in some way.
@@ -127,25 +112,12 @@ pub fn fft_helper_outofplace<T>(
         return;
     }
 
-    let result = array_utils::validate_and_zip_mut(
-        input,
-        output,
-        scratch,
-        chunk_size,
-        required_scratch,
-        chunk_fn,
-    );
+    let result = array_utils::validate_and_zip_mut(input, output, scratch, chunk_size, required_scratch, chunk_fn);
 
     if result.is_err() {
         // We want to trigger a panic, because the passed parameters failed validation in some way.
         // But we want to avoid doing it in this function to reduce code size, so call a function marked cold and inline(never) that will do it for us
-        fft_error_outofplace(
-            chunk_size,
-            input.len(),
-            output.len(),
-            required_scratch,
-            scratch.len(),
-        );
+        fft_error_outofplace(chunk_size, input.len(), output.len(), required_scratch, scratch.len());
     }
 }
 
@@ -164,8 +136,7 @@ pub fn fft_helper_outofplace_unroll2x<T>(
         return;
     }
 
-    let result =
-        array_utils::validate_and_zip_mut_unroll2x(input, output, chunk_size, chunk2x_fn, chunk_fn);
+    let result = array_utils::validate_and_zip_mut_unroll2x(input, output, chunk_size, chunk2x_fn, chunk_fn);
 
     if result.is_err() {
         // We want to trigger a panic, because the passed parameters failed validation in some way.

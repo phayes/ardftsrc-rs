@@ -18,7 +18,7 @@ rodio = { version = "0.22", default-features = false, optional = true }
 tracing = { version = "0.1", optional = true }
 pxfm = { version = "0.1.29", optional = true }
 ash = { version = "0.38", optional = true }
-vkfft-rs = { path = "https://github.com/phayes/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
+vkfft-rs = { git = "https://github.com/phayes/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
 num-complex = { workspace = true, optional = true }
 num-integer = { workspace = true, optional = true }
 

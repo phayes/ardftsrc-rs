@@ -6,5 +6,5 @@ pub(crate) use is_prime::miller_rabin;
 #[allow(unused_imports)]
 pub(crate) use perfect_power::{as_perfect_power, as_prime_power};
 
-mod perfect_power;
 mod is_prime;
+mod perfect_power;

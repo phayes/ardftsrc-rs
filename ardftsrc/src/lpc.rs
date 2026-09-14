@@ -202,9 +202,7 @@ where
     let mut work = input.to_vec();
     let mut output = Vec::with_capacity(extra);
 
-    let seed_peak = input
-        .iter()
-        .fold(T::zero(), |acc, sample| acc.max(sample.abs()));
+    let seed_peak = input.iter().fold(T::zero(), |acc, sample| acc.max(sample.abs()));
     let headroom = T::from(EXTRAPOLATION_DIVERGENCE_HEADROOM).unwrap_or_else(T::one);
     let divergence_bound = seed_peak * headroom;
 
@@ -374,10 +372,7 @@ mod tests {
         let seed_peak = seed.iter().fold(0.0f64, |a, s| a.max(s.abs()));
         let predicted = extrapolate_forward(&seed, 2_000_000, ExtrapolateFallback::Hold);
         assert_eq!(predicted.len(), 2_000_000);
-        assert!(
-            predicted.iter().all(|v| v.is_finite()),
-            "predictions must stay finite"
-        );
+        assert!(predicted.iter().all(|v| v.is_finite()), "predictions must stay finite");
         let max_predicted = predicted.iter().fold(0.0f64, |a, s| a.max(s.abs()));
         assert!(
             max_predicted <= seed_peak * EXTRAPOLATION_DIVERGENCE_HEADROOM,

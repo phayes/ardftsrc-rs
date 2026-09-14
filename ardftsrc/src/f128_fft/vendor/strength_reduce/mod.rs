@@ -8,7 +8,7 @@
 //! # Example:
 //! ```
 //! use strength_reduce::StrengthReducedU64;
-//! 
+//!
 //! let mut my_array: Vec<u64> = (0..500).collect();
 //! let divisor = 3;
 //! let modulo = 14;
@@ -26,14 +26,14 @@
 //! }
 //! ```
 //!
-//! This library is intended for hot loops like the example above, where a division is repeated many times in a loop with the divisor remaining unchanged. 
+//! This library is intended for hot loops like the example above, where a division is repeated many times in a loop with the divisor remaining unchanged.
 //! There is a setup cost associated with creating stength-reduced division instances, so using strength-reduced division for 1-2 divisions is not worth the setup cost.
 //! The break-even point differs by use-case, but is typically low: Benchmarking has shown that takes 3 to 4 repeated divisions with the same StengthReduced## instance to be worth it.
-//! 
+//!
 //! `strength_reduce` is `#![no_std]`
 //!
 //! The optimizations that this library provides are inherently dependent on architecture, compiler, and platform,
-//! so test before you use. 
+//! so test before you use.
 // Vendored from the `strength_reduce` crate (MIT OR Apache-2.0): see `f128_fft::vendor` module docs
 // for why. Upstream is `#![no_std]`; that attribute is crate-root-only so it's dropped here, but
 // nothing below actually needs `std` (only `core`).
@@ -58,17 +58,20 @@ impl StrengthReducedU8 {
     /// If possible, avoid calling new() from an inner loop: The intended usage is to create an instance of this struct outside the loop, and use it for divison and remainders inside the loop.
     ///
     /// # Panics:
-    /// 
+    ///
     /// Panics if `divisor` is 0
     #[inline]
     pub fn new(divisor: u8) -> Self {
         assert!(divisor > 0);
 
-        if divisor.is_power_of_two() { 
-            Self{ multiplier: 0, divisor }
+        if divisor.is_power_of_two() {
+            Self { multiplier: 0, divisor }
         } else {
             let divided = core::u16::MAX / (divisor as u16);
-            Self{ multiplier: divided + 1, divisor }
+            Self {
+                multiplier: divided + 1,
+                divisor,
+            }
         }
     }
 
@@ -124,7 +127,7 @@ impl Rem<StrengthReducedU8> for u8 {
 
 // small types prefer to do work in the intermediate type
 macro_rules! strength_reduced_u16 {
-    ($struct_name:ident, $primitive_type:ident) => (
+    ($struct_name:ident, $primitive_type:ident) => {
         /// Implements unsigned division and modulo via mutiplication and shifts.
         ///
         /// Creating a an instance of this struct is more expensive than a single division, but if the division is repeated,
@@ -140,17 +143,23 @@ macro_rules! strength_reduced_u16 {
             /// If possible, avoid calling new() from an inner loop: The intended usage is to create an instance of this struct outside the loop, and use it for divison and remainders inside the loop.
             ///
             /// # Panics:
-            /// 
+            ///
             /// Panics if `divisor` is 0
             #[inline]
             pub fn new(divisor: $primitive_type) -> Self {
                 assert!(divisor > 0);
 
-                if divisor.is_power_of_two() { 
-                    Self{ multiplier: 0, divisor }
+                if divisor.is_power_of_two() {
+                    Self {
+                        multiplier: 0,
+                        divisor,
+                    }
                 } else {
                     let divided = core::u32::MAX / (divisor as u32);
-                    Self{ multiplier: divided + 1, divisor }
+                    Self {
+                        multiplier: divided + 1,
+                        divisor,
+                    }
                 }
             }
 
@@ -200,12 +209,12 @@ macro_rules! strength_reduced_u16 {
                 }
             }
         }
-    )
+    };
 }
 
 // small types prefer to do work in the intermediate type
 macro_rules! strength_reduced_u32 {
-    ($struct_name:ident, $primitive_type:ident) => (
+    ($struct_name:ident, $primitive_type:ident) => {
         /// Implements unsigned division and modulo via mutiplication and shifts.
         ///
         /// Creating a an instance of this struct is more expensive than a single division, but if the division is repeated,
@@ -221,17 +230,23 @@ macro_rules! strength_reduced_u32 {
             /// If possible, avoid calling new() from an inner loop: The intended usage is to create an instance of this struct outside the loop, and use it for divison and remainders inside the loop.
             ///
             /// # Panics:
-            /// 
+            ///
             /// Panics if `divisor` is 0
             #[inline]
             pub fn new(divisor: $primitive_type) -> Self {
                 assert!(divisor > 0);
 
-                if divisor.is_power_of_two() { 
-                    Self{ multiplier: 0, divisor }
+                if divisor.is_power_of_two() {
+                    Self {
+                        multiplier: 0,
+                        divisor,
+                    }
                 } else {
                     let divided = core::u64::MAX / (divisor as u64);
-                    Self{ multiplier: divided + 1, divisor }
+                    Self {
+                        multiplier: divided + 1,
+                        divisor,
+                    }
                 }
             }
 
@@ -240,9 +255,11 @@ macro_rules! strength_reduced_u32 {
             #[inline]
             pub fn div_rem(numerator: $primitive_type, denom: Self) -> ($primitive_type, $primitive_type) {
                 if denom.multiplier == 0 {
-                    (numerator >> denom.divisor.trailing_zeros(), numerator & (denom.divisor - 1))
-                }
-                else {
+                    (
+                        numerator >> denom.divisor.trailing_zeros(),
+                        numerator & (denom.divisor - 1),
+                    )
+                } else {
                     let numerator64 = numerator as u64;
                     let multiplied_hi = numerator64 * (denom.multiplier >> 32);
                     let multiplied_lo = numerator64 * (denom.multiplier as u32 as u64) >> 32;
@@ -293,11 +310,11 @@ macro_rules! strength_reduced_u32 {
                 }
             }
         }
-    )
+    };
 }
 
 macro_rules! strength_reduced_u64 {
-    ($struct_name:ident, $primitive_type:ident) => (
+    ($struct_name:ident, $primitive_type:ident) => {
         /// Implements unsigned division and modulo via mutiplication and shifts.
         ///
         /// Creating a an instance of this struct is more expensive than a single division, but if the division is repeated,
@@ -313,17 +330,23 @@ macro_rules! strength_reduced_u64 {
             /// If possible, avoid calling new() from an inner loop: The intended usage is to create an instance of this struct outside the loop, and use it for divison and remainders inside the loop.
             ///
             /// # Panics:
-            /// 
+            ///
             /// Panics if `divisor` is 0
             #[inline]
             pub fn new(divisor: $primitive_type) -> Self {
                 assert!(divisor > 0);
 
-                if divisor.is_power_of_two() { 
-                    Self{ multiplier: 0, divisor }
+                if divisor.is_power_of_two() {
+                    Self {
+                        multiplier: 0,
+                        divisor,
+                    }
                 } else {
                     let quotient = long_division::divide_128_max_by_64(divisor as u64);
-                    Self{ multiplier: quotient + 1, divisor }
+                    Self {
+                        multiplier: quotient + 1,
+                        divisor,
+                    }
                 }
             }
             /// Simultaneous truncated integer division and modulus.
@@ -331,9 +354,11 @@ macro_rules! strength_reduced_u64 {
             #[inline]
             pub fn div_rem(numerator: $primitive_type, denom: Self) -> ($primitive_type, $primitive_type) {
                 if denom.multiplier == 0 {
-                    (numerator >> denom.divisor.trailing_zeros(), numerator & (denom.divisor - 1))
-                }
-                else {
+                    (
+                        numerator >> denom.divisor.trailing_zeros(),
+                        numerator & (denom.divisor - 1),
+                    )
+                } else {
                     let numerator128 = numerator as u128;
                     let multiplied_hi = numerator128 * (denom.multiplier >> 64);
                     let multiplied_lo = numerator128 * (denom.multiplier as u64 as u128) >> 64;
@@ -381,7 +406,7 @@ macro_rules! strength_reduced_u64 {
                 }
             }
         }
-    )
+    };
 }
 
 /// Implements unsigned division and modulo via mutiplication and shifts.
@@ -400,19 +425,31 @@ impl StrengthReducedU128 {
     /// If possible, avoid calling new() from an inner loop: The intended usage is to create an instance of this struct outside the loop, and use it for divison and remainders inside the loop.
     ///
     /// # Panics:
-    /// 
+    ///
     /// Panics if `divisor` is 0
     #[inline]
     pub fn new(divisor: u128) -> Self {
         assert!(divisor > 0);
 
-        if divisor.is_power_of_two() { 
-            Self{ multiplier_hi: 0, multiplier_lo: 0, divisor }
+        if divisor.is_power_of_two() {
+            Self {
+                multiplier_hi: 0,
+                multiplier_lo: 0,
+                divisor,
+            }
         } else {
             let (quotient_hi, quotient_lo) = long_division::divide_256_max_by_128(divisor);
             let multiplier_lo = quotient_lo.wrapping_add(1);
-            let multiplier_hi = if multiplier_lo == 0 { quotient_hi + 1 } else { quotient_hi };
-            Self{ multiplier_hi, multiplier_lo, divisor }
+            let multiplier_hi = if multiplier_lo == 0 {
+                quotient_hi + 1
+            } else {
+                quotient_hi
+            };
+            Self {
+                multiplier_hi,
+                multiplier_lo,
+                divisor,
+            }
         }
     }
 
@@ -453,8 +490,9 @@ impl Rem<StrengthReducedU128> for u128 {
         if rhs.multiplier_hi == 0 {
             self & (rhs.divisor - 1)
         } else {
-             let quotient = long_multiplication::multiply_256_by_128_upperbits(rhs.multiplier_hi, rhs.multiplier_lo, self);
-             self - quotient * rhs.divisor
+            let quotient =
+                long_multiplication::multiply_256_by_128_upperbits(rhs.multiplier_hi, rhs.multiplier_lo, self);
+            self - quotient * rhs.divisor
         }
     }
 }
@@ -471,4 +509,3 @@ strength_reduced_u16!(StrengthReducedUsize, usize);
 strength_reduced_u32!(StrengthReducedUsize, usize);
 #[cfg(target_pointer_width = "64")]
 strength_reduced_u64!(StrengthReducedUsize, usize);
-

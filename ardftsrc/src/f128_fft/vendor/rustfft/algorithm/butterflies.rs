@@ -1,6 +1,6 @@
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::rustfft::{common::FftNum, FftDirection};
+use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum};
 
 use crate::f128_fft::vendor::rustfft::array_utils::{DoubleBuf, LoadStore};
 use crate::f128_fft::vendor::rustfft::twiddles;
@@ -201,12 +201,7 @@ impl<T: FftNum> Butterfly3<T> {
         }
     }
     #[inline(always)]
-    unsafe fn perform_fft_strided(
-        &self,
-        val0: &mut Complex<T>,
-        val1: &mut Complex<T>,
-        val2: &mut Complex<T>,
-    ) {
+    unsafe fn perform_fft_strided(&self, val0: &mut Complex<T>, val1: &mut Complex<T>, val2: &mut Complex<T>) {
         let xp = *val1 + *val2;
         let xn = *val1 - *val2;
         let sum = *val0 + xp;
@@ -440,43 +435,17 @@ impl<T: FftNum> Butterfly5<T> {
         let out4re = b14re_a + b14re_b;
         let out4im = b14im_a - b14im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
     }
 }
 
 pub struct Butterfly6<T> {
     butterfly3: Butterfly3<T>,
 }
-boilerplate_fft_butterfly!(Butterfly6, 6, |this: &Butterfly6<_>| this
-    .butterfly3
-    .fft_direction());
+boilerplate_fft_butterfly!(Butterfly6, 6, |this: &Butterfly6<_>| this.butterfly3.fft_direction());
 impl<T: FftNum> Butterfly6<T> {
     #[inline(always)]
     pub fn new(direction: FftDirection) -> Self {
@@ -620,42 +589,24 @@ impl<T: FftNum> Butterfly7<T> {
         let x34n = buffer.load(3) - buffer.load(4);
         let sum = buffer.load(0) + x16p + x25p + x34p;
 
-        let x16re_a = buffer.load(0).re
-            + self.twiddle1.re * x16p.re
-            + self.twiddle2.re * x25p.re
-            + self.twiddle3.re * x34p.re;
-        let x16re_b =
-            self.twiddle1.im * x16n.im + self.twiddle2.im * x25n.im + self.twiddle3.im * x34n.im;
-        let x25re_a = buffer.load(0).re
-            + self.twiddle1.re * x34p.re
-            + self.twiddle2.re * x16p.re
-            + self.twiddle3.re * x25p.re;
-        let x25re_b =
-            -self.twiddle1.im * x34n.im + self.twiddle2.im * x16n.im - self.twiddle3.im * x25n.im;
-        let x34re_a = buffer.load(0).re
-            + self.twiddle1.re * x25p.re
-            + self.twiddle2.re * x34p.re
-            + self.twiddle3.re * x16p.re;
-        let x34re_b =
-            -self.twiddle1.im * x25n.im + self.twiddle2.im * x34n.im + self.twiddle3.im * x16n.im;
-        let x16im_a = buffer.load(0).im
-            + self.twiddle1.re * x16p.im
-            + self.twiddle2.re * x25p.im
-            + self.twiddle3.re * x34p.im;
-        let x16im_b =
-            self.twiddle1.im * x16n.re + self.twiddle2.im * x25n.re + self.twiddle3.im * x34n.re;
-        let x25im_a = buffer.load(0).im
-            + self.twiddle1.re * x34p.im
-            + self.twiddle2.re * x16p.im
-            + self.twiddle3.re * x25p.im;
-        let x25im_b =
-            -self.twiddle1.im * x34n.re + self.twiddle2.im * x16n.re - self.twiddle3.im * x25n.re;
-        let x34im_a = buffer.load(0).im
-            + self.twiddle1.re * x25p.im
-            + self.twiddle2.re * x34p.im
-            + self.twiddle3.re * x16p.im;
-        let x34im_b =
-            self.twiddle1.im * x25n.re - self.twiddle2.im * x34n.re - self.twiddle3.im * x16n.re;
+        let x16re_a =
+            buffer.load(0).re + self.twiddle1.re * x16p.re + self.twiddle2.re * x25p.re + self.twiddle3.re * x34p.re;
+        let x16re_b = self.twiddle1.im * x16n.im + self.twiddle2.im * x25n.im + self.twiddle3.im * x34n.im;
+        let x25re_a =
+            buffer.load(0).re + self.twiddle1.re * x34p.re + self.twiddle2.re * x16p.re + self.twiddle3.re * x25p.re;
+        let x25re_b = -self.twiddle1.im * x34n.im + self.twiddle2.im * x16n.im - self.twiddle3.im * x25n.im;
+        let x34re_a =
+            buffer.load(0).re + self.twiddle1.re * x25p.re + self.twiddle2.re * x34p.re + self.twiddle3.re * x16p.re;
+        let x34re_b = -self.twiddle1.im * x25n.im + self.twiddle2.im * x34n.im + self.twiddle3.im * x16n.im;
+        let x16im_a =
+            buffer.load(0).im + self.twiddle1.re * x16p.im + self.twiddle2.re * x25p.im + self.twiddle3.re * x34p.im;
+        let x16im_b = self.twiddle1.im * x16n.re + self.twiddle2.im * x25n.re + self.twiddle3.im * x34n.re;
+        let x25im_a =
+            buffer.load(0).im + self.twiddle1.re * x34p.im + self.twiddle2.re * x16p.im + self.twiddle3.re * x25p.im;
+        let x25im_b = -self.twiddle1.im * x34n.re + self.twiddle2.im * x16n.re - self.twiddle3.im * x25n.re;
+        let x34im_a =
+            buffer.load(0).im + self.twiddle1.re * x25p.im + self.twiddle2.re * x34p.im + self.twiddle3.re * x16p.im;
+        let x34im_b = self.twiddle1.im * x25n.re - self.twiddle2.im * x34n.re - self.twiddle3.im * x16n.re;
 
         let out1re = x16re_a - x16re_b;
         let out1im = x16im_a + x16im_b;
@@ -671,48 +622,12 @@ impl<T: FftNum> Butterfly7<T> {
         let out6im = x16im_a - x16im_b;
 
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
     }
 }
 
@@ -740,18 +655,8 @@ impl<T: FftNum> Butterfly8<T> {
         //aka we're going to do the six step algorithm
 
         // step 1: transpose the input into the scratch
-        let mut scratch0 = [
-            buffer.load(0),
-            buffer.load(2),
-            buffer.load(4),
-            buffer.load(6),
-        ];
-        let mut scratch1 = [
-            buffer.load(1),
-            buffer.load(3),
-            buffer.load(5),
-            buffer.load(7),
-        ];
+        let mut scratch0 = [buffer.load(0), buffer.load(2), buffer.load(4), buffer.load(6)];
+        let mut scratch1 = [buffer.load(1), buffer.load(3), buffer.load(5), buffer.load(7)];
 
         // step 2: column FFTs
         butterfly4.perform_fft_contiguous(&mut scratch0);
@@ -785,9 +690,7 @@ pub struct Butterfly9<T> {
     twiddle2: Complex<T>,
     twiddle4: Complex<T>,
 }
-boilerplate_fft_butterfly!(Butterfly9, 9, |this: &Butterfly9<_>| this
-    .butterfly3
-    .fft_direction());
+boilerplate_fft_butterfly!(Butterfly9, 9, |this: &Butterfly9<_>| this.butterfly3.fft_direction());
 impl<T: FftNum> Butterfly9<T> {
     #[inline(always)]
     pub fn new(direction: FftDirection) -> Self {
@@ -1017,69 +920,15 @@ impl<T: FftNum> Butterfly11<T> {
         let out10re = b110re_a + b110re_b;
         let out10im = b110im_a - b110im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
-        buffer.store(
-            Complex {
-                re: out7re,
-                im: out7im,
-            },
-            7,
-        );
-        buffer.store(
-            Complex {
-                re: out8re,
-                im: out8im,
-            },
-            8,
-        );
-        buffer.store(
-            Complex {
-                re: out9re,
-                im: out9im,
-            },
-            9,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
+        buffer.store(Complex { re: out7re, im: out7im }, 7);
+        buffer.store(Complex { re: out8re, im: out8im }, 8);
+        buffer.store(Complex { re: out9re, im: out9im }, 9);
         buffer.store(
             Complex {
                 re: out10re,
@@ -1094,9 +943,7 @@ pub struct Butterfly12<T> {
     butterfly3: Butterfly3<T>,
     butterfly4: Butterfly4<T>,
 }
-boilerplate_fft_butterfly!(Butterfly12, 12, |this: &Butterfly12<_>| this
-    .butterfly3
-    .fft_direction());
+boilerplate_fft_butterfly!(Butterfly12, 12, |this: &Butterfly12<_>| this.butterfly3.fft_direction());
 impl<T: FftNum> Butterfly12<T> {
     #[inline(always)]
     pub fn new(direction: FftDirection) -> Self {
@@ -1111,24 +958,9 @@ impl<T: FftNum> Butterfly12<T> {
 
         // step 1: reorder the input directly into the scratch. normally there's a whole thing to compute this ordering
         //but thankfully we can just precompute it and hardcode it
-        let mut scratch0 = [
-            buffer.load(0),
-            buffer.load(3),
-            buffer.load(6),
-            buffer.load(9),
-        ];
-        let mut scratch1 = [
-            buffer.load(4),
-            buffer.load(7),
-            buffer.load(10),
-            buffer.load(1),
-        ];
-        let mut scratch2 = [
-            buffer.load(8),
-            buffer.load(11),
-            buffer.load(2),
-            buffer.load(5),
-        ];
+        let mut scratch0 = [buffer.load(0), buffer.load(3), buffer.load(6), buffer.load(9)];
+        let mut scratch1 = [buffer.load(4), buffer.load(7), buffer.load(10), buffer.load(1)];
+        let mut scratch2 = [buffer.load(8), buffer.load(11), buffer.load(2), buffer.load(5)];
 
         // step 2: column FFTs
         self.butterfly4.perform_fft_contiguous(&mut scratch0);
@@ -1397,69 +1229,15 @@ impl<T: FftNum> Butterfly13<T> {
         let out12re = b112re_a + b112re_b;
         let out12im = b112im_a - b112im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
-        buffer.store(
-            Complex {
-                re: out7re,
-                im: out7im,
-            },
-            7,
-        );
-        buffer.store(
-            Complex {
-                re: out8re,
-                im: out8im,
-            },
-            8,
-        );
-        buffer.store(
-            Complex {
-                re: out9re,
-                im: out9im,
-            },
-            9,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
+        buffer.store(Complex { re: out7re, im: out7im }, 7);
+        buffer.store(Complex { re: out8re, im: out8im }, 8);
+        buffer.store(Complex { re: out9re, im: out9im }, 9);
         buffer.store(
             Complex {
                 re: out10re,
@@ -1490,9 +1268,7 @@ pub struct Butterfly16<T> {
     twiddle2: Complex<T>,
     twiddle3: Complex<T>,
 }
-boilerplate_fft_butterfly!(Butterfly16, 16, |this: &Butterfly16<_>| this
-    .butterfly8
-    .fft_direction());
+boilerplate_fft_butterfly!(Butterfly16, 16, |this: &Butterfly16<_>| this.butterfly8.fft_direction());
 impl<T: FftNum> Butterfly16<T> {
     #[inline(always)]
     pub fn new(direction: FftDirection) -> Self {
@@ -1521,18 +1297,8 @@ impl<T: FftNum> Butterfly16<T> {
             buffer.load(14),
         ];
 
-        let mut scratch_odds_n1 = [
-            buffer.load(1),
-            buffer.load(5),
-            buffer.load(9),
-            buffer.load(13),
-        ];
-        let mut scratch_odds_n3 = [
-            buffer.load(15),
-            buffer.load(3),
-            buffer.load(7),
-            buffer.load(11),
-        ];
+        let mut scratch_odds_n1 = [buffer.load(1), buffer.load(5), buffer.load(9), buffer.load(13)];
+        let mut scratch_odds_n3 = [buffer.load(15), buffer.load(3), buffer.load(7), buffer.load(11)];
 
         // step 2: column FFTs
         self.butterfly8.perform_fft_contiguous(&mut scratch_evens);
@@ -1945,69 +1711,15 @@ impl<T: FftNum> Butterfly17<T> {
         let out16re = b116re_a + b116re_b;
         let out16im = b116im_a - b116im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
-        buffer.store(
-            Complex {
-                re: out7re,
-                im: out7im,
-            },
-            7,
-        );
-        buffer.store(
-            Complex {
-                re: out8re,
-                im: out8im,
-            },
-            8,
-        );
-        buffer.store(
-            Complex {
-                re: out9re,
-                im: out9im,
-            },
-            9,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
+        buffer.store(Complex { re: out7re, im: out7im }, 7);
+        buffer.store(Complex { re: out8re, im: out8im }, 8);
+        buffer.store(Complex { re: out9re, im: out9im }, 9);
         buffer.store(
             Complex {
                 re: out10re,
@@ -2121,8 +1833,7 @@ impl<T: FftNum> Butterfly19<T> {
         let x811n = buffer.load(8) - buffer.load(11);
         let x910p = buffer.load(9) + buffer.load(10);
         let x910n = buffer.load(9) - buffer.load(10);
-        let sum =
-            buffer.load(0) + x118p + x217p + x316p + x415p + x514p + x613p + x712p + x811p + x910p;
+        let sum = buffer.load(0) + x118p + x217p + x316p + x415p + x514p + x613p + x712p + x811p + x910p;
         let b118re_a = buffer.load(0).re
             + self.twiddle1.re * x118p.re
             + self.twiddle2.re * x217p.re
@@ -2504,69 +2215,15 @@ impl<T: FftNum> Butterfly19<T> {
         let out18re = b118re_a + b118re_b;
         let out18im = b118im_a - b118im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
-        buffer.store(
-            Complex {
-                re: out7re,
-                im: out7im,
-            },
-            7,
-        );
-        buffer.store(
-            Complex {
-                re: out8re,
-                im: out8im,
-            },
-            8,
-        );
-        buffer.store(
-            Complex {
-                re: out9re,
-                im: out9im,
-            },
-            9,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
+        buffer.store(Complex { re: out7re, im: out7im }, 7);
+        buffer.store(Complex { re: out8re, im: out8im }, 8);
+        buffer.store(Complex { re: out9re, im: out9im }, 9);
         buffer.store(
             Complex {
                 re: out10re,
@@ -2704,18 +2361,8 @@ impl<T: FftNum> Butterfly23<T> {
         let x1013n = buffer.load(10) - buffer.load(13);
         let x1112p = buffer.load(11) + buffer.load(12);
         let x1112n = buffer.load(11) - buffer.load(12);
-        let sum = buffer.load(0)
-            + x122p
-            + x221p
-            + x320p
-            + x419p
-            + x518p
-            + x617p
-            + x716p
-            + x815p
-            + x914p
-            + x1013p
-            + x1112p;
+        let sum =
+            buffer.load(0) + x122p + x221p + x320p + x419p + x518p + x617p + x716p + x815p + x914p + x1013p + x1112p;
         let b122re_a = buffer.load(0).re
             + self.twiddle1.re * x122p.re
             + self.twiddle2.re * x221p.re
@@ -3269,69 +2916,15 @@ impl<T: FftNum> Butterfly23<T> {
         let out22re = b122re_a + b122re_b;
         let out22im = b122im_a - b122im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
-        buffer.store(
-            Complex {
-                re: out7re,
-                im: out7im,
-            },
-            7,
-        );
-        buffer.store(
-            Complex {
-                re: out8re,
-                im: out8im,
-            },
-            8,
-        );
-        buffer.store(
-            Complex {
-                re: out9re,
-                im: out9im,
-            },
-            9,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
+        buffer.store(Complex { re: out7re, im: out7im }, 7);
+        buffer.store(Complex { re: out8re, im: out8im }, 8);
+        buffer.store(Complex { re: out9re, im: out9im }, 9);
         buffer.store(
             Complex {
                 re: out10re,
@@ -3437,9 +3030,7 @@ pub struct Butterfly24<T> {
     twiddle10: Complex<T>,
     root2: T,
 }
-boilerplate_fft_butterfly!(Butterfly24, 24, |this: &Butterfly24<_>| this
-    .butterfly4
-    .fft_direction());
+boilerplate_fft_butterfly!(Butterfly24, 24, |this: &Butterfly24<_>| this.butterfly4.fft_direction());
 impl<T: FftNum> Butterfly24<T> {
     #[inline(always)]
     pub fn new(direction: FftDirection) -> Self {
@@ -3503,8 +3094,7 @@ impl<T: FftNum> Butterfly24<T> {
         // step 3: apply twiddle factors
         scratch1[1] = scratch1[1] * self.twiddle1;
         scratch1[2] = scratch1[2] * self.twiddle2;
-        scratch1[3] =
-            (twiddles::rotate_90(scratch1[3], self.fft_direction()) + scratch1[3]) * self.root2;
+        scratch1[3] = (twiddles::rotate_90(scratch1[3], self.fft_direction()) + scratch1[3]) * self.root2;
         scratch1[4] = scratch1[4] * self.twiddle4;
         scratch1[5] = scratch1[5] * self.twiddle5;
         scratch2[1] = scratch2[1] * self.twiddle2;
@@ -3512,54 +3102,27 @@ impl<T: FftNum> Butterfly24<T> {
         scratch2[3] = twiddles::rotate_90(scratch2[3], self.fft_direction());
         scratch2[4] = scratch2[4] * self.twiddle8;
         scratch2[5] = scratch2[5] * self.twiddle10;
-        scratch3[1] =
-            (twiddles::rotate_90(scratch3[1], self.fft_direction()) + scratch3[1]) * self.root2;
+        scratch3[1] = (twiddles::rotate_90(scratch3[1], self.fft_direction()) + scratch3[1]) * self.root2;
         scratch3[2] = twiddles::rotate_90(scratch3[2], self.fft_direction());
-        scratch3[3] =
-            (twiddles::rotate_90(scratch3[3], self.fft_direction()) - scratch3[3]) * self.root2;
+        scratch3[3] = (twiddles::rotate_90(scratch3[3], self.fft_direction()) - scratch3[3]) * self.root2;
         scratch3[4] = -scratch3[4];
-        scratch3[5] =
-            (twiddles::rotate_90(scratch3[5], self.fft_direction()) + scratch3[5]) * -self.root2;
+        scratch3[5] = (twiddles::rotate_90(scratch3[5], self.fft_direction()) + scratch3[5]) * -self.root2;
 
         // step 4: SKIPPED because the next FFTs will be non-contiguous
 
         // step 5: row FFTs
-        self.butterfly4.perform_fft_strided(
-            &mut scratch0[0],
-            &mut scratch1[0],
-            &mut scratch2[0],
-            &mut scratch3[0],
-        );
-        self.butterfly4.perform_fft_strided(
-            &mut scratch0[1],
-            &mut scratch1[1],
-            &mut scratch2[1],
-            &mut scratch3[1],
-        );
-        self.butterfly4.perform_fft_strided(
-            &mut scratch0[2],
-            &mut scratch1[2],
-            &mut scratch2[2],
-            &mut scratch3[2],
-        );
-        self.butterfly4.perform_fft_strided(
-            &mut scratch0[3],
-            &mut scratch1[3],
-            &mut scratch2[3],
-            &mut scratch3[3],
-        );
-        self.butterfly4.perform_fft_strided(
-            &mut scratch0[4],
-            &mut scratch1[4],
-            &mut scratch2[4],
-            &mut scratch3[4],
-        );
-        self.butterfly4.perform_fft_strided(
-            &mut scratch0[5],
-            &mut scratch1[5],
-            &mut scratch2[5],
-            &mut scratch3[5],
-        );
+        self.butterfly4
+            .perform_fft_strided(&mut scratch0[0], &mut scratch1[0], &mut scratch2[0], &mut scratch3[0]);
+        self.butterfly4
+            .perform_fft_strided(&mut scratch0[1], &mut scratch1[1], &mut scratch2[1], &mut scratch3[1]);
+        self.butterfly4
+            .perform_fft_strided(&mut scratch0[2], &mut scratch1[2], &mut scratch2[2], &mut scratch3[2]);
+        self.butterfly4
+            .perform_fft_strided(&mut scratch0[3], &mut scratch1[3], &mut scratch2[3], &mut scratch3[3]);
+        self.butterfly4
+            .perform_fft_strided(&mut scratch0[4], &mut scratch1[4], &mut scratch2[4], &mut scratch3[4]);
+        self.butterfly4
+            .perform_fft_strided(&mut scratch0[5], &mut scratch1[5], &mut scratch2[5], &mut scratch3[5]);
 
         // step 6: copy back to the buffer. we can skip the transpose, because we skipped step 4
         buffer.store(scratch0[0], 0);
@@ -3593,9 +3156,7 @@ pub struct Butterfly27<T> {
     butterfly9: Butterfly9<T>,
     twiddles: [Complex<T>; 12],
 }
-boilerplate_fft_butterfly!(Butterfly27, 27, |this: &Butterfly27<_>| this
-    .butterfly9
-    .fft_direction());
+boilerplate_fft_butterfly!(Butterfly27, 27, |this: &Butterfly27<_>| this.butterfly9.fft_direction());
 impl<T: FftNum> Butterfly27<T> {
     #[inline(always)]
     pub fn new(direction: FftDirection) -> Self {
@@ -3683,51 +3244,33 @@ impl<T: FftNum> Butterfly27<T> {
         // step 4: SKIPPED because the next FFTs will be non-contiguous
 
         // step 5: row FFTs
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[0],
-            &mut scratch1[0],
-            &mut scratch2[0],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[1],
-            &mut scratch1[1],
-            &mut scratch2[1],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[2],
-            &mut scratch1[2],
-            &mut scratch2[2],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[3],
-            &mut scratch1[3],
-            &mut scratch2[3],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[4],
-            &mut scratch1[4],
-            &mut scratch2[4],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[5],
-            &mut scratch1[5],
-            &mut scratch2[5],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[6],
-            &mut scratch1[6],
-            &mut scratch2[6],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[7],
-            &mut scratch1[7],
-            &mut scratch2[7],
-        );
-        self.butterfly9.butterfly3.perform_fft_strided(
-            &mut scratch0[8],
-            &mut scratch1[8],
-            &mut scratch2[8],
-        );
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[0], &mut scratch1[0], &mut scratch2[0]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[1], &mut scratch1[1], &mut scratch2[1]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[2], &mut scratch1[2], &mut scratch2[2]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[3], &mut scratch1[3], &mut scratch2[3]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[4], &mut scratch1[4], &mut scratch2[4]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[5], &mut scratch1[5], &mut scratch2[5]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[6], &mut scratch1[6], &mut scratch2[6]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[7], &mut scratch1[7], &mut scratch2[7]);
+        self.butterfly9
+            .butterfly3
+            .perform_fft_strided(&mut scratch0[8], &mut scratch1[8], &mut scratch2[8]);
 
         // step 6: copy the result into the output. normally we'd need to do a transpose here, but we can skip it because we skipped the transpose in step 4
         buffer.store(scratch0[0], 0);
@@ -4734,69 +4277,15 @@ impl<T: FftNum> Butterfly29<T> {
         let out28re = b128re_a + b128re_b;
         let out28im = b128im_a - b128im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
-        buffer.store(
-            Complex {
-                re: out7re,
-                im: out7im,
-            },
-            7,
-        );
-        buffer.store(
-            Complex {
-                re: out8re,
-                im: out8im,
-            },
-            8,
-        );
-        buffer.store(
-            Complex {
-                re: out9re,
-                im: out9im,
-            },
-            9,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
+        buffer.store(Complex { re: out7re, im: out7im }, 7);
+        buffer.store(Complex { re: out8re, im: out8im }, 8);
+        buffer.store(Complex { re: out9re, im: out9im }, 9);
         buffer.store(
             Complex {
                 re: out10re,
@@ -6032,69 +5521,15 @@ impl<T: FftNum> Butterfly31<T> {
         let out30re = b130re_a + b130re_b;
         let out30im = b130im_a - b130im_b;
         buffer.store(sum, 0);
-        buffer.store(
-            Complex {
-                re: out1re,
-                im: out1im,
-            },
-            1,
-        );
-        buffer.store(
-            Complex {
-                re: out2re,
-                im: out2im,
-            },
-            2,
-        );
-        buffer.store(
-            Complex {
-                re: out3re,
-                im: out3im,
-            },
-            3,
-        );
-        buffer.store(
-            Complex {
-                re: out4re,
-                im: out4im,
-            },
-            4,
-        );
-        buffer.store(
-            Complex {
-                re: out5re,
-                im: out5im,
-            },
-            5,
-        );
-        buffer.store(
-            Complex {
-                re: out6re,
-                im: out6im,
-            },
-            6,
-        );
-        buffer.store(
-            Complex {
-                re: out7re,
-                im: out7im,
-            },
-            7,
-        );
-        buffer.store(
-            Complex {
-                re: out8re,
-                im: out8im,
-            },
-            8,
-        );
-        buffer.store(
-            Complex {
-                re: out9re,
-                im: out9im,
-            },
-            9,
-        );
+        buffer.store(Complex { re: out1re, im: out1im }, 1);
+        buffer.store(Complex { re: out2re, im: out2im }, 2);
+        buffer.store(Complex { re: out3re, im: out3im }, 3);
+        buffer.store(Complex { re: out4re, im: out4im }, 4);
+        buffer.store(Complex { re: out5re, im: out5im }, 5);
+        buffer.store(Complex { re: out6re, im: out6im }, 6);
+        buffer.store(Complex { re: out7re, im: out7im }, 7);
+        buffer.store(Complex { re: out8re, im: out8im }, 8);
+        buffer.store(Complex { re: out9re, im: out9im }, 9);
         buffer.store(
             Complex {
                 re: out10re,
@@ -6249,9 +5684,7 @@ pub struct Butterfly32<T> {
     butterfly8: Butterfly8<T>,
     twiddles: [Complex<T>; 7],
 }
-boilerplate_fft_butterfly!(Butterfly32, 32, |this: &Butterfly32<_>| this
-    .butterfly8
-    .fft_direction());
+boilerplate_fft_butterfly!(Butterfly32, 32, |this: &Butterfly32<_>| this.butterfly8.fft_direction());
 impl<T: FftNum> Butterfly32<T> {
     pub fn new(direction: FftDirection) -> Self {
         Self {
@@ -6395,4 +5828,3 @@ impl<T: FftNum> Butterfly32<T> {
         buffer.store(scratch_evens[15] - scratch_odds_n3[7], 31);
     }
 }
-

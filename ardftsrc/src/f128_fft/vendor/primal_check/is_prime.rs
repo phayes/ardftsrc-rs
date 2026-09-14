@@ -4,7 +4,13 @@ fn mod_mul_(a: u64, b: u64, m: u64) -> u64 {
 
 fn mod_mul(a: u64, b: u64, m: u64) -> u64 {
     match a.checked_mul(b) {
-        Some(r) => if r >= m { r % m } else { r },
+        Some(r) => {
+            if r >= m {
+                r % m
+            } else {
+                r
+            }
+        }
         None => mod_mul_(a, b, m),
     }
 }
@@ -12,11 +18,7 @@ fn mod_mul(a: u64, b: u64, m: u64) -> u64 {
 fn mod_sqr(a: u64, m: u64) -> u64 {
     if a < (1 << 32) {
         let r = a * a;
-        if r >= m {
-            r % m
-        } else {
-            r
-        }
+        if r >= m { r % m } else { r }
     } else {
         mod_mul_(a, a, m)
     }
@@ -77,32 +79,44 @@ pub fn miller_rabin(n: u64) -> bool {
         (std::u64::MAX, &[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]),
     ];
 
-    if n % 2 == 0 { return n == 2 }
-    if n == 1 { return false }
+    if n % 2 == 0 {
+        return n == 2;
+    }
+    if n == 1 {
+        return false;
+    }
 
     let mut d = n - 1;
     let mut s = 0;
-    while d % 2 == 0 { d /= 2; s += 1 }
+    while d % 2 == 0 {
+        d /= 2;
+        s += 1
+    }
 
-    let witnesses =
-        WITNESSES.iter().find(|&&(hi, _)| hi >= n)
-            .map(|&(_, wtnss)| wtnss).unwrap();
+    let witnesses = WITNESSES
+        .iter()
+        .find(|&&(hi, _)| hi >= n)
+        .map(|&(_, wtnss)| wtnss)
+        .unwrap();
     'next_witness: for &a in witnesses.iter() {
         let mut power = mod_exp(a, d, n);
         assert!(power < n);
-        if power == 1 || power == n - 1 { continue 'next_witness }
+        if power == 1 || power == n - 1 {
+            continue 'next_witness;
+        }
 
         for _r in 0..s {
             power = mod_sqr(power, n);
             assert!(power < n);
-            if power == 1 { return false }
+            if power == 1 {
+                return false;
+            }
             if power == n - 1 {
-                continue 'next_witness
+                continue 'next_witness;
             }
         }
-        return false
+        return false;
     }
 
     true
 }
-

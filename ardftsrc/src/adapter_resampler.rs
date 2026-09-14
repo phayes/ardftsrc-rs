@@ -33,9 +33,7 @@ where
     /// FFT geometry cannot be prepared.
     pub fn new(config: Config) -> Result<Self, Error> {
         let derived = config.derive_config::<T>()?;
-        let cores = (0..config.channels)
-            .map(|_| CpuCore::new(derived.clone()))
-            .collect();
+        let cores = (0..config.channels).map(|_| CpuCore::new(derived.clone())).collect();
 
         let input_staging = vec![vec![T::zero(); derived.raw_input_chunk_frames()]; config.channels];
         let output_staging = vec![vec![T::zero(); derived.output_chunk_frames]; config.channels];

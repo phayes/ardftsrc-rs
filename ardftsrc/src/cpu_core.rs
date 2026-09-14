@@ -454,7 +454,12 @@ where
     /// itself (the decimated-domain count) drives the FFT windowing logic below.
     ///
     /// Returns `(start, len)` indexing into `self.output_block`.
-    fn process_fft_chunk(&mut self, input: &[T], raw_input_len: usize, is_final: bool) -> Result<(usize, usize), Error> {
+    fn process_fft_chunk(
+        &mut self,
+        input: &[T],
+        raw_input_len: usize,
+        is_final: bool,
+    ) -> Result<(usize, usize), Error> {
         let input_samples = input.len();
 
         if is_final {
@@ -511,7 +516,11 @@ where
     /// Loads input samples into the FFT window at the configured offset.
     #[inline]
     fn copy_input_to_window(&mut self, input: &[T], input_samples: usize) {
-        window::write_normal_window(&mut self.scratch.rdft_in, self.derived.input_offset, &input[..input_samples]);
+        window::write_normal_window(
+            &mut self.scratch.rdft_in,
+            self.derived.input_offset,
+            &input[..input_samples],
+        );
     }
 
     /// Synthesizes start-edge context by backward extrapolation for the first non-empty chunk.
@@ -708,7 +717,6 @@ fn plan_inverse<T: Float + FftNum>(
 
     planner.plan_fft_inverse(len)
 }
-
 
 #[cfg(test)]
 mod dd_backend_wiring_tests {

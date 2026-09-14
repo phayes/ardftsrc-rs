@@ -3,8 +3,8 @@ use std::sync::Arc;
 use num_complex::Complex;
 use num_traits::Zero;
 
-use crate::f128_fft::vendor::rustfft::{common::FftNum, twiddles, FftDirection};
 use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
+use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// Implementation of Bluestein's Algorithm
 ///
@@ -57,7 +57,12 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
     /// Panics if `inner_fft.len() < len * 2 - 1`.
     pub fn new(len: usize, inner_fft: Arc<dyn Fft<T>>) -> Self {
         let inner_fft_len = inner_fft.len();
-        assert!(len * 2 - 1 <= inner_fft_len, "Bluestein's algorithm requires inner_fft.len() >= self.len() * 2 - 1. Expected >= {}, got {}", len * 2 - 1, inner_fft_len);
+        assert!(
+            len * 2 - 1 <= inner_fft_len,
+            "Bluestein's algorithm requires inner_fft.len() >= self.len() * 2 - 1. Expected >= {}, got {}",
+            len * 2 - 1,
+            inner_fft_len
+        );
 
         // when computing FFTs, we're going to run our inner multiply pairise by some precomputed data, then run an inverse inner FFT. We need to precompute that inner data here
         let inner_fft_scale = T::one() / T::from_usize(inner_fft_len).unwrap();
@@ -65,10 +70,7 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
 
         // Compute twiddle factors that we'll run our inner FFT on
         let mut inner_fft_input = vec![Complex::zero(); inner_fft_len];
-        twiddles::fill_bluesteins_twiddles(
-            &mut inner_fft_input[..len],
-            direction.opposite_direction(),
-        );
+        twiddles::fill_bluesteins_twiddles(&mut inner_fft_input[..len], direction.opposite_direction());
 
         // Scale the computed twiddles and copy them to the end of the array
         inner_fft_input[0] = inner_fft_input[0] * inner_fft_scale;
@@ -101,10 +103,7 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
         let (inner_input, inner_scratch) = scratch.split_at_mut(self.inner_fft_multiplier.len());
 
         // Copy the buffer into our inner FFT input. the buffer will only fill part of the FFT input, so zero fill the rest
-        for ((buffer_entry, inner_entry), twiddle) in input
-            .iter()
-            .zip(inner_input.iter_mut())
-            .zip(self.twiddles.iter())
+        for ((buffer_entry, inner_entry), twiddle) in input.iter().zip(inner_input.iter_mut()).zip(self.twiddles.iter())
         {
             *inner_entry = *buffer_entry * *twiddle;
         }
@@ -113,8 +112,7 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
         }
 
         // run our inner forward FFT
-        self.inner_fft
-            .process_with_scratch(inner_input, inner_scratch);
+        self.inner_fft.process_with_scratch(inner_input, inner_scratch);
 
         // Multiply our inner FFT output by our precomputed data. Then, conjugate the result to set up for an inverse FFT
         for (inner, multiplier) in inner_input.iter_mut().zip(self.inner_fft_multiplier.iter()) {
@@ -122,33 +120,21 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
         }
 
         // inverse FFT. we're computing a forward but we're massaging it into an inverse by conjugating the inputs and outputs
-        self.inner_fft
-            .process_with_scratch(inner_input, inner_scratch);
+        self.inner_fft.process_with_scratch(inner_input, inner_scratch);
 
         // copy our data back to the buffer, applying twiddle factors again as we go. Also conjugate inner_input to complete the inverse FFT
-        for ((buffer_entry, inner_entry), twiddle) in input
-            .iter_mut()
-            .zip(inner_input.iter())
-            .zip(self.twiddles.iter())
+        for ((buffer_entry, inner_entry), twiddle) in input.iter_mut().zip(inner_input.iter()).zip(self.twiddles.iter())
         {
             *buffer_entry = inner_entry.conj() * twiddle;
         }
     }
 
     #[inline]
-    fn perform_fft_immut(
-        &self,
-        input: &[Complex<T>],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) {
+    fn perform_fft_immut(&self, input: &[Complex<T>], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
         let (inner_input, inner_scratch) = scratch.split_at_mut(self.inner_fft_multiplier.len());
 
         // Copy the buffer into our inner FFT input. the buffer will only fill part of the FFT input, so zero fill the rest
-        for ((buffer_entry, inner_entry), twiddle) in input
-            .iter()
-            .zip(inner_input.iter_mut())
-            .zip(self.twiddles.iter())
+        for ((buffer_entry, inner_entry), twiddle) in input.iter().zip(inner_input.iter_mut()).zip(self.twiddles.iter())
         {
             *inner_entry = *buffer_entry * *twiddle;
         }
@@ -157,8 +143,7 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
         }
 
         // run our inner forward FFT
-        self.inner_fft
-            .process_with_scratch(inner_input, inner_scratch);
+        self.inner_fft.process_with_scratch(inner_input, inner_scratch);
 
         // Multiply our inner FFT output by our precomputed data. Then, conjugate the result to set up for an inverse FFT
         for (inner, multiplier) in inner_input.iter_mut().zip(self.inner_fft_multiplier.iter()) {
@@ -166,14 +151,11 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
         }
 
         // inverse FFT. we're computing a forward but we're massaging it into an inverse by conjugating the inputs and outputs
-        self.inner_fft
-            .process_with_scratch(inner_input, inner_scratch);
+        self.inner_fft.process_with_scratch(inner_input, inner_scratch);
 
         // copy our data back to the buffer, applying twiddle factors again as we go. Also conjugate inner_input to complete the inverse FFT
-        for ((buffer_entry, inner_entry), twiddle) in output
-            .iter_mut()
-            .zip(inner_input.iter())
-            .zip(self.twiddles.iter())
+        for ((buffer_entry, inner_entry), twiddle) in
+            output.iter_mut().zip(inner_input.iter()).zip(self.twiddles.iter())
         {
             *buffer_entry = inner_entry.conj() * twiddle;
         }
@@ -191,11 +173,7 @@ impl<T: FftNum> BluesteinsAlgorithm<T> {
 boilerplate_fft!(
     BluesteinsAlgorithm,
     |this: &BluesteinsAlgorithm<_>| this.len, // FFT len
-    |this: &BluesteinsAlgorithm<_>| this.inner_fft_multiplier.len()
-        + this.inner_fft.get_inplace_scratch_len(), // in-place scratch len
-    |this: &BluesteinsAlgorithm<_>| this.inner_fft_multiplier.len()
-        + this.inner_fft.get_inplace_scratch_len(), // out of place scratch len
-    |this: &BluesteinsAlgorithm<_>| this.inner_fft_multiplier.len()
-        + this.inner_fft.get_inplace_scratch_len()  // immut scratch len
+    |this: &BluesteinsAlgorithm<_>| this.inner_fft_multiplier.len() + this.inner_fft.get_inplace_scratch_len(), // in-place scratch len
+    |this: &BluesteinsAlgorithm<_>| this.inner_fft_multiplier.len() + this.inner_fft.get_inplace_scratch_len(), // out of place scratch len
+    |this: &BluesteinsAlgorithm<_>| this.inner_fft_multiplier.len() + this.inner_fft.get_inplace_scratch_len() // immut scratch len
 );
-

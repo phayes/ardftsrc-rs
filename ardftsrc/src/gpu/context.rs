@@ -1,18 +1,64 @@
 use std::ffi::CString;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use ash::vk;
+use num_traits::Float;
+use vkfft_rs::backend::vulkan::VulkanSpirvShader;
+use vkfft_rs::backend::vulkan::runtime::{VulkanBufferSlice, VulkanComputePipeline};
 use vkfft_rs::{Backend, DeviceProfile, GpuVendor};
 
+use super::buffer::GpuScalar;
 use super::error::GpuError;
+use super::fft_program::FromF64;
+use super::shaders::GpuShaders;
+use crate::Config;
+use crate::config::DerivedConfig;
 
-/// Capabilities of the Vulkan device backing a [`GpuContext`].
+/// Stable Vulkan identity used to select a physical GPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GpuDeviceId {
+    /// Vulkan device UUID reported by `VkPhysicalDeviceIDProperties`.
+    pub device_uuid: [u8; vk::UUID_SIZE],
+}
+
+/// Vulkan identifiers used to validate opaque pipeline-cache bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GpuPipelineCacheId {
+    /// PCI vendor identifier reported by Vulkan.
+    pub vendor_id: u32,
+    /// PCI device identifier reported by Vulkan.
+    pub device_id: u32,
+    /// UUID defining compatibility for opaque Vulkan pipeline-cache bytes.
+    pub pipeline_cache_uuid: [u8; vk::UUID_SIZE],
+}
+
+/// Broad Vulkan physical-device classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GpuDeviceType {
+    Other,
+    Integrated,
+    Discrete,
+    Virtual,
+    Cpu,
+}
+
+/// Identity, capabilities, and limits of the Vulkan device backing a [`GpuDevice`].
 ///
 /// GPU cores must consult this before executing `f64` work rather than assuming support:
 /// notably, Apple GPUs (Metal via MoltenVK) never report `shader_float64` support, since
 /// Metal has no double-precision shader type at all.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GpuCapabilities {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GpuInfo {
+    /// Physical-device identity used for explicit selection.
+    pub id: GpuDeviceId,
+    /// Identity tuple governing compatibility of opaque pipeline-cache data.
+    pub pipeline_cache_id: GpuPipelineCacheId,
+    /// Physical-device classification.
+    pub device_type: GpuDeviceType,
+    /// Vulkan API version reported by the device.
+    pub api_version: u32,
+    /// Vendor-defined Vulkan driver version.
+    pub driver_version: u32,
     /// Whether the device can execute compute shaders using 64-bit floating point.
     pub shader_float64: bool,
     /// Largest range (in bytes) a single storage buffer descriptor may cover.
@@ -23,48 +69,175 @@ pub struct GpuCapabilities {
     pub max_compute_workgroup_size: [u32; 3],
     /// Maximum total invocations in one compute workgroup.
     pub max_compute_work_group_invocations: u32,
-    /// Human-readable device name, for diagnostics/logging.
+    /// Human-readable device name, for UI.
     pub device_name: String,
 }
 
 /// Owns the long-lived Vulkan objects shared by all GPU cores.
 ///
 /// This is infrastructure only: it does not know about ARDFTSRC's DSP geometry, FFT plans,
-/// or shaders. GPU cores are constructed with an `Arc<GpuContext>` and build their own
+/// or shaders. GPU cores are constructed with an `Arc<GpuDevice>` and build their own
 /// FFT plans/buffers/pipelines on top of it, using `vkfft-rs`'s public planner/shader-lowering
 /// API (`ProgramIr`, `VulkanGlslBackend::lower_real_fft`, `VulkanComputePipeline`) against
 /// buffers and a command stream that this crate owns -- not `vkfft-rs`'s own hidden
 /// `VulkanExecutionContext`. This is what lets a GPU core record its own custom
 /// spectral-remap/overlap-add shaders in between the forward and inverse FFT passes within a
 /// single command buffer submission, with no host round-trip in between.
-pub struct GpuContext {
+pub struct GpuDevice {
     entry: ash::Entry,
     instance: ash::Instance,
-    physical_device: vk::PhysicalDevice,
     device: Arc<ash::Device>,
     compute_queue: vk::Queue,
-    queue_family: u32,
     command_pool: vk::CommandPool,
     pipeline_cache: vk::PipelineCache,
+    pipeline_cache_lock: Mutex<()>,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
     device_profile: DeviceProfile,
-    capabilities: GpuCapabilities,
-    /// Serializes command-pool/queue use across `run_one_shot` calls: `vk::CommandPool` is not
+    info: GpuInfo,
+    /// Serializes command-pool recording/release and queue submission: `vk::CommandPool` is not
     /// safe to record from concurrently, and `vkQueueSubmit` on the same queue needs external
     /// synchronization too. `vkfft-rs`'s own `VulkanExecutionContext` guards its queue/pool the
     /// same way, for the same reason.
     execution_lock: Mutex<()>,
 }
 
-impl GpuContext {
-    /// Creates a `GpuContext` on the best available Vulkan 1.2+ compute-capable device.
+/// A compute pipeline branded with the logical device that created it.
+///
+/// Keeping the device identity alongside the Vulkan object lets recording reject accidental
+/// cross-device use before it reaches `ash`.
+pub(crate) struct GpuComputePipeline {
+    pipeline: VulkanComputePipeline,
+    device: Arc<GpuDevice>,
+}
+
+impl GpuComputePipeline {
+    /// # Safety
     ///
-    /// Returns [`GpuError::VulkanInitFailed`] if the Vulkan loader/instance cannot be
-    /// created, or [`GpuError::NoCompatibleDevice`] if no physical device exposes a compute
-    /// queue family. This does *not* fail just because the device lacks `shaderFloat64`;
-    /// callers that need `f64` should check [`GpuContext::capabilities`] (or call
-    /// [`GpuContext::require_f64`]) themselves, so non-f64 GPU work can still proceed.
-    pub fn new() -> Result<Self, GpuError> {
+    /// Every supplied slice must refer to a live storage buffer from `self.device`, remain live
+    /// through every dispatch using this pipeline, and satisfy the shader's size/access contract.
+    pub(crate) unsafe fn update_storage_buffers(&self, buffers: &[(u32, VulkanBufferSlice)]) -> Result<(), GpuError> {
+        // SAFETY: the caller upholds the buffer provenance, lifetime, and descriptor contract.
+        unsafe { self.pipeline.update_storage_buffers(buffers) }
+            .map_err(|err| GpuError::PlanCreationFailed(format!("failed to update storage buffers: {err}")))
+    }
+
+    fn record(&self, command: &RecordingCommandBuffer<'_>) {
+        assert!(
+            Arc::ptr_eq(&self.device, command.device),
+            "attempted to record a compute pipeline on a different Vulkan device"
+        );
+        // SAFETY: `command` can only be constructed while its matching command buffer is
+        // recording, and the device brand was checked above.
+        unsafe { self.pipeline.record_dispatch(command.handle) };
+    }
+}
+
+/// A command buffer known to be recording on one particular [`GpuDevice`].
+///
+/// Values exist only inside the closure passed to [`GpuDevice::submit_async`], so raw command
+/// handles and recording-state obligations do not escape into the rest of the GPU module.
+pub(crate) struct RecordingCommandBuffer<'a> {
+    device: &'a Arc<GpuDevice>,
+    handle: vk::CommandBuffer,
+}
+
+impl RecordingCommandBuffer<'_> {
+    pub(crate) fn dispatch(&self, pipeline: &GpuComputePipeline) {
+        pipeline.record(self);
+    }
+
+    pub(crate) fn compute_barrier(&self) {
+        let barrier = vk::MemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE);
+        // SAFETY: this wrapper exists only while `handle` is recording on `device`.
+        unsafe {
+            self.device.device.cmd_pipeline_barrier(
+                self.handle,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::DependencyFlags::empty(),
+                &[barrier],
+                &[],
+                &[],
+            )
+        };
+    }
+
+    pub(crate) fn transfer_to_compute_barrier(&self) {
+        let barrier = vk::MemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE);
+        // SAFETY: this wrapper exists only while `handle` is recording on `device`.
+        unsafe {
+            self.device.device.cmd_pipeline_barrier(
+                self.handle,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::DependencyFlags::empty(),
+                &[barrier],
+                &[],
+                &[],
+            )
+        };
+    }
+
+    /// # Safety
+    ///
+    /// `src` and `dst` must be live buffers owned by this command buffer's device, have the
+    /// required transfer usage flags, and each cover at least `byte_len` bytes.
+    pub(crate) unsafe fn copy_raw_buffer(&self, src: vk::Buffer, dst: vk::Buffer, byte_len: vk::DeviceSize) {
+        let region = vk::BufferCopy::default().size(byte_len);
+        // SAFETY: the caller supplies the raw-buffer provenance, usage, and bounds guarantees.
+        unsafe { self.device.device.cmd_copy_buffer(self.handle, src, dst, &[region]) };
+    }
+}
+
+impl GpuDevice {
+    /// Lists every Vulkan 1.2+ physical device that exposes a compute queue.
+    pub fn list() -> Result<Vec<GpuInfo>, GpuError> {
+        let (_entry, instance) = Self::create_instance()?;
+        let result =
+            Self::compatible_devices(&instance).map(|devices| devices.into_iter().map(|device| device.info).collect());
+        // SAFETY: enumeration does not create child objects from this instance.
+        unsafe { instance.destroy_instance(None) };
+        result
+    }
+
+    /// Creates a logical device for the physical GPU identified by `id`.
+    pub fn new(id: GpuDeviceId) -> Result<Self, GpuError> {
+        Self::create(Some(id))
+    }
+
+    /// Creates a logical device on the preferred available compute-capable GPU.
+    pub fn auto_select() -> Result<Self, GpuError> {
+        Self::create(None)
+    }
+
+    fn create(requested: Option<GpuDeviceId>) -> Result<Self, GpuError> {
+        let (entry, instance) = Self::create_instance()?;
+        let selected = match Self::select_physical_device(&instance, requested) {
+            Ok(selected) => selected,
+            Err(err) => {
+                // SAFETY: no device/other child objects were created from this instance yet.
+                unsafe { instance.destroy_instance(None) };
+                return Err(err);
+            }
+        };
+
+        match Self::finish_new(entry, instance, selected) {
+            Ok(context) => Ok(context),
+            Err(boxed) => {
+                let (instance, err) = *boxed;
+                // SAFETY: only the instance itself needs cleanup; device (if any) creation
+                // failed inside `finish_new`, which cleans up after itself on error.
+                unsafe { instance.destroy_instance(None) };
+                Err(err)
+            }
+        }
+    }
+
+    fn create_instance() -> Result<(ash::Entry, ash::Instance), GpuError> {
         // SAFETY: loading the Vulkan loader is inherently unsafe (it dynamically loads a
         // system library); we immediately check the result rather than assuming success.
         let entry = unsafe { ash::Entry::load() }
@@ -100,26 +273,7 @@ impl GpuContext {
         // borrows only locals that outlive this call.
         let instance = unsafe { entry.create_instance(&instance_create_info, None) }
             .map_err(|err| GpuError::VulkanInitFailed(format!("failed to create Vulkan instance: {err}")))?;
-
-        let selected = match Self::select_physical_device(&instance) {
-            Ok(selected) => selected,
-            Err(err) => {
-                // SAFETY: no device/other child objects were created from this instance yet.
-                unsafe { instance.destroy_instance(None) };
-                return Err(err);
-            }
-        };
-
-        match Self::finish_new(entry, instance, selected) {
-            Ok(context) => Ok(context),
-            Err(boxed) => {
-                let (instance, err) = *boxed;
-                // SAFETY: only the instance itself needs cleanup; device (if any) creation
-                // failed inside `finish_new`, which cleans up after itself on error.
-                unsafe { instance.destroy_instance(None) };
-                Err(err)
-            }
-        }
+        Ok((entry, instance))
     }
 
     fn finish_new(
@@ -130,7 +284,7 @@ impl GpuContext {
         let SelectedDevice {
             physical_device,
             queue_family,
-            capabilities,
+            info,
             supports_portability_subset,
             vendor,
         } = selected;
@@ -146,8 +300,7 @@ impl GpuContext {
             device_extensions.push(ash::khr::portability_subset::NAME.as_ptr());
         }
 
-        let enabled_features =
-            vk::PhysicalDeviceFeatures::default().shader_float64(capabilities.shader_float64);
+        let enabled_features = vk::PhysicalDeviceFeatures::default().shader_float64(info.shader_float64);
 
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
@@ -209,11 +362,11 @@ impl GpuContext {
         // `DeviceProfile::generic` is `vkfft-rs`'s documented fail-soft portable profile: any
         // backend/vendor pair without a recognized fixed-upstream scheduler profile uses this
         // instead of borrowing another vendor's heuristics. Its `supports_f64` is *not* real
-        // hardware truth (see `GpuCapabilities::shader_float64`/`GpuContext::require_f64` for
+        // hardware truth (see `GpuInfo::shader_float64`/`GpuDevice::require_f64` for
         // that); it only gates which precision `RealFftIr::build` is willing to plan for, so it
         // must mirror what we actually queried, not the backend-wide default.
         let device_profile = DeviceProfile {
-            supports_f64: capabilities.shader_float64,
+            supports_f64: info.shader_float64,
             ..DeviceProfile::generic(Backend::Vulkan, vendor)
         };
 
@@ -222,26 +375,41 @@ impl GpuContext {
         Ok(Self {
             entry,
             instance,
-            physical_device,
             device,
             compute_queue,
-            queue_family,
             command_pool,
             pipeline_cache,
+            pipeline_cache_lock: Mutex::new(()),
             memory_properties,
             device_profile,
-            capabilities,
+            info,
             execution_lock: Mutex::new(()),
         })
     }
 
-    /// Picks a physical device with a compute-capable queue family, preferring discrete GPUs.
-    fn select_physical_device(instance: &ash::Instance) -> Result<SelectedDevice, GpuError> {
+    fn select_physical_device(
+        instance: &ash::Instance,
+        requested: Option<GpuDeviceId>,
+    ) -> Result<SelectedDevice, GpuError> {
+        let devices = Self::compatible_devices(instance)?;
+        match requested {
+            Some(id) => devices
+                .into_iter()
+                .find(|device| device.info.id == id)
+                .ok_or(GpuError::DeviceNotFound(id)),
+            None => devices
+                .into_iter()
+                .max_by_key(|device| device_score(device.info.device_type))
+                .ok_or(GpuError::NoCompatibleDevice),
+        }
+    }
+
+    fn compatible_devices(instance: &ash::Instance) -> Result<Vec<SelectedDevice>, GpuError> {
         // SAFETY: `instance` is valid and was just created successfully by the caller.
         let physical_devices = unsafe { instance.enumerate_physical_devices() }
             .map_err(|err| GpuError::VulkanInitFailed(format!("failed to enumerate Vulkan devices: {err}")))?;
 
-        let mut best: Option<(u32, SelectedDevice)> = None;
+        let mut devices = Vec::new();
         for physical_device in physical_devices {
             // SAFETY: `physical_device` came from `instance`'s own enumeration above.
             let queue_families = unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
@@ -253,22 +421,43 @@ impl GpuContext {
                 continue;
             };
 
-            // SAFETY: `physical_device` is valid, from the same instance.
-            let properties = unsafe { instance.get_physical_device_properties(physical_device) };
+            let mut id_properties = vk::PhysicalDeviceIDProperties::default();
+            let mut properties2 = vk::PhysicalDeviceProperties2::default().push_next(&mut id_properties);
+            // SAFETY: `physical_device` is valid, from this instance, and the output chain is
+            // initialized for Vulkan to populate.
+            unsafe { instance.get_physical_device_properties2(physical_device, &mut properties2) };
+            let properties = properties2.properties;
             // SAFETY: `physical_device` is valid, from the same instance.
             let features = unsafe { instance.get_physical_device_features(physical_device) };
-            let extensions = unsafe { instance.enumerate_device_extension_properties(physical_device) }
-                .unwrap_or_default();
-            let supports_portability_subset = extensions.iter().any(|ext| {
-                ext.extension_name_as_c_str().ok() == Some(ash::khr::portability_subset::NAME)
-            });
+            let extensions =
+                unsafe { instance.enumerate_device_extension_properties(physical_device) }.unwrap_or_default();
+            let supports_portability_subset = extensions
+                .iter()
+                .any(|ext| ext.extension_name_as_c_str().ok() == Some(ash::khr::portability_subset::NAME));
 
             let device_name = properties
                 .device_name_as_c_str()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|_| "<unknown Vulkan device>".to_string());
 
-            let capabilities = GpuCapabilities {
+            let info = GpuInfo {
+                id: GpuDeviceId {
+                    device_uuid: id_properties.device_uuid,
+                },
+                pipeline_cache_id: GpuPipelineCacheId {
+                    vendor_id: properties.vendor_id,
+                    device_id: properties.device_id,
+                    pipeline_cache_uuid: properties.pipeline_cache_uuid,
+                },
+                device_type: match properties.device_type {
+                    vk::PhysicalDeviceType::INTEGRATED_GPU => GpuDeviceType::Integrated,
+                    vk::PhysicalDeviceType::DISCRETE_GPU => GpuDeviceType::Discrete,
+                    vk::PhysicalDeviceType::VIRTUAL_GPU => GpuDeviceType::Virtual,
+                    vk::PhysicalDeviceType::CPU => GpuDeviceType::Cpu,
+                    _ => GpuDeviceType::Other,
+                },
+                api_version: properties.api_version,
+                driver_version: properties.driver_version,
                 shader_float64: features.shader_float64 == vk::TRUE,
                 max_storage_buffer_range: properties.limits.max_storage_buffer_range as u64,
                 max_compute_workgroup_count: properties.limits.max_compute_work_group_count,
@@ -277,37 +466,26 @@ impl GpuContext {
                 device_name,
             };
 
-            let score = match properties.device_type {
-                vk::PhysicalDeviceType::DISCRETE_GPU => 3,
-                vk::PhysicalDeviceType::INTEGRATED_GPU => 2,
-                vk::PhysicalDeviceType::VIRTUAL_GPU => 1,
-                _ => 0,
-            };
-
-            let candidate = SelectedDevice {
+            devices.push(SelectedDevice {
                 physical_device,
                 queue_family,
-                capabilities,
+                info,
                 supports_portability_subset,
                 vendor: gpu_vendor_from_pci_id(properties.vendor_id),
-            };
-
-            if best.as_ref().is_none_or(|(best_score, _)| score > *best_score) {
-                best = Some((score, candidate));
-            }
+            });
         }
 
-        best.map(|(_, selected)| selected).ok_or(GpuError::NoCompatibleDevice)
+        Ok(devices)
     }
 
     /// This device's reported capabilities (precision support, workgroup/buffer limits).
-    pub fn capabilities(&self) -> &GpuCapabilities {
-        &self.capabilities
+    pub fn info(&self) -> &GpuInfo {
+        &self.info
     }
 
     /// Human-readable Vulkan device name, for diagnostics/logging.
     pub fn device_name(&self) -> &str {
-        &self.capabilities.device_name
+        &self.info.device_name
     }
 
     /// Returns `Ok(())` if this device can execute `f64` compute shaders, or
@@ -316,7 +494,7 @@ impl GpuContext {
     /// GPU cores constructed with an `f64` element type must call this (rather than
     /// silently falling back to `f32`) before doing any GPU work.
     pub fn require_f64(&self) -> Result<(), GpuError> {
-        if self.capabilities.shader_float64 {
+        if self.info.shader_float64 {
             Ok(())
         } else {
             Err(GpuError::Fp64Unsupported)
@@ -335,42 +513,72 @@ impl GpuContext {
         &self.device
     }
 
-    /// The physical device selected for this context, for memory/format queries.
-    pub(crate) fn physical_device(&self) -> vk::PhysicalDevice {
-        self.physical_device
-    }
-
     /// This device's memory heaps/types, for choosing a memory type index when allocating
     /// buffers.
     pub(crate) fn memory_properties(&self) -> &vk::PhysicalDeviceMemoryProperties {
         &self.memory_properties
     }
 
-    /// The queue used for all compute submissions on this context.
-    pub(crate) fn compute_queue(&self) -> vk::Queue {
-        self.compute_queue
+    /// Builds one live compute pipeline while externally synchronizing the shared Vulkan cache.
+    pub(crate) fn create_compute_pipeline(
+        self: &Arc<Self>,
+        shader: &VulkanSpirvShader,
+    ) -> Result<GpuComputePipeline, GpuError> {
+        let _guard = self
+            .pipeline_cache_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // SAFETY: the device and pipeline cache are owned by `self` and remain live for the
+        // returned pipeline's construction. The cache lock provides Vulkan's required external
+        // synchronization.
+        let pipeline = unsafe {
+            VulkanComputePipeline::new_with_pipeline_cache(Arc::clone(&self.device), shader, self.pipeline_cache)
+        }
+        .map_err(|err| GpuError::PlanCreationFailed(format!("failed to build Vulkan compute pipeline: {err}")))?;
+        Ok(GpuComputePipeline {
+            pipeline,
+            device: Arc::clone(self),
+        })
     }
 
-    /// The persistent command pool used to allocate command buffers for this context.
-    pub(crate) fn command_pool(&self) -> vk::CommandPool {
-        self.command_pool
+    pub(crate) fn pipeline_cache_data(&self) -> Result<Vec<u8>, GpuError> {
+        let _guard = self
+            .pipeline_cache_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // SAFETY: the cache belongs to this live device and is externally synchronized.
+        unsafe { self.device.get_pipeline_cache_data(self.pipeline_cache) }
+            .map_err(|err| GpuError::PipelineCacheFailed(err.to_string()))
     }
 
-    /// The persistent pipeline cache shared by all compute pipelines built on this context.
-    pub(crate) fn pipeline_cache(&self) -> vk::PipelineCache {
-        self.pipeline_cache
+    pub(crate) fn merge_pipeline_cache_data(&self, data: &[u8]) -> Result<(), GpuError> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        let _guard = self
+            .pipeline_cache_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let create_info = vk::PipelineCacheCreateInfo::default().initial_data(data);
+        // SAFETY: `data` remains live during creation and the returned cache belongs to this
+        // device. It is destroyed before releasing the external synchronization lock.
+        let source = unsafe { self.device.create_pipeline_cache(&create_info, None) }
+            .map_err(|err| GpuError::PipelineCacheFailed(err.to_string()))?;
+        let merge_result = unsafe { self.device.merge_pipeline_caches(self.pipeline_cache, &[source]) };
+        unsafe { self.device.destroy_pipeline_cache(source, None) };
+        merge_result.map_err(|err| GpuError::PipelineCacheFailed(err.to_string()))
     }
 
-    /// Records `record` into a fresh one-time-submit command buffer, submits it to this
-    /// context's compute queue, and blocks until it completes.
+    /// Moves `resources` into a fresh submission and lends both it and a device-branded
+    /// recording command buffer to `record`.
     ///
-    /// This is the building block every synchronous GPU operation in this module is built
-    /// from: a single chunk's forward-FFT/remap/inverse-FFT/overlap-add pipeline is one call
-    /// to this (recording every pass's dispatch plus the barriers between them via `record`),
-    /// not one call per pass -- that single-submission property is what satisfies
-    /// `gpu_plan.md`'s "never transfer the spectrum back to the CPU between forward and
-    /// inverse FFT" rule.
-    pub(crate) fn run_one_shot(&self, record: impl FnOnce(vk::CommandBuffer)) -> Result<(), GpuError> {
+    /// The returned [`GpuSubmission`] owns everything the commands may reference. It releases
+    /// those resources only after fence completion, including when dropped during unwinding.
+    pub(crate) fn submit_async<R>(
+        self: &Arc<Self>,
+        resources: R,
+        record: for<'a> fn(&RecordingCommandBuffer<'a>, &R),
+    ) -> Result<GpuSubmission<R>, (GpuError, R)> {
         let _guard = self
             .execution_lock
             .lock()
@@ -383,89 +591,15 @@ impl GpuContext {
             .command_buffer_count(1);
         // SAFETY: `self.command_pool` belongs to this `device` and is not being reset/recorded
         // concurrently (serialized by `execution_lock`).
-        let command_buffers = unsafe { device.allocate_command_buffers(&allocate_info) }
-            .map_err(|err| GpuError::ExecutionFailed(format!("failed to allocate Vulkan command buffer: {err}")))?;
-        let command_buffer = command_buffers[0];
-
-        let free_command_buffer = |device: &ash::Device| {
-            // SAFETY: `command_buffer` was allocated from `self.command_pool` above and is not
-            // in use by any pending submission by the time each call site below runs it.
-            unsafe { device.free_command_buffers(self.command_pool, &command_buffers) };
-        };
-
-        let begin_info = vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        // SAFETY: `command_buffer` was just allocated and is in the initial state.
-        if let Err(err) = unsafe { device.begin_command_buffer(command_buffer, &begin_info) } {
-            free_command_buffer(device);
-            return Err(GpuError::ExecutionFailed(format!("failed to begin Vulkan command buffer: {err}")));
-        }
-
-        record(command_buffer);
-
-        // SAFETY: `command_buffer` is in the recording state from `begin_command_buffer` above.
-        if let Err(err) = unsafe { device.end_command_buffer(command_buffer) } {
-            free_command_buffer(device);
-            return Err(GpuError::ExecutionFailed(format!("failed to end Vulkan command buffer: {err}")));
-        }
-
-        let fence_create_info = vk::FenceCreateInfo::default();
-        // SAFETY: `device` is live.
-        let fence = match unsafe { device.create_fence(&fence_create_info, None) } {
-            Ok(fence) => fence,
+        let command_buffers = match unsafe { device.allocate_command_buffers(&allocate_info) } {
+            Ok(command_buffers) => command_buffers,
             Err(err) => {
-                free_command_buffer(device);
-                return Err(GpuError::ExecutionFailed(format!("failed to create Vulkan fence: {err}")));
+                return Err((
+                    GpuError::ExecutionFailed(format!("failed to allocate Vulkan command buffer: {err}")),
+                    resources,
+                ));
             }
         };
-
-        let command_buffers_ref = [command_buffer];
-        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers_ref);
-        // SAFETY: `command_buffer` finished recording above, `fence` was just created and is
-        // unsignaled, and `self.compute_queue` accepts compute/transfer work; submissions to
-        // it are serialized by `execution_lock`.
-        let submit_result = unsafe { device.queue_submit(self.compute_queue, &[submit_info], fence) };
-        if let Err(err) = submit_result {
-            // SAFETY: `fence` was never submitted, so it is safe to destroy immediately.
-            unsafe { device.destroy_fence(fence, None) };
-            free_command_buffer(device);
-            return Err(GpuError::ExecutionFailed(format!("failed to submit Vulkan command buffer: {err}")));
-        }
-
-        // SAFETY: `fence` was just submitted with the command buffer above.
-        let wait_result = unsafe { device.wait_for_fences(&[fence], true, u64::MAX) };
-        // SAFETY: the fence wait above (successful or not) means the submission is no longer
-        // in flight in any way that would race with destroying these objects.
-        unsafe { device.destroy_fence(fence, None) };
-        free_command_buffer(device);
-        wait_result.map_err(|err| GpuError::ExecutionFailed(format!("failed waiting for Vulkan fence: {err}")))?;
-        Ok(())
-    }
-
-    /// Records `record` into a fresh one-time-submit command buffer and submits it, *without*
-    /// waiting for it to complete -- the asynchronous counterpart to [`GpuContext::run_one_shot`],
-    /// for callers (currently [`super::gpu_core::GpuCore`]) that want to keep preparing
-    /// the *next* piece of work (reading from disk, building the next FFT window, uploading it)
-    /// while this GPU submission is still executing, rather than blocking on it immediately.
-    ///
-    /// Returns a [`GpuSubmission`] the caller must eventually resolve via
-    /// [`GpuContext::is_submission_ready`]/[`GpuContext::wait_submission`] and then
-    /// [`GpuContext::destroy_submission`] -- dropping a [`GpuSubmission`] without destroying it
-    /// leaks its command buffer and fence.
-    pub(crate) fn submit_async(&self, record: impl FnOnce(vk::CommandBuffer)) -> Result<GpuSubmission, GpuError> {
-        let _guard = self
-            .execution_lock
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let device = self.device();
-
-        let allocate_info = vk::CommandBufferAllocateInfo::default()
-            .command_pool(self.command_pool)
-            .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(1);
-        // SAFETY: `self.command_pool` belongs to this `device` and is not being reset/recorded
-        // concurrently (serialized by `execution_lock`).
-        let command_buffers = unsafe { device.allocate_command_buffers(&allocate_info) }
-            .map_err(|err| GpuError::ExecutionFailed(format!("failed to allocate Vulkan command buffer: {err}")))?;
         let command_buffer = command_buffers[0];
 
         let free_command_buffer = || {
@@ -478,15 +612,25 @@ impl GpuContext {
         // SAFETY: `command_buffer` was just allocated and is in the initial state.
         if let Err(err) = unsafe { device.begin_command_buffer(command_buffer, &begin_info) } {
             free_command_buffer();
-            return Err(GpuError::ExecutionFailed(format!("failed to begin Vulkan command buffer: {err}")));
+            return Err((
+                GpuError::ExecutionFailed(format!("failed to begin Vulkan command buffer: {err}")),
+                resources,
+            ));
         }
 
-        record(command_buffer);
+        let recording = RecordingCommandBuffer {
+            device: self,
+            handle: command_buffer,
+        };
+        record(&recording, &resources);
 
         // SAFETY: `command_buffer` is in the recording state from `begin_command_buffer` above.
         if let Err(err) = unsafe { device.end_command_buffer(command_buffer) } {
             free_command_buffer();
-            return Err(GpuError::ExecutionFailed(format!("failed to end Vulkan command buffer: {err}")));
+            return Err((
+                GpuError::ExecutionFailed(format!("failed to end Vulkan command buffer: {err}")),
+                resources,
+            ));
         }
 
         let fence_create_info = vk::FenceCreateInfo::default();
@@ -495,7 +639,10 @@ impl GpuContext {
             Ok(fence) => fence,
             Err(err) => {
                 free_command_buffer();
-                return Err(GpuError::ExecutionFailed(format!("failed to create Vulkan fence: {err}")));
+                return Err((
+                    GpuError::ExecutionFailed(format!("failed to create Vulkan fence: {err}")),
+                    resources,
+                ));
             }
         };
 
@@ -503,77 +650,251 @@ impl GpuContext {
         let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers_ref);
         // SAFETY: `command_buffer` finished recording above, `fence` was just created and is
         // unsignaled, and `self.compute_queue` accepts compute/transfer work; submissions to it
-        // are serialized by `execution_lock`. Unlike `run_one_shot`, this does not wait for the
-        // fence before returning -- that is the entire point of this method.
+        // are serialized by `execution_lock`. Completion is managed by the returned owning
+        // submission.
         if let Err(err) = unsafe { device.queue_submit(self.compute_queue, &[submit_info], fence) } {
             // SAFETY: `fence` was never submitted, so it is safe to destroy immediately.
             unsafe { device.destroy_fence(fence, None) };
             free_command_buffer();
-            return Err(GpuError::ExecutionFailed(format!("failed to submit Vulkan command buffer: {err}")));
+            return Err((
+                GpuError::ExecutionFailed(format!("failed to submit Vulkan command buffer: {err}")),
+                resources,
+            ));
         }
 
-        Ok(GpuSubmission { command_buffer, fence })
-    }
-
-    /// Non-blocking check for whether `submission` has finished executing on the GPU.
-    pub(crate) fn is_submission_ready(&self, submission: &GpuSubmission) -> Result<bool, GpuError> {
-        // SAFETY: `submission.fence` was created and submitted by `submit_async` and has not
-        // been destroyed yet (caller contract).
-        unsafe { self.device.get_fence_status(submission.fence) }
-            .map_err(|err| GpuError::ExecutionFailed(format!("failed to query Vulkan fence status: {err}")))
-    }
-
-    /// Blocks until `submission` finishes executing on the GPU.
-    pub(crate) fn wait_submission(&self, submission: &GpuSubmission) -> Result<(), GpuError> {
-        // SAFETY: `submission.fence` was created and submitted by `submit_async` and has not
-        // been destroyed yet (caller contract). Waiting on a fence does not touch the command
-        // pool or queue, so this needs no lock.
-        unsafe { self.device.wait_for_fences(&[submission.fence], true, u64::MAX) }
-            .map_err(|err| GpuError::ExecutionFailed(format!("failed waiting for Vulkan fence: {err}")))
-    }
-
-    /// Frees `submission`'s command buffer and destroys its fence. The caller must have already
-    /// confirmed completion (via [`GpuContext::wait_submission`] or a `true` result from
-    /// [`GpuContext::is_submission_ready`]) -- destroying a fence/command buffer with work still
-    /// in flight against them is undefined behavior.
-    pub(crate) fn destroy_submission(&self, submission: GpuSubmission) {
-        let _guard = self
-            .execution_lock
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // SAFETY: caller contract guarantees `submission`'s GPU work has completed, so neither
-        // object is in use by any pending or executing submission.
-        unsafe {
-            self.device.destroy_fence(submission.fence, None);
-            self.device.free_command_buffers(self.command_pool, &[submission.command_buffer]);
-        }
-    }
-
-    /// Copies `byte_len` bytes from `src` to `dst` via one immediate command buffer.
-    pub(crate) fn copy_buffer(&self, src: vk::Buffer, dst: vk::Buffer, byte_len: vk::DeviceSize) -> Result<(), GpuError> {
-        self.run_one_shot(|command_buffer| {
-            let region = vk::BufferCopy::default().size(byte_len);
-            // SAFETY: `command_buffer` is in the recording state (this closure only ever runs
-            // inside `run_one_shot`); `src`/`dst` are valid buffers at least `byte_len` bytes,
-            // per every caller of `copy_buffer`.
-            unsafe { self.device().cmd_copy_buffer(command_buffer, src, dst, &[region]) };
+        Ok(GpuSubmission {
+            device: Some(Arc::clone(self)),
+            command_buffer,
+            fence,
+            resources: Some(resources),
+            completed: false,
         })
     }
 }
 
-/// A GPU submission recorded and submitted by [`GpuContext::submit_async`], not yet waited on.
+/// One validated, precision-specific GPU resampling geometry and its compiled shaders.
 ///
-/// Must eventually be resolved via [`GpuContext::wait_submission`] or a `true` result from
-/// [`GpuContext::is_submission_ready`], then released via [`GpuContext::destroy_submission`].
-pub(crate) struct GpuSubmission {
+/// The underlying Vulkan device may be shared by contexts with different configurations.
+/// `group_chunks` belongs here because it changes FFT batch planning and generated shaders;
+/// runtime ring depth does not.
+pub struct GpuContext<T> {
+    device: Arc<GpuDevice>,
+    config: Config,
+    derived: DerivedConfig<T>,
+    group_chunks: usize,
+    shaders: RwLock<Option<Arc<GpuShaders>>>,
+}
+
+impl<T> GpuContext<T> {
+    pub fn device(&self) -> &Arc<GpuDevice> {
+        &self.device
+    }
+}
+
+#[allow(private_bounds)]
+impl<T> GpuContext<T>
+where
+    T: Float + GpuScalar + FromF64,
+{
+    /// Creates a context on the best available Vulkan device.
+    pub fn new(config: Config, group_chunks: usize) -> Result<Self, GpuError> {
+        Self::with_device(Arc::new(GpuDevice::auto_select()?), config, group_chunks)
+    }
+
+    /// Creates a context for an explicitly selected Vulkan device.
+    pub fn with_device(device: Arc<GpuDevice>, config: Config, group_chunks: usize) -> Result<Self, GpuError> {
+        if group_chunks == 0 {
+            return Err(GpuError::InvalidConfig(
+                "group_chunks must be greater than zero".to_string(),
+            ));
+        }
+        if T::scalar_type() == vkfft_rs::ScalarType::F64 {
+            device.require_f64()?;
+        }
+        let derived = config
+            .derive_config::<T>()
+            .map_err(|err| GpuError::InvalidConfig(err.to_string()))?;
+        if derived.decimation_stages > 0 {
+            return Err(GpuError::DecimationUnsupported);
+        }
+        if derived.f128 {
+            return Err(GpuError::F128UnsupportedOnGpu);
+        }
+        Ok(Self {
+            device,
+            config,
+            derived,
+            group_chunks,
+            shaders: RwLock::new(None),
+        })
+    }
+
+    /// Loads a precompiled shader artifact after validating its device and exact geometry.
+    ///
+    /// An incompatible artifact is rejected without replacing the currently cached shaders.
+    ///
+    /// # Safety
+    ///
+    /// `shaders` must contain trusted SPIR-V and pipeline-cache data produced by this crate for
+    /// the reported device. The validation performed here checks archive metadata and geometry,
+    /// but it does not prove that the executable SPIR-V obeys its descriptor and buffer-bounds
+    /// contracts, nor can it authenticate the opaque pipeline-cache bytes. Loading a forged or
+    /// otherwise untrusted artifact can violate Vulkan's safety requirements when pipelines are
+    /// created or dispatched.
+    pub unsafe fn load_shaders(&self, shaders: GpuShaders) -> Result<(), GpuError> {
+        shaders.validate(&self.device, &self.derived, self.config.channels, self.group_chunks)?;
+        self.device.merge_pipeline_cache_data(shaders.pipeline_cache())?;
+        *self.shaders.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(shaders));
+        Ok(())
+    }
+
+    /// Returns compiled shaders, generating and caching them when necessary.
+    ///
+    /// The returned owned snapshot includes the device's latest Vulkan pipeline-cache bytes and
+    /// can be persisted with [`GpuShaders::to_bytes`].
+    pub fn shaders(&self) -> Result<GpuShaders, GpuError> {
+        let shaders = self.compiled_shaders()?;
+        Ok(shaders
+            .as_ref()
+            .clone()
+            .with_pipeline_cache(self.device.pipeline_cache_data()?))
+    }
+
+    pub(crate) fn compiled_shaders(&self) -> Result<Arc<GpuShaders>, GpuError> {
+        if let Some(shaders) = self
+            .shaders
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .cloned()
+            && shaders
+                .validate(&self.device, &self.derived, self.config.channels, self.group_chunks)
+                .is_ok()
+        {
+            return Ok(shaders);
+        }
+
+        let generated = Arc::new(GpuShaders::compile(
+            &self.device,
+            &self.derived,
+            self.config.channels,
+            self.group_chunks,
+        )?);
+        let mut cached = self.shaders.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(existing) = cached.as_ref()
+            && existing
+                .validate(&self.device, &self.derived, self.config.channels, self.group_chunks)
+                .is_ok()
+        {
+            return Ok(Arc::clone(existing));
+        }
+        *cached = Some(Arc::clone(&generated));
+        Ok(generated)
+    }
+
+    /// Identity, capabilities, and limits of this context's target GPU.
+    pub fn info(&self) -> &GpuInfo {
+        self.device.info()
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    pub fn group_chunks(&self) -> usize {
+        self.group_chunks
+    }
+
+    pub(crate) fn derived(&self) -> &DerivedConfig<T> {
+        &self.derived
+    }
+}
+
+/// One pending GPU submission together with every resource its commands may access.
+///
+/// Resolving or dropping this value waits for completion before releasing either the Vulkan
+/// synchronization objects or `resources`. If completion cannot be established, all of them
+/// are intentionally leaked so safe unwinding cannot destroy GPU-referenced memory.
+pub(crate) struct GpuSubmission<R> {
+    device: Option<Arc<GpuDevice>>,
     command_buffer: vk::CommandBuffer,
     fence: vk::Fence,
+    resources: Option<R>,
+    completed: bool,
+}
+
+impl<R> GpuSubmission<R> {
+    pub(crate) fn is_ready(&self) -> Result<bool, GpuError> {
+        let device = self.device.as_ref().expect("pending submission retains its device");
+        // SAFETY: this fence was created and submitted by `GpuDevice::submit_async` and remains
+        // owned by `self`.
+        unsafe { device.device.get_fence_status(self.fence) }
+            .map_err(|err| GpuError::ExecutionFailed(format!("failed to query Vulkan fence status: {err}")))
+    }
+
+    fn wait(&self) -> Result<(), GpuError> {
+        let device = self.device.as_ref().expect("pending submission retains its device");
+        // SAFETY: this fence was created and submitted by `GpuDevice::submit_async` and remains
+        // owned by `self`.
+        unsafe { device.device.wait_for_fences(&[self.fence], true, u64::MAX) }
+            .map_err(|err| GpuError::ExecutionFailed(format!("failed waiting for Vulkan fence: {err}")))
+    }
+
+    fn release_completed(&mut self) {
+        let device = Arc::clone(self.device.as_ref().expect("pending submission retains its device"));
+        let _guard = device
+            .execution_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // SAFETY: the fence has reported completion, so neither object is pending.
+        unsafe {
+            device.device.destroy_fence(self.fence, None);
+            device
+                .device
+                .free_command_buffers(device.command_pool, &[self.command_buffer]);
+        }
+        self.completed = true;
+    }
+
+    fn abandon(&mut self) {
+        if let Some(resources) = self.resources.take() {
+            std::mem::forget(resources);
+        }
+        if let Some(device) = self.device.take() {
+            std::mem::forget(device);
+        }
+        self.completed = true;
+    }
+
+    pub(crate) fn resolve(mut self) -> Result<R, GpuError> {
+        if let Err(err) = self.wait() {
+            self.abandon();
+            return Err(err);
+        }
+        self.release_completed();
+        Ok(self.resources.take().expect("pending submission retains its resources"))
+    }
+}
+
+impl<R> Drop for GpuSubmission<R> {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        if self.wait().is_ok() {
+            self.release_completed();
+            return;
+        }
+        self.abandon();
+        // The raw command-buffer and fence handles have no Rust destructors. They deliberately
+        // remain allocated on the leaked device because completion is unknown.
+    }
 }
 
 struct SelectedDevice {
     physical_device: vk::PhysicalDevice,
     queue_family: u32,
-    capabilities: GpuCapabilities,
+    info: GpuInfo,
     supports_portability_subset: bool,
     vendor: GpuVendor,
 }
@@ -591,15 +912,25 @@ fn gpu_vendor_from_pci_id(vendor_id: u32) -> GpuVendor {
     }
 }
 
-impl Drop for GpuContext {
+const fn device_score(device_type: GpuDeviceType) -> u8 {
+    match device_type {
+        GpuDeviceType::Discrete => 4,
+        GpuDeviceType::Integrated => 3,
+        GpuDeviceType::Virtual => 2,
+        GpuDeviceType::Cpu => 1,
+        GpuDeviceType::Other => 0,
+    }
+}
+
+impl Drop for GpuDevice {
     fn drop(&mut self) {
         // SAFETY: these are destroyed in strict reverse-creation order. `self.device` is an
         // `Arc`, shared with every `VulkanComputePipeline`/`GpuBuffer` built on this context,
         // so destroying it here is only sound because every such consumer holds an
-        // `Arc<GpuContext>` alongside its device clone and, within its own struct, declares
-        // that device-touching field *before* the `Arc<GpuContext>` field -- Rust drops
+        // `Arc<GpuDevice>` alongside its device clone and, within its own struct, declares
+        // that device-touching field *before* the `Arc<GpuDevice>` field -- Rust drops
         // struct fields in declaration order, so those consumers' Vulkan objects (and their
-        // device-Arc clones) are always dropped before the last `Arc<GpuContext>` (and hence
+        // device-Arc clones) are always dropped before the last `Arc<GpuDevice>` (and hence
         // this `Drop`) can run. No GPU work is in flight for the same reason: nothing reaches
         // this point while a core still holds work submitted against this device.
         unsafe {
@@ -612,12 +943,12 @@ impl Drop for GpuContext {
     }
 }
 
-// SAFETY: `GpuContext` does not expose interior mutability; all Vulkan handles are safe to
+// SAFETY: `GpuDevice` does not expose interior mutability; all Vulkan handles are safe to
 // share across threads per the Vulkan spec as long as external synchronization is applied
 // to any single handle's use, which is the caller's responsibility (matching `ash`'s own
 // `Send`/`Sync` handle types).
-unsafe impl Send for GpuContext {}
-unsafe impl Sync for GpuContext {}
+unsafe impl Send for GpuDevice {}
+unsafe impl Sync for GpuDevice {}
 
 #[cfg(test)]
 mod tests {
@@ -630,16 +961,22 @@ mod tests {
     /// just the graceful `VulkanInitFailed` skip path.
     #[test]
     fn reports_capabilities_or_skips_without_vulkan() {
-        let context = match GpuContext::new() {
-            Ok(context) => context,
+        let devices = match GpuDevice::list() {
+            Ok(devices) => devices,
             Err(err) => {
                 eprintln!("skipping GPU context test: {err}");
                 return;
             }
         };
+        let Some(info) = devices.first() else {
+            eprintln!("skipping GPU context test: no compatible Vulkan device found");
+            return;
+        };
+        let context = GpuDevice::new(info.id).expect("listed GPU should remain selectable");
 
         assert!(!context.device_name().is_empty());
-        assert!(context.capabilities().max_compute_workgroup_count.iter().all(|&n| n > 0));
+        assert_eq!(context.info().id, info.id);
+        assert!(context.info().max_compute_workgroup_count.iter().all(|&n| n > 0));
 
         match context.require_f64() {
             Ok(()) => {
@@ -653,5 +990,36 @@ mod tests {
             }
             Err(other) => panic!("unexpected error from require_f64: {other}"),
         }
+    }
+
+    #[test]
+    fn shader_cache_round_trips_and_rejects_wrong_geometry() {
+        let device = match GpuDevice::auto_select() {
+            Ok(device) => Arc::new(device),
+            Err(err) => {
+                eprintln!("skipping GPU shader cache test: {err}");
+                return;
+            }
+        };
+        let config = Config::new(44_100, 48_000, 1);
+        let source = GpuContext::<f32>::with_device(Arc::clone(&device), config.clone(), 2).expect("source context");
+        let encoded = source.shaders().expect("compile shaders").to_bytes();
+        // SAFETY: `encoded` was just produced by this crate from shaders compiled for `device`
+        // and has not been modified.
+        let decoded = unsafe { GpuShaders::from_bytes(&encoded) }.expect("decode shaders");
+
+        let matching =
+            GpuContext::<f32>::with_device(Arc::clone(&device), config.clone(), 2).expect("matching context");
+        // SAFETY: `decoded` came from the trusted artifact produced immediately above.
+        unsafe { matching.load_shaders(decoded.clone()) }.expect("load matching shaders");
+        assert_eq!(matching.shaders().unwrap().group_chunks(), 2);
+
+        let mismatched = GpuContext::<f32>::with_device(device, config, 3).expect("mismatched context");
+        assert!(matches!(
+            // SAFETY: `decoded` is trusted; this test expects the safe metadata validation to
+            // reject its incompatible geometry before use.
+            unsafe { mismatched.load_shaders(decoded) },
+            Err(GpuError::IncompatibleShaders(_))
+        ));
     }
 }

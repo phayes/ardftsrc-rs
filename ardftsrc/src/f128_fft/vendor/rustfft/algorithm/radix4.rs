@@ -3,12 +3,12 @@ use std::sync::Arc;
 use num_complex::Complex;
 
 use crate::f128_fft::vendor::rustfft::algorithm::butterflies::{
-    Butterfly1, Butterfly16, Butterfly2, Butterfly32, Butterfly4, Butterfly8,
+    Butterfly1, Butterfly2, Butterfly4, Butterfly8, Butterfly16, Butterfly32,
 };
 use crate::f128_fft::vendor::rustfft::algorithm::radixn::butterfly_4;
 use crate::f128_fft::vendor::rustfft::array_utils::bitreversed_transpose;
-use crate::f128_fft::vendor::rustfft::{common::FftNum, twiddles, FftDirection};
 use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
+use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// FFT algorithm optimized for power-of-two sizes
 ///
@@ -128,12 +128,7 @@ impl<T: FftNum> Radix4<T> {
         self.immut_scratch_len
     }
 
-    fn perform_fft_immut(
-        &self,
-        input: &[Complex<T>],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) {
+    fn perform_fft_immut(&self, input: &[Complex<T>], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
         // copy the data into the output vector
         if self.len() == self.base_len {
             output.copy_from_slice(input);
@@ -203,4 +198,3 @@ impl<T: FftNum> Radix4<T> {
     }
 }
 boilerplate_fft_oop!(Radix4, |this: &Radix4<_>| this.len);
-

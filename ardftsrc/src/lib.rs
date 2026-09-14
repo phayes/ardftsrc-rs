@@ -26,10 +26,13 @@ mod f128_fft;
 mod gpu;
 
 #[cfg(feature = "gpu")]
-pub use gpu::{GpuCapabilities, GpuContext, GpuCore, GpuError};
+pub use gpu::{
+    GpuContext, GpuCore, GpuDevice, GpuDeviceId, GpuDeviceType, GpuError, GpuInfo, GpuPipelineCacheId, GpuShaders,
+};
 
 pub use as_channels::{AsChannels, AsChannelsMut};
 pub use config::{AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+pub use cpu_core::CpuCore;
 pub use error::Error;
 pub use extrapolation::Extrapolation;
 pub use interleaved_resampler::InterleavedResampler;
@@ -38,7 +41,6 @@ pub use planar_vecs::PlanarVecs;
 pub use realtime::RealtimeResampler;
 pub use realtime::SamplesLeftInSpan;
 pub use taper::TaperType;
-pub use cpu_core::CpuCore;
 
 #[cfg(test)]
 mod test_utils;

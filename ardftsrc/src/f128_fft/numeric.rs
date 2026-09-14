@@ -320,7 +320,20 @@ mod tests {
 
     #[test]
     fn sin_cos_matches_f64_to_within_f64_precision() {
-        for angle in [0.0f64, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, -0.5, -2.5, -6.2, 6.283185307179586, -0.0000001] {
+        for angle in [
+            0.0f64,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            2.5,
+            3.0,
+            -0.5,
+            -2.5,
+            -6.2,
+            6.283185307179586,
+            -0.0000001,
+        ] {
             let (s, c) = trig::sin_cos(angle as f128);
             assert!((s as f64 - angle.sin()).abs() < 1e-15, "sin({angle}) mismatch");
             assert!((c as f64 - angle.cos()).abs() < 1e-15, "cos({angle}) mismatch");
@@ -332,7 +345,10 @@ mod tests {
         for angle in [0.0f64, 0.5, 1.0, 2.5, -6.2, 6.283185307179586, 3.14159265358979] {
             let (s, c) = trig::sin_cos(angle as f128);
             let identity = s * s + c * c - 1.0_f128;
-            assert!((identity as f64).abs() < 1e-30, "sin^2+cos^2 != 1 at {angle}: residual {identity:?}");
+            assert!(
+                (identity as f64).abs() < 1e-30,
+                "sin^2+cos^2 != 1 at {angle}: residual {identity:?}"
+            );
         }
     }
 
@@ -341,7 +357,15 @@ mod tests {
         // Regression case: std's f128::round() silently returns 0 on this codebase's target
         // platforms, which would otherwise corrupt range reduction exactly here.
         let half_pi = trig::sin_cos(1.57079632679489661923132169163975144209858469968755291048747_f128);
-        assert!((half_pi.0 as f64 - 1.0).abs() < 1e-33, "sin(pi/2) should be ~1, got {:?}", half_pi.0);
-        assert!((half_pi.1 as f64).abs() < 1e-33, "cos(pi/2) should be ~0, got {:?}", half_pi.1);
+        assert!(
+            (half_pi.0 as f64 - 1.0).abs() < 1e-33,
+            "sin(pi/2) should be ~1, got {:?}",
+            half_pi.0
+        );
+        assert!(
+            (half_pi.1 as f64).abs() < 1e-33,
+            "cos(pi/2) should be ~0, got {:?}",
+            half_pi.1
+        );
     }
 }

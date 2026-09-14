@@ -3,6 +3,8 @@
 /// This is intentionally separate from [`crate::Error`]: the GPU backend is optional
 /// (`gpu` feature), experimental, and its failure modes (driver/loader problems, missing
 /// device capabilities) are meaningfully different from the CPU core's.
+use super::context::GpuDeviceId;
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum GpuError {
     /// Vulkan instance/loader initialization failed (no Vulkan loader present, no ICD, etc).
@@ -12,6 +14,10 @@ pub enum GpuError {
     /// No physical device exposed a compute-capable queue family.
     #[error("no compatible Vulkan device found")]
     NoCompatibleDevice,
+
+    /// The requested physical-device UUID was not present among compatible devices.
+    #[error("requested Vulkan GPU device was not found: {0:?}")]
+    DeviceNotFound(GpuDeviceId),
 
     /// `f64` GPU execution was requested but the selected device cannot run `shaderFloat64`.
     ///
@@ -56,4 +62,16 @@ pub enum GpuError {
     /// The [`crate::Config`] given to a GPU core failed CPU-side validation/derivation.
     #[error("invalid config: {0}")]
     InvalidConfig(String),
+
+    /// A serialized shader archive is malformed or uses an unsupported format.
+    #[error("invalid GPU shader archive: {0}")]
+    InvalidShaderArchive(String),
+
+    /// Compiled shaders do not match the context's device or resampling geometry.
+    #[error("GPU shaders are incompatible with this context: {0}")]
+    IncompatibleShaders(String),
+
+    /// Vulkan pipeline-cache data could not be imported or exported.
+    #[error("Vulkan pipeline cache failed: {0}")]
+    PipelineCacheFailed(String),
 }

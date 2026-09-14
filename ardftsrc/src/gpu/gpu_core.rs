@@ -3,8 +3,6 @@ use std::sync::Arc;
 
 use num_traits::Float;
 
-use crate::Config;
-use crate::config::DerivedConfig;
 use crate::window;
 use crate::{AsChannels, AsChannelsMut};
 
@@ -14,82 +12,26 @@ use super::context::{GpuContext, GpuSubmission};
 use super::error::GpuError;
 use super::fft_program::{FromF64, pack_complex_batch};
 use super::overlap_shader::OverlapMode;
-use super::remap_shader::RemapGeometry;
+use super::shaders::{GpuShaders, remap_geometry};
 use super::transform_pipeline::GpuTransformPipeline;
 
-/// Default number of FFT chunks batched into one GPU submission ("group"), used only by tests
-/// and examples -- [`GpuCore::new`] always requires the caller to pass `group_chunks`
-/// explicitly (see the type's own doc for why).
-pub const DEFAULT_GROUP_CHUNKS: usize = 4;
-
-/// [`GpuCore::new`] floors any requested `ring_slots` to this minimum -- below it, the ring
-/// is not just "smaller," it is unable to function at all: steady-state, three ring slots are
-/// always occupied independent of any read-ahead (the seed-copy source, the currently-executing
-/// group, and one queued-and-uploaded group), so a fourth is the minimum that lets a *new* group
-/// actually be filled/uploaded while the GPU is still busy with a previous one. This is a
-/// correctness floor, not a suggested default -- see the type's own doc for why picking the
-/// actual number is the caller's call, not this crate's.
+/// Minimum number of ring slots needed for the ring to function properly.
 const MIN_RING_SLOTS: usize = 4;
 
-/// GPU-resident, memory-bounded, pipelined GPU resampler core:
+/// GPU-accelerated streaming resampler.
 ///
-/// Unlike a one-shot "build every window for the whole file, submit once" design,
-/// [`GpuCore::push`] takes one fixed-size FFT chunk at a time (exactly
-/// [`GpuCore::input_chunk_frames`] samples per channel -- the same contract
-/// `CpuCore::process_chunk` already uses; a caller that wants to
-/// feed arbitrary-sized reads assembles them into fixed-size chunks itself, the same way
-/// `PlanarResampler` already does on top of `CpuCore`) and submits GPU work in bounded *groups*
-/// of [`GpuCore::group_chunks`] such chunks at a time -- each group is one GPU submission
-/// (batched forward FFT / spectral remap / inverse FFT / overlap-add across every chunk in the
-/// group, in one command buffer). This bounds GPU memory use to a small, fixed ring of
-/// pre-allocated group buffer-sets (`ring_slots`, set once at construction and never grown or
-/// shrunk), while still processing files far larger than that by submitting many groups in
-/// sequence over the life of one core.
+/// Pass one fixed-size chunk at a time to [`GpuCore::push`]. Each channel must
+/// contain [`GpuCore::input_chunk_frames`] samples, except for the final chunk.
 ///
-/// # Why groups can be submitted asynchronously without a GPU-side dependency chain
-///
-/// Every chunk's own FFT window depends only on that chunk's own raw samples (zero-padded, no
-/// cross-chunk bleed -- see `crate::window::write_normal_window`); cross-chunk continuity comes
-/// entirely from the overlap-add step (`output[k] = first_half(k) + second_half(k-1)`). That
-/// means the *only* state that needs to cross a group boundary is `second_half` of the group's
-/// last chunk -- a single `channels * output_chunk_frames`-sized buffer -- not the whole
-/// transform. This core carries that value forward as a `vkCmdCopyBuffer` recorded as the first
-/// command of the *next* group's own submission (`BatchOverlapShader::record_seed_copy`), so it
-/// never leaves GPU memory and needs no separate synchronization primitive (no timeline
-/// semaphores): the host simply waits for group `N`'s fence before recording group `N+1`'s copy
-/// from its buffer, exactly as it already needed to wait to know group `N`'s *output* was ready.
-///
-/// # Pipelining and backpressure
-///
-/// While one group executes on the GPU, [`GpuCore::push`] can keep accumulating and
-/// uploading *later* groups into other ring slots without waiting -- this is what lets a
-/// disk-bound caller's read loop overlap with GPU compute. `push` only blocks (backpressure)
-/// when every ring slot is occupied (filling, queued, executing, or held as the current
-/// seed-copy source) and a new one is needed; [`GpuCore::pending_ready`] offers a
-/// non-blocking check for callers that want to avoid blocking. There is no internal thread: all
-/// of this happens on the caller's own thread, matching `gpu_plan.md` section 11's stated scope
-/// ("actual wrapper threading is out of scope, but the core API must make nonblocking
-/// integration possible").
-///
-/// # Sizing is the caller's responsibility
-///
-/// [`GpuCore::new`] takes `group_chunks` and `ring_slots` directly, as plain counts -- there
-/// is no GPU-memory budget, no device-memory query, and no attempt by this crate to guess a
-/// "reasonable" size from bytes. This crate has no way to know what "reasonable" means for a
-/// given caller's use case -- a disk-bound batch job tolerant of extra latency wants a deep ring
-/// to smooth out I/O jitter, while a latency-sensitive caller wants the shallowest ring that
-/// still works. Picking that tradeoff belongs to the caller, not this constructor. The only floor
-/// this type enforces is `MIN_RING_SLOTS` itself, a correctness minimum below which the ring
-/// simply cannot provide any read-ahead at all (see its own doc). The ring is *fixed* after
-/// construction: it is never grown or shrunk at runtime.
+/// Chunks are processed using the chunk-group geometry compiled into [`GpuContext`], and several
+/// groups may be buffered while the GPU is busy. Memory use is bounded by the `ring_slots`
+/// supplied to [`GpuCore::new`]. `push` may block when that buffer is full; use
+/// [`GpuCore::pending_ready`] to check GPU progress without blocking.
 pub struct GpuCore<T> {
-    context: Arc<GpuContext>,
-    derived: DerivedConfig<T>,
-    channels: usize,
+    context: Arc<GpuContext<T>>,
     pre: Vec<Option<Vec<T>>>,
     post: Vec<Option<Vec<T>>>,
 
-    group_chunks: usize,
     ring_slots: usize,
 
     /// Idle, reusable group buffer-sets (all built for `[Normal; group_chunks]` windows), ready
@@ -100,10 +42,10 @@ pub struct GpuCore<T> {
     /// Groups fully filled and uploaded, waiting their turn to be submitted (strictly FIFO: a
     /// group's overlap seed comes from whichever group finished immediately before it).
     queued: VecDeque<Filled<T>>,
-    /// The one group currently submitted to the GPU (at most one, ever -- see the module doc).
-    executing: Option<(GpuSubmission, Filled<T>)>,
-    /// The most recently completed group, kept alive only because `executing`'s own submission
-    /// copies its ending overlap state as a seed; freed the moment `executing` itself completes.
+    /// The one group currently submitted to the GPU, together with every buffer it may read.
+    executing: Option<GpuSubmission<Executing<T>>>,
+    /// The most recently completed group, moved into the next submission when used as its
+    /// overlap seed.
     prev_completed: Option<Filled<T>>,
 
     /// Per-channel window history for real start/short-final/finalize-tail synthesis (mirrors
@@ -137,9 +79,12 @@ pub struct GpuCore<T> {
 /// the whole stream once built (steady-state groups are structurally identical; only the
 /// one-off true start/end groups, built separately, differ in shape and are never recycled).
 struct Group<T> {
-    pipeline: GpuTransformPipeline<T>,
+    // Must be dropped before `pipeline`: its descriptors bind the transform output buffer.
+    // Rust drops struct fields in declaration order.
     overlap: BatchOverlapShader<T>,
+    pipeline: GpuTransformPipeline<T>,
     upload_staging: Vec<T>,
+    transform_batch_count: usize,
 }
 
 /// A [`Group`] currently being assembled: chunks are packed into `upload_staging` as they
@@ -163,78 +108,69 @@ struct Filled<T> {
     recyclable: bool,
 }
 
+/// Resources owned by one GPU submission. `seed` is included because the command stream may
+/// copy from its overlap buffer before processing `current`.
+struct Executing<T> {
+    current: Filled<T>,
+    seed: Option<Filled<T>>,
+}
+
 fn window_input_stride<T: GpuScalar + FromF64>(group: &Group<T>) -> usize {
     group.pipeline.input_stride()
 }
 
+#[allow(private_bounds)]
 impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
-    /// Builds a core for `channels` channels of `config`, with `group_chunks` FFT chunks
-    /// batched into one GPU submission and a fixed ring of `ring_slots` pre-allocated group
-    /// buffer-sets (floored to `MIN_RING_SLOTS`, see the type's own doc for why picking this is
-    /// the caller's call, not something this constructor derives).
-    ///
-    /// Returns [`GpuError::DecimationUnsupported`] if `config` requests pre-decimation,
-    /// [`GpuError::F128UnsupportedOnGpu`] if it requests `f128`, or
-    /// [`GpuError::Fp64Unsupported`] if `T = f64` and `context`'s device cannot run
-    /// `shaderFloat64`.
-    pub fn new(context: Arc<GpuContext>, config: Config, channels: usize, group_chunks: usize, ring_slots: usize) -> Result<Self, GpuError> {
-        if T::scalar_type() == vkfft_rs::ScalarType::F64 {
-            context.require_f64()?;
-        }
-        let group_chunks = group_chunks.max(1);
+    /// Builds a streaming core using the context's fixed shader geometry and a ring of
+    /// `ring_slots` runtime buffer sets.
+    pub fn new(context: Arc<GpuContext<T>>, ring_slots: usize) -> Result<Self, GpuError> {
         let ring_slots = ring_slots.max(MIN_RING_SLOTS);
-
-        let derived = config
-            .derive_config::<T>()
-            .map_err(|err| GpuError::InvalidConfig(err.to_string()))?;
-        if derived.decimation_stages > 0 {
-            return Err(GpuError::DecimationUnsupported);
-        }
-        if derived.f128 {
-            return Err(GpuError::F128UnsupportedOnGpu);
-        }
-
+        let channels = context.config().channels;
+        let group_chunks = context.group_chunks();
+        let derived = context.derived();
+        let input_chunk_frames = derived.input_chunk_frames;
+        let input_fft_size = derived.input_fft_size;
+        let output_chunk_frames = derived.output_chunk_frames;
+        let output_offset = derived.output_offset;
+        let shaders = context.compiled_shaders()?;
         let steady_state_modes = normal_window_modes(group_chunks);
         let mut free_groups = Vec::with_capacity(ring_slots);
         for _ in 0..ring_slots {
-            free_groups.push(build_group(&context, &derived, channels, &steady_state_modes)?);
+            free_groups.push(build_group(&context, &steady_state_modes, &shaders)?);
         }
 
         Ok(Self {
             context,
-            channels,
             pre: vec![None; channels],
             post: vec![None; channels],
-            group_chunks,
             ring_slots,
             free_groups,
             filling: None,
             queued: VecDeque::new(),
             executing: None,
             prev_completed: None,
-            prev_input_window: vec![vec![T::zero(); derived.input_chunk_frames * 2]; channels],
-            window_scratch: vec![T::zero(); derived.input_fft_size],
-            chunk_output_scratch: vec![T::zero(); channels * group_chunks * derived.output_chunk_frames],
-            overlap_output_scratch: vec![T::zero(); channels * derived.output_chunk_frames],
+            prev_input_window: vec![vec![T::zero(); input_chunk_frames * 2]; channels],
+            window_scratch: vec![T::zero(); input_fft_size],
+            chunk_output_scratch: vec![T::zero(); channels * group_chunks * output_chunk_frames],
+            overlap_output_scratch: vec![T::zero(); channels * output_chunk_frames],
             ready_output: vec![Vec::new(); channels],
             started: false,
             final_input_seen: false,
             finalized: false,
-            trim_remaining: derived.output_offset,
+            trim_remaining: output_offset,
             input_sample_count: 0,
             output_sample_count: 0,
-            derived,
         })
     }
 
     /// Number of channels this core was built for.
     pub fn channels(&self) -> usize {
-        self.channels
+        self.context.config().channels
     }
 
     /// Number of FFT chunks batched into one GPU submission.
     pub fn group_chunks(&self) -> usize {
-        self.group_chunks
+        self.context.group_chunks()
     }
 
     /// Number of pre-allocated group buffer-sets in the fixed ring.
@@ -260,7 +196,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
 
     /// Returns the total expected output samples for `input_samples` per-channel input samples.
     pub fn output_sample_count_for_input(&self, input_samples: usize) -> usize {
-        (input_samples * self.derived.output_sample_rate).div_ceil(self.derived.input_sample_rate)
+        (input_samples * self.context.derived().output_sample_rate).div_ceil(self.context.derived().input_sample_rate)
     }
 
     #[inline]
@@ -274,7 +210,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// this and only push more once it returns `true` (or `executing` is already empty).
     pub fn pending_ready(&self) -> Result<bool, GpuError> {
         match &self.executing {
-            Some((submission, _)) => self.context.is_submission_ready(submission),
+            Some(submission) => submission.is_ready(),
             None => Ok(true),
         }
     }
@@ -297,10 +233,16 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// when GPU work is fully backlogged relative to `ring_slots`.
     pub fn push<'a>(&mut self, input: impl AsChannels<'a, T>, is_final: bool) -> Result<(), GpuError> {
         if self.finalized || self.final_input_seen {
-            return Err(GpuError::InvalidSubmissionState("stream has already been finalized".to_string()));
+            return Err(GpuError::InvalidSubmissionState(
+                "stream has already been finalized".to_string(),
+            ));
         }
-        let input_samples = if input.channel_count() == 0 { 0 } else { input.channel(0).len() };
-        let chunk_frames = self.derived.input_chunk_frames;
+        let input_samples = if input.channel_count() == 0 {
+            0
+        } else {
+            input.channel(0).len()
+        };
+        let chunk_frames = self.context.derived().input_chunk_frames;
         if is_final {
             self.final_input_seen = true;
             if input_samples > chunk_frames {
@@ -309,7 +251,9 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
                 )));
             }
         } else if input_samples != chunk_frames {
-            return Err(GpuError::InvalidConfig(format!("expected exactly {chunk_frames} samples per channel, got {input_samples}")));
+            return Err(GpuError::InvalidConfig(format!(
+                "expected exactly {chunk_frames} samples per channel, got {input_samples}"
+            )));
         }
         if input_samples == 0 {
             return Ok(());
@@ -320,12 +264,12 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
 
     /// Required per-channel input length for a non-final [`GpuCore::push`] call.
     pub fn input_chunk_frames(&self) -> usize {
-        self.derived.input_chunk_frames
+        self.context.derived().input_chunk_frames
     }
 
     /// Per-channel output length produced by one full (non-final, non-short) input chunk.
     pub fn output_chunk_frames(&self) -> usize {
-        self.derived.output_chunk_frames
+        self.context.derived().output_chunk_frames
     }
 
     /// Copies as many output samples as fit into `output` (one channel of equal length per
@@ -360,17 +304,20 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// front of each `self.ready_output[c]` (`Vec::drain` shifts the remainder down in place,
     /// keeping the buffer's capacity -- no allocation).
     fn drain_ready_output<'a>(&mut self, mut output: impl AsChannelsMut<'a, T>) -> Result<usize, GpuError> {
-        if output.channel_count() != self.channels {
+        if output.channel_count() != self.context.config().channels {
             return Err(GpuError::InvalidConfig(format!(
                 "expected {} channel output slices, got {}",
-                self.channels,
+                self.context.config().channels,
                 output.channel_count()
             )));
         }
         let available = self.ready_output.iter().map(Vec::len).min().unwrap_or(0);
-        let requested = (0..self.channels).map(|c| output.channel_mut(c).len()).min().unwrap_or(0);
+        let requested = (0..self.context.config().channels)
+            .map(|c| output.channel_mut(c).len())
+            .min()
+            .unwrap_or(0);
         let written = available.min(requested);
-        for c in 0..self.channels {
+        for c in 0..self.context.config().channels {
             let dst = output.channel_mut(c);
             dst[..written].copy_from_slice(&self.ready_output[c][..written]);
             self.ready_output[c].drain(..written);
@@ -432,7 +379,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         self.started = false;
         self.final_input_seen = false;
         self.finalized = false;
-        self.trim_remaining = self.derived.output_offset;
+        self.trim_remaining = self.context.derived().output_offset;
         self.input_sample_count = 0;
         self.output_sample_count = 0;
         Ok(())
@@ -449,11 +396,17 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// to terminate once this has returned.
     pub fn finalize(&mut self) -> Result<(), GpuError> {
         if self.finalized {
-            return Err(GpuError::InvalidSubmissionState("stream has already been finalized".to_string()));
+            return Err(GpuError::InvalidSubmissionState(
+                "stream has already been finalized".to_string(),
+            ));
         }
         self.final_input_seen = true;
 
-        if self.input_sample_count > 0 && self.input_sample_count.is_multiple_of(self.derived.input_chunk_frames) {
+        if self.input_sample_count > 0
+            && self
+                .input_sample_count
+                .is_multiple_of(self.context.derived().input_chunk_frames)
+        {
             self.close_out_full_finish()?;
         }
 
@@ -478,43 +431,50 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// [`OverlapMode::Start`] window, if this is the very first chunk ever) if needed, and
     /// submitting it once full or once closed out by `is_final_chunk`.
     fn add_chunk<'a>(&mut self, chunk: impl AsChannels<'a, T>, is_final_chunk: bool) -> Result<(), GpuError> {
-        let chunk_frames = self.derived.input_chunk_frames;
+        let chunk_frames = self.context.derived().input_chunk_frames;
         let is_short_final = is_final_chunk && chunk.channel(0).len() < chunk_frames;
 
         if self.filling.is_none() {
             if !self.started {
                 self.started = true;
-                let mut start_group = build_group(&self.context, &self.derived, self.channels, &[OverlapMode::Start])?;
-                for c in 0..self.channels {
+                let shaders = self.context.compiled_shaders()?;
+                let mut start_group = build_group(&self.context, &[OverlapMode::Start], &shaders)?;
+                for c in 0..self.context.config().channels {
                     window::write_start_window(
                         &mut self.window_scratch,
                         chunk_frames,
-                        self.derived.input_offset,
+                        self.context.derived().input_offset,
                         self.pre[c].as_deref(),
                         chunk.channel(c),
-                        self.derived.extrapolation,
+                        self.context.derived().extrapolation,
                     );
                     let input_stride = window_input_stride(&start_group);
                     pack_complex_batch(&mut start_group.upload_staging, c, input_stride, &self.window_scratch);
                 }
-                start_group.pipeline.input_buffer().upload(&start_group.upload_staging)?;
-                let context = &self.context;
-                let submission = context.submit_async(|command_buffer| {
-                    start_group.pipeline.record(context.device(), command_buffer);
-                    start_group.overlap.record(context.device(), command_buffer);
-                })?;
-                // Not waited on here: this becomes the initial `executing` entry, so `advance`
-                // only waits for it once the first real group actually needs its overlap state
-                // as a seed (`submit_group` reads `prev_completed`), not unconditionally here.
-                self.executing = Some((
-                    submission,
-                    Filled {
+                start_group
+                    .pipeline
+                    .input_buffer()
+                    .upload(&start_group.upload_staging)?;
+                let device = Arc::clone(self.context.device());
+                let executing = Executing {
+                    current: Filled {
                         group: start_group,
                         num_real_chunks: 0,
                         is_final: false,
                         recyclable: false,
                     },
-                ));
+                    seed: None,
+                };
+                let submission = device
+                    .submit_async(executing, |command, executing| {
+                        executing.current.group.pipeline.record(command);
+                        executing.current.group.overlap.record(command);
+                    })
+                    .map_err(|(err, _)| err)?;
+                // Not waited on here: this becomes the initial `executing` entry, so `advance`
+                // only waits for it once the first real group actually needs its overlap state
+                // as a seed (`submit_group` reads `prev_completed`), not unconditionally here.
+                self.executing = Some(submission);
             }
 
             while self.free_groups.is_empty() {
@@ -526,7 +486,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
             let free = self.free_groups.pop().expect("checked non-empty above");
             self.filling = Some(Filling {
                 group: free,
-                window_modes: Vec::with_capacity(self.group_chunks),
+                window_modes: Vec::with_capacity(self.context.group_chunks()),
                 windows_filled: 0,
                 is_final: false,
                 recyclable: true,
@@ -537,23 +497,42 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         let window_index = filling.windows_filled;
         let input_stride = window_input_stride(&filling.group);
         if is_short_final {
-            for c in 0..self.channels {
+            for c in 0..self.context.config().channels {
                 window::write_short_final_window(
                     &mut self.window_scratch,
                     &mut self.prev_input_window[c],
                     chunk.channel(c),
                     chunk_frames,
-                    self.derived.input_offset,
+                    self.context.derived().input_offset,
                     self.post[c].as_deref(),
-                    self.derived.extrapolation,
+                    self.context.derived().extrapolation,
                 );
-                pack_complex_batch(&mut filling.group.upload_staging, window_index * self.channels + c, input_stride, &self.window_scratch);
+                pack_complex_batch(
+                    &mut filling.group.upload_staging,
+                    window_index * self.context.config().channels + c,
+                    input_stride,
+                    &self.window_scratch,
+                );
             }
         } else {
-            for c in 0..self.channels {
-                window::write_normal_window(&mut self.window_scratch, self.derived.input_offset, chunk.channel(c));
-                pack_complex_batch(&mut filling.group.upload_staging, window_index * self.channels + c, input_stride, &self.window_scratch);
-                window::save_current_window(&mut self.prev_input_window[c], &self.window_scratch, self.derived.input_offset, chunk_frames);
+            for c in 0..self.context.config().channels {
+                window::write_normal_window(
+                    &mut self.window_scratch,
+                    self.context.derived().input_offset,
+                    chunk.channel(c),
+                );
+                pack_complex_batch(
+                    &mut filling.group.upload_staging,
+                    window_index * self.context.config().channels + c,
+                    input_stride,
+                    &self.window_scratch,
+                );
+                window::save_current_window(
+                    &mut self.prev_input_window[c],
+                    &self.window_scratch,
+                    self.context.derived().input_offset,
+                    chunk_frames,
+                );
             }
         }
         filling.window_modes.push(OverlapMode::Normal);
@@ -578,7 +557,7 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
             filling.is_final = true;
         }
 
-        if filling.windows_filled >= self.group_chunks || is_final_chunk {
+        if filling.windows_filled >= self.context.group_chunks() || is_final_chunk {
             let filling = self.filling.take().expect("just used");
             self.enqueue_filled(filling)?;
         }
@@ -590,20 +569,25 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// process -- but a finalize-tail window still needs to be appended and submitted to recover
     /// the last chunk's held-back overlap contribution.
     fn close_out_full_finish(&mut self) -> Result<(), GpuError> {
-        let chunk_frames = self.derived.input_chunk_frames;
+        let chunk_frames = self.context.derived().input_chunk_frames;
         if let Some(filling) = self.filling.as_mut() {
             let window_index = filling.windows_filled;
             let input_stride = window_input_stride(&filling.group);
-            for c in 0..self.channels {
+            for c in 0..self.context.config().channels {
                 window::write_finalize_tail_window(
                     &mut self.window_scratch,
                     &mut self.prev_input_window[c],
                     chunk_frames,
-                    self.derived.input_offset,
+                    self.context.derived().input_offset,
                     self.post[c].as_deref(),
-                    self.derived.extrapolation,
+                    self.context.derived().extrapolation,
                 );
-                pack_complex_batch(&mut filling.group.upload_staging, window_index * self.channels + c, input_stride, &self.window_scratch);
+                pack_complex_batch(
+                    &mut filling.group.upload_staging,
+                    window_index * self.context.config().channels + c,
+                    input_stride,
+                    &self.window_scratch,
+                );
             }
             filling.window_modes.push(OverlapMode::End);
             filling.windows_filled += 1;
@@ -611,16 +595,17 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
         } else {
             // Nothing is currently being filled (the last group was already submitted exactly
             // full): build a one-off, single-window `End` group.
-            let mut end_group = build_group(&self.context, &self.derived, self.channels, &[OverlapMode::End])?;
+            let shaders = self.context.compiled_shaders()?;
+            let mut end_group = build_group(&self.context, &[OverlapMode::End], &shaders)?;
             let input_stride = window_input_stride(&end_group);
-            for c in 0..self.channels {
+            for c in 0..self.context.config().channels {
                 window::write_finalize_tail_window(
                     &mut self.window_scratch,
                     &mut self.prev_input_window[c],
                     chunk_frames,
-                    self.derived.input_offset,
+                    self.context.derived().input_offset,
                     self.post[c].as_deref(),
-                    self.derived.extrapolation,
+                    self.context.derived().extrapolation,
                 );
                 pack_complex_batch(&mut end_group.upload_staging, c, input_stride, &self.window_scratch);
             }
@@ -636,28 +621,45 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     }
 
     fn enqueue_filled(&mut self, filling: Filling<T>) -> Result<(), GpuError> {
-        let Filling { mut group, window_modes, windows_filled, is_final, recyclable } = filling;
+        let Filling {
+            mut group,
+            window_modes,
+            windows_filled,
+            is_final,
+            recyclable,
+        } = filling;
         let num_real_chunks = window_modes.iter().filter(|mode| **mode == OverlapMode::Normal).count();
 
         // A group built with fewer windows than the ring's steady-state shape (the true-final,
         // possibly-short group) needs its own differently-shaped `BatchOverlapShader`; rebuild
         // it in place rather than trying to reuse the pre-built uniform one. Steady-state groups
         // (exactly `group_chunks` `Normal` windows) already match and skip this.
-        if windows_filled != self.group_chunks || window_modes.iter().any(|mode| *mode != OverlapMode::Normal) {
+        if windows_filled != self.context.group_chunks() || window_modes.iter().any(|mode| *mode != OverlapMode::Normal)
+        {
+            let shaders = self.context.compiled_shaders()?;
+            let transform_shaders = if group.transform_batch_count == self.context.config().channels {
+                &shaders.single
+            } else {
+                &shaders.grouped
+            };
             group.overlap = BatchOverlapShader::<T>::build(
-                &self.context,
-                T::scalar_type(),
+                self.context.device(),
                 group.pipeline.output_buffer(),
                 group.pipeline.output_stride(),
-                self.derived.output_chunk_frames,
-                self.derived.input_chunk_frames,
-                self.channels,
+                self.context.derived().output_chunk_frames,
+                self.context.config().channels,
                 &window_modes,
+                &transform_shaders.overlap,
             )?;
         }
 
         group.pipeline.input_buffer().upload(&group.upload_staging)?;
-        self.queued.push_back(Filled { group, num_real_chunks, is_final, recyclable });
+        self.queued.push_back(Filled {
+            group,
+            num_real_chunks,
+            is_final,
+            recyclable,
+        });
         self.advance(false)
     }
 
@@ -668,44 +670,56 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// termination condition between calls -- looping *inside* this method would over-drain the
     /// whole backlog just to free a single slot, defeating the read-ahead this ring exists for.
     fn advance(&mut self, block: bool) -> Result<(), GpuError> {
-        if let Some((submission, _)) = &self.executing {
+        if let Some(submission) = &self.executing {
             let ready = if block {
-                self.context.wait_submission(submission)?;
+                // `resolve` performs the actual blocking wait below.
                 true
             } else {
-                self.context.is_submission_ready(submission)?
+                submission.is_ready()?
             };
             if ready {
-                let (submission, filled) = self.executing.take().expect("checked above");
-                self.context.destroy_submission(submission);
-                self.download_and_process(&filled)?;
-                if let Some(prev) = self.prev_completed.replace(filled)
-                    && prev.recyclable
+                let submission = self.executing.take().expect("checked above");
+                let Executing { current, seed } = submission.resolve()?;
+                self.download_and_process(&current)?;
+                if let Some(seed) = seed
+                    && seed.recyclable
                 {
-                    self.free_groups.push(prev.group);
+                    self.free_groups.push(seed.group);
                 }
+                self.prev_completed = Some(current);
             }
         }
 
         if self.executing.is_none()
             && let Some(next) = self.queued.pop_front()
         {
-            let submission = self.submit_group(&next)?;
-            self.executing = Some((submission, next));
+            self.executing = Some(self.submit_group(next)?);
         }
         Ok(())
     }
 
-    fn submit_group(&self, next: &Filled<T>) -> Result<GpuSubmission, GpuError> {
-        let seed_source = self.prev_completed.as_ref().map(|prev| &prev.group.overlap);
-        let context = &self.context;
-        context.submit_async(|command_buffer| {
-            if let Some(seed) = seed_source {
-                next.group.overlap.record_seed_copy(context.device(), command_buffer, seed.overlap_buffer());
-            }
-            next.group.pipeline.record(context.device(), command_buffer);
-            next.group.overlap.record(context.device(), command_buffer);
-        })
+    fn submit_group(&mut self, next: Filled<T>) -> Result<GpuSubmission<Executing<T>>, GpuError> {
+        let device = Arc::clone(self.context.device());
+        let executing = Executing {
+            current: next,
+            seed: self.prev_completed.take(),
+        };
+        device
+            .submit_async(executing, |command, executing| {
+                if let Some(seed) = &executing.seed {
+                    executing
+                        .current
+                        .group
+                        .overlap
+                        .record_seed_copy(command, seed.group.overlap.overlap_buffer());
+                }
+                executing.current.group.pipeline.record(command);
+                executing.current.group.overlap.record(command);
+            })
+            .map_err(|(err, executing)| {
+                self.prev_completed = executing.seed;
+                err
+            })
     }
 
     /// Downloads `filled`'s per-chunk outputs, applies the same trim/output-budget accounting
@@ -713,8 +727,8 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
     /// `filled.is_final`, also downloads and appends the finalize-tail from its ending overlap
     /// state.
     fn download_and_process(&mut self, filled: &Filled<T>) -> Result<(), GpuError> {
-        let output_chunk_frames = self.derived.output_chunk_frames;
-        let chunk_output_len = self.channels * filled.num_real_chunks * output_chunk_frames;
+        let output_chunk_frames = self.context.derived().output_chunk_frames;
+        let chunk_output_len = self.context.config().channels * filled.num_real_chunks * output_chunk_frames;
         let chunk_output = &mut self.chunk_output_scratch[..chunk_output_len];
         if filled.num_real_chunks > 0 {
             filled.group.overlap.output_buffer().download(chunk_output)?;
@@ -725,22 +739,37 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
             let skip = self.trim_remaining.min(output_chunk_frames);
             self.trim_remaining -= skip;
             let after_trim = output_chunk_frames - skip;
-            let budget = expected_total.map_or(after_trim, |total| after_trim.min(total.saturating_sub(self.output_sample_count)));
+            let budget = expected_total.map_or(after_trim, |total| {
+                after_trim.min(total.saturating_sub(self.output_sample_count))
+            });
             self.output_sample_count += budget;
-            for c in 0..self.channels {
-                let base = k * self.channels * output_chunk_frames + c * output_chunk_frames + skip;
+            for c in 0..self.context.config().channels {
+                let base = k * self.context.config().channels * output_chunk_frames + c * output_chunk_frames + skip;
                 self.ready_output[c].extend_from_slice(&self.chunk_output_scratch[base..base + budget]);
             }
         }
 
         if filled.is_final {
-            filled.group.overlap.overlap_buffer().download(&mut self.overlap_output_scratch)?;
-            let scale = T::from(output_chunk_frames).unwrap_or_else(T::one) / T::from(self.derived.input_chunk_frames).unwrap_or_else(T::one);
-            let tail_written = expected_total.map_or(output_chunk_frames, |total| total.saturating_sub(self.output_sample_count)).min(output_chunk_frames);
+            filled
+                .group
+                .overlap
+                .overlap_buffer()
+                .download(&mut self.overlap_output_scratch)?;
+            let scale = T::from(output_chunk_frames).unwrap_or_else(T::one)
+                / T::from(self.context.derived().input_chunk_frames).unwrap_or_else(T::one);
+            let tail_written = expected_total
+                .map_or(output_chunk_frames, |total| {
+                    total.saturating_sub(self.output_sample_count)
+                })
+                .min(output_chunk_frames);
             self.output_sample_count += tail_written;
-            for c in 0..self.channels {
+            for c in 0..self.context.config().channels {
                 let base = c * output_chunk_frames;
-                self.ready_output[c].extend(self.overlap_output_scratch[base..base + tail_written].iter().map(|&value| value * scale));
+                self.ready_output[c].extend(
+                    self.overlap_output_scratch[base..base + tail_written]
+                        .iter()
+                        .map(|&value| value * scale),
+                );
             }
         }
         Ok(())
@@ -748,42 +777,46 @@ impl<T: Float + GpuScalar + FromF64> GpuCore<T> {
 }
 
 fn build_group<T: Float + GpuScalar + FromF64>(
-    context: &Arc<GpuContext>,
-    derived: &DerivedConfig<T>,
-    channels: usize,
+    context: &Arc<GpuContext<T>>,
     window_modes: &[OverlapMode],
+    shaders: &GpuShaders,
 ) -> Result<Group<T>, GpuError> {
+    let derived = context.derived();
+    let channels = context.config().channels;
     let windows = window_modes.len();
-    let geometry = RemapGeometry {
-        direction_up: derived.input_chunk_frames < derived.output_chunk_frames,
-        n: derived.spectral.geometry.lower_nyquist_bin,
-        r0: derived.spectral.geometry.reflect_start_bin(),
-        nyquist_fold: if derived.input_chunk_frames > derived.output_chunk_frames { 2.0 } else { 1.0 },
-        gain: &derived.spectral.gain,
-        phase: derived.spectral.phase_enabled.then_some(derived.spectral.phase.as_slice()),
+    let transform_batch_count = channels * windows;
+    let transform_shaders = if windows == 1 {
+        &shaders.single
+    } else {
+        &shaders.grouped
     };
+    let geometry = remap_geometry(derived);
     let pipeline = GpuTransformPipeline::<T>::build(
-        context,
+        context.device(),
         T::precision(),
-        T::scalar_type(),
         derived.input_fft_size,
         derived.output_fft_size,
-        channels * windows,
+        transform_batch_count,
         &geometry,
+        transform_shaders,
     )?;
     let overlap = BatchOverlapShader::<T>::build(
-        context,
-        T::scalar_type(),
+        context.device(),
         pipeline.output_buffer(),
         pipeline.output_stride(),
         derived.output_chunk_frames,
-        derived.input_chunk_frames,
         channels,
         window_modes,
+        &transform_shaders.overlap,
     )?;
     let input_stride = pipeline.input_stride();
     let upload_staging = vec![T::zero(); channels * windows * input_stride * 2];
-    Ok(Group { pipeline, overlap, upload_staging })
+    Ok(Group {
+        pipeline,
+        overlap,
+        upload_staging,
+        transform_batch_count,
+    })
 }
 
 fn normal_window_modes(windows: usize) -> Vec<OverlapMode> {
@@ -795,6 +828,9 @@ mod tests {
     use super::*;
     use crate::cpu_core::CpuCore;
     use crate::extrapolation::Extrapolation;
+    use crate::{Config, GpuDevice};
+
+    const DEFAULT_GROUP_CHUNKS: usize = 4;
 
     fn tone_channels(channels: usize, frames: usize, sample_rate: usize) -> Vec<Vec<f32>> {
         (0..channels)
@@ -831,8 +867,14 @@ mod tests {
     /// [`lpc_extrapolation_has_known_gpu_divergence_without_context`] for why: `Extrapolation::Lpc`
     /// has a known, separately tracked GPU divergence without real context, unrelated to what
     /// this test checks).
-    fn assert_batch_matches_cpu(input_rate: usize, output_rate: usize, channels: usize, total_frames: usize, group_chunks: usize) {
-        let context = match GpuContext::new() {
+    fn assert_batch_matches_cpu(
+        input_rate: usize,
+        output_rate: usize,
+        channels: usize,
+        total_frames: usize,
+        group_chunks: usize,
+    ) {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping GPU batch test: {err}");
@@ -845,12 +887,16 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_cores: Vec<CpuCore<f32>> = (0..channels).map(|_| CpuCore::new(derived.clone())).collect();
-        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, group_chunks, MIN_RING_SLOTS).expect("build GpuCore");
+        let context = Arc::new(GpuContext::with_device(context, config, group_chunks).expect("build GpuContext"));
+        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build GpuCore");
         assert_eq!(gpu_core.input_chunk_frames(), chunk_frames);
 
         let full = tone_channels(channels, chunk_frames + total_frames + chunk_frames, input_rate);
         let pre: Vec<Vec<f32>> = full.iter().map(|c| c[..chunk_frames].to_vec()).collect();
-        let input: Vec<Vec<f32>> = full.iter().map(|c| c[chunk_frames..chunk_frames + total_frames].to_vec()).collect();
+        let input: Vec<Vec<f32>> = full
+            .iter()
+            .map(|c| c[chunk_frames..chunk_frames + total_frames].to_vec())
+            .collect();
         let post: Vec<Vec<f32>> = full.iter().map(|c| c[chunk_frames + total_frames..].to_vec()).collect();
         for (c, core) in cpu_cores.iter_mut().enumerate() {
             core.pre(pre[c].clone());
@@ -867,7 +913,9 @@ mod tests {
             let is_final = remaining <= chunk_frames;
             let this_chunk = if is_final { remaining } else { chunk_frames };
             for (c, core) in cpu_cores.iter_mut().enumerate() {
-                let out = core.process_chunk(&input[c][offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+                let out = core
+                    .process_chunk(&input[c][offset..offset + this_chunk], is_final)
+                    .expect("cpu process_chunk");
                 cpu_output[c].extend_from_slice(out);
             }
             let refs: Vec<&[f32]> = (0..channels).map(|c| &input[c][offset..offset + this_chunk]).collect();
@@ -935,12 +983,18 @@ mod tests {
         let config = Config::new(44_100, 48_000, 1);
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
-        assert_batch_matches_cpu(44_100, 48_000, 1, chunk_frames * DEFAULT_GROUP_CHUNKS * 2, DEFAULT_GROUP_CHUNKS);
+        assert_batch_matches_cpu(
+            44_100,
+            48_000,
+            1,
+            chunk_frames * DEFAULT_GROUP_CHUNKS * 2,
+            DEFAULT_GROUP_CHUNKS,
+        );
     }
 
     #[test]
     fn pull_output_partial_drain_across_multiple_calls() {
-        let context = match GpuContext::new() {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping: {err}");
@@ -952,7 +1006,8 @@ mod tests {
         let derived = config.derive_config::<f32>().expect("valid config");
         let chunk_frames = derived.raw_input_chunk_frames();
         let mut cpu_core = CpuCore::<f32>::new(derived);
-        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+        let context = Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context"));
+        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
 
         let total_frames = chunk_frames * DEFAULT_GROUP_CHUNKS + 137;
         // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
@@ -974,7 +1029,9 @@ mod tests {
             let remaining = total_frames - offset;
             let is_final = remaining <= chunk_frames;
             let this_chunk = if is_final { remaining } else { chunk_frames };
-            let out = cpu_core.process_chunk(&input[0][offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+            let out = cpu_core
+                .process_chunk(&input[0][offset..offset + this_chunk], is_final)
+                .expect("cpu process_chunk");
             cpu_output.extend_from_slice(out);
             let refs: [&[f32]; 1] = [&input[0][offset..offset + this_chunk]];
             gpu_core.push(&refs[..], is_final).expect("gpu push");
@@ -1000,43 +1057,55 @@ mod tests {
         drain_all_output(&mut gpu_core, channels, &mut gpu_output);
 
         assert_eq!(cpu_output.len(), gpu_output[0].len());
-        let max_abs_error = cpu_output.iter().zip(gpu_output[0].iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        let max_abs_error = cpu_output
+            .iter()
+            .zip(gpu_output[0].iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
         assert!(max_abs_error < 1e-3, "max abs error {max_abs_error}");
     }
 
     #[test]
     fn push_rejects_wrong_chunk_size() {
-        let context = match GpuContext::new() {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping: {err}");
                 return;
             }
         };
-        let mut core = GpuCore::<f32>::new(context, Config::new(44_100, 48_000, 1), 1, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+        let context = Arc::new(
+            GpuContext::with_device(context, Config::new(44_100, 48_000, 1), DEFAULT_GROUP_CHUNKS)
+                .expect("build context"),
+        );
+        let mut core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
         let wrong_size = vec![0.0f32; core.input_chunk_frames() + 1];
         assert!(core.push(&[&wrong_size[..]][..], false).is_err());
     }
 
     #[test]
-    fn ring_slots_and_group_chunks_are_floored_not_derived() {
-        let context = match GpuContext::new() {
+    fn ring_slots_are_floored_and_zero_group_chunks_are_rejected() {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping: {err}");
                 return;
             }
         };
-        // Requesting fewer than `MIN_RING_SLOTS`/1 must be floored, not honored or rejected --
-        // there is no other "sizing" logic left in this constructor to second-guess the caller.
-        let core = GpuCore::<f32>::new(context, Config::new(44_100, 48_000, 2), 2, 0, 1).expect("build");
+        let config = Config::new(44_100, 48_000, 2);
+        assert!(matches!(
+            GpuContext::<f32>::with_device(Arc::clone(&context), config.clone(), 0),
+            Err(GpuError::InvalidConfig(_))
+        ));
+        let context = Arc::new(GpuContext::with_device(context, config, 1).expect("build context"));
+        let core = GpuCore::<f32>::new(context, 1).expect("build");
         assert_eq!(core.ring_slots(), MIN_RING_SLOTS);
         assert_eq!(core.group_chunks(), 1);
     }
 
     #[test]
     fn output_chunk_frames_matches_derived_config() {
-        let context = match GpuContext::new() {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping: {err}");
@@ -1045,13 +1114,14 @@ mod tests {
         };
         let config = Config::new(44_100, 48_000, 1);
         let derived = config.derive_config::<f32>().expect("valid config");
-        let core = GpuCore::<f32>::new(context, config, 1, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+        let context = Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context"));
+        let core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
         assert_eq!(core.output_chunk_frames(), derived.output_chunk_frames);
     }
 
     #[test]
     fn flush_makes_partial_group_output_available_without_ending_the_stream() {
-        let context = match GpuContext::new() {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping: {err}");
@@ -1065,7 +1135,8 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_core = CpuCore::<f32>::new(derived.clone());
-        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, group_chunks, MIN_RING_SLOTS).expect("build");
+        let context = Arc::new(GpuContext::with_device(context, config, group_chunks).expect("build context"));
+        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
 
         // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
         // the separately tracked `Extrapolation::Lpc`/GPU divergence unrelated to what this
@@ -1083,9 +1154,13 @@ mod tests {
         // would normally be submitted (let alone ready) without an explicit `flush`. Feed
         // `cpu_core` the same two chunks so it stays the correctness oracle for the whole stream.
         let mut cpu_output = Vec::new();
-        let out = cpu_core.process_chunk(&input[..chunk_frames], false).expect("cpu process_chunk");
+        let out = cpu_core
+            .process_chunk(&input[..chunk_frames], false)
+            .expect("cpu process_chunk");
         cpu_output.extend_from_slice(out);
-        let out = cpu_core.process_chunk(&input[chunk_frames..chunk_frames * 2], false).expect("cpu process_chunk");
+        let out = cpu_core
+            .process_chunk(&input[chunk_frames..chunk_frames * 2], false)
+            .expect("cpu process_chunk");
         cpu_output.extend_from_slice(out);
 
         let refs: [&[f32]; 1] = [&input[..chunk_frames]];
@@ -1095,11 +1170,17 @@ mod tests {
 
         let mut scratch = vec![vec![0.0f32; 16_384]; channels];
         let written = gpu_core.pull_output(&mut scratch).expect("pull_output before flush");
-        assert_eq!(written, 0, "a partial group shouldn't have any real output ready before flush");
+        assert_eq!(
+            written, 0,
+            "a partial group shouldn't have any real output ready before flush"
+        );
 
         gpu_core.flush().expect("flush");
         let written = gpu_core.pull_output(&mut scratch).expect("pull_output after flush");
-        assert!(written > 0, "flush should force the partial group out and make its output available");
+        assert!(
+            written > 0,
+            "flush should force the partial group out and make its output available"
+        );
 
         // The stream is still usable afterward: finish it off (exercising the differently-shaped
         // overlap pipeline a partial, forced-early group builds) and confirm the result still
@@ -1111,7 +1192,9 @@ mod tests {
             let remaining = input.len() - offset;
             let is_final = remaining <= chunk_frames;
             let this_chunk = if is_final { remaining } else { chunk_frames };
-            let out = cpu_core.process_chunk(&input[offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+            let out = cpu_core
+                .process_chunk(&input[offset..offset + this_chunk], is_final)
+                .expect("cpu process_chunk");
             cpu_output.extend_from_slice(out);
             let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
             gpu_core.push(&refs[..], is_final).expect("push");
@@ -1126,13 +1209,17 @@ mod tests {
         drain_all_output(&mut gpu_core, channels, &mut gpu_output);
 
         assert_eq!(cpu_output.len(), gpu_output[0].len());
-        let max_abs_error = cpu_output.iter().zip(gpu_output[0].iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        let max_abs_error = cpu_output
+            .iter()
+            .zip(gpu_output[0].iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
         assert!(max_abs_error < 1e-3, "max abs error {max_abs_error}");
     }
 
     #[test]
     fn reset_allows_reuse_for_an_independent_stream() {
-        let context = match GpuContext::new() {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping: {err}");
@@ -1146,7 +1233,8 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
         let total_frames = chunk_frames * 3 + 111;
 
-        let mut gpu_core = GpuCore::<f32>::new(context, config, channels, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build");
+        let context = Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build context"));
+        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build");
 
         // Two structurally identical streams with different content (a different synthetic tone,
         // via a different phase-generation rate) run through the *same* `GpuCore` instance, with
@@ -1169,7 +1257,9 @@ mod tests {
                 let remaining = total_frames - offset;
                 let is_final = remaining <= chunk_frames;
                 let this_chunk = if is_final { remaining } else { chunk_frames };
-                let out = cpu_core.process_chunk(&input[offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+                let out = cpu_core
+                    .process_chunk(&input[offset..offset + this_chunk], is_final)
+                    .expect("cpu process_chunk");
                 cpu_output.extend_from_slice(out);
                 let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
                 gpu_core.push(&refs[..], is_final).expect("gpu push");
@@ -1183,9 +1273,20 @@ mod tests {
             gpu_core.finalize().expect("gpu finalize");
             drain_all_output(&mut gpu_core, channels, &mut gpu_output);
 
-            assert_eq!(cpu_output.len(), gpu_output[0].len(), "phase_rate {phase_rate}: output length mismatch");
-            let max_abs_error = cpu_output.iter().zip(gpu_output[0].iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-            assert!(max_abs_error < 1e-3, "phase_rate {phase_rate}: max abs error {max_abs_error}");
+            assert_eq!(
+                cpu_output.len(),
+                gpu_output[0].len(),
+                "phase_rate {phase_rate}: output length mismatch"
+            );
+            let max_abs_error = cpu_output
+                .iter()
+                .zip(gpu_output[0].iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            assert!(
+                max_abs_error < 1e-3,
+                "phase_rate {phase_rate}: max abs error {max_abs_error}"
+            );
 
             gpu_core.reset().expect("reset");
         }
@@ -1195,8 +1296,13 @@ mod tests {
     /// `pre`/`post` context at all (forcing whichever `extrapolation` strategy `config` selects)
     /// and returns the max abs error instead of asserting, so different strategies can be
     /// compared against each other by the tests below.
-    fn max_batch_error_no_context(input_rate: usize, output_rate: usize, total_frames: usize, extrapolation: Extrapolation) -> f32 {
-        let context = match GpuContext::new() {
+    fn max_batch_error_no_context(
+        input_rate: usize,
+        output_rate: usize,
+        total_frames: usize,
+        extrapolation: Extrapolation,
+    ) -> f32 {
+        let context = match GpuDevice::auto_select() {
             Ok(context) => Arc::new(context),
             Err(err) => {
                 eprintln!("skipping GPU batch investigation: {err}");
@@ -1208,7 +1314,9 @@ mod tests {
         let chunk_frames = derived.raw_input_chunk_frames();
 
         let mut cpu_core = CpuCore::<f32>::new(derived.clone());
-        let mut gpu_core = GpuCore::<f32>::new(context, config, 1, DEFAULT_GROUP_CHUNKS, MIN_RING_SLOTS).expect("build GpuCore");
+        let context =
+            Arc::new(GpuContext::with_device(context, config, DEFAULT_GROUP_CHUNKS).expect("build GpuContext"));
+        let mut gpu_core = GpuCore::<f32>::new(context, MIN_RING_SLOTS).expect("build GpuCore");
 
         let input: Vec<f32> = tone_channels(1, total_frames, input_rate).remove(0);
 
@@ -1220,7 +1328,9 @@ mod tests {
             let is_final = remaining <= chunk_frames;
             let this_chunk = if is_final { remaining } else { chunk_frames };
 
-            let out = cpu_core.process_chunk(&input[offset..offset + this_chunk], is_final).expect("cpu process_chunk");
+            let out = cpu_core
+                .process_chunk(&input[offset..offset + this_chunk], is_final)
+                .expect("cpu process_chunk");
             cpu_output.extend_from_slice(out);
 
             let refs: [&[f32]; 1] = [&input[offset..offset + this_chunk]];
@@ -1237,14 +1347,21 @@ mod tests {
         drain_all_output(&mut gpu_core, 1, &mut gpu_output);
 
         assert_eq!(cpu_output.len(), gpu_output[0].len());
-        cpu_output.iter().zip(gpu_output[0].iter()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max)
+        cpu_output
+            .iter()
+            .zip(gpu_output[0].iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max)
     }
 
     #[test]
     fn mirror_and_zero_extrapolation_avoid_lpc_gpu_divergence() {
         for strategy in [Extrapolation::Mirror, Extrapolation::Zero] {
             let err = max_batch_error_no_context(44_100, 96_000, 44_100 + 777, strategy);
-            assert!(err < 1e-3, "{strategy:?}: unexpectedly large GPU/CPU divergence with no pre/post context: {err}");
+            assert!(
+                err < 1e-3,
+                "{strategy:?}: unexpectedly large GPU/CPU divergence with no pre/post context: {err}"
+            );
         }
     }
 

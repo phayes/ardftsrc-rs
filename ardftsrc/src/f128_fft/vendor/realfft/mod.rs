@@ -57,9 +57,7 @@ impl FftError {
             Self::InputValues(first, last) => match (first, last) {
                 (true, false) => "Imaginary part of first value was non-zero.".to_string(),
                 (false, true) => "Imaginary part of last value was non-zero.".to_string(),
-                (true, true) => {
-                    "Imaginary parts of both first and last values were non-zero.".to_string()
-                }
+                (true, true) => "Imaginary parts of both first and last values were non-zero.".to_string(),
                 (false, false) => unreachable!(),
             },
         };
@@ -129,12 +127,7 @@ pub trait RealToComplex<T>: Sync + Send {
     /// The difference is that this method uses the provided
     /// scratch buffer instead of allocating new scratch space.
     /// This is faster if the same scratch buffer is used for multiple calls.
-    fn process_with_scratch(
-        &self,
-        input: &mut [T],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) -> Res<()>;
+    fn process_with_scratch(&self, input: &mut [T], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) -> Res<()>;
 
     /// Get the minimum length of the scratch buffer needed for `process_with_scratch`.
     fn get_scratch_len(&self) -> usize;
@@ -180,12 +173,7 @@ pub trait ComplexToReal<T>: Sync + Send {
     /// The difference is that this method uses the provided
     /// scratch buffer instead of allocating new scratch space.
     /// This is faster if the same scratch buffer is used for multiple calls.
-    fn process_with_scratch(
-        &self,
-        input: &mut [Complex<T>],
-        output: &mut [T],
-        scratch: &mut [Complex<T>],
-    ) -> Res<()>;
+    fn process_with_scratch(&self, input: &mut [Complex<T>], output: &mut [T], scratch: &mut [Complex<T>]) -> Res<()>;
 
     /// Get the minimum length of the scratch space needed for `process_with_scratch`.
     fn get_scratch_len(&self) -> usize;
@@ -215,9 +203,7 @@ where
     B: IntoIterator,
     C: IntoIterator,
 {
-    a.into_iter()
-        .zip(b.into_iter().zip(c))
-        .map(|(x, (y, z))| (x, y, z))
+    a.into_iter().zip(b.into_iter().zip(c)).map(|(x, (y, z))| (x, y, z))
 }
 
 /// A planner is used to create FFTs.
@@ -250,8 +236,7 @@ impl<T: FftNum> RealFftPlanner<T> {
             let fft = if len % 2 > 0 {
                 Arc::new(RealToComplexOdd::new(len, &mut self.planner)) as Arc<dyn RealToComplex<T>>
             } else {
-                Arc::new(RealToComplexEven::new(len, &mut self.planner))
-                    as Arc<dyn RealToComplex<T>>
+                Arc::new(RealToComplexEven::new(len, &mut self.planner)) as Arc<dyn RealToComplex<T>>
             };
             self.r2c_cache.insert(len, Arc::clone(&fft));
             fft
@@ -268,8 +253,7 @@ impl<T: FftNum> RealFftPlanner<T> {
             let fft = if len % 2 > 0 {
                 Arc::new(ComplexToRealOdd::new(len, &mut self.planner)) as Arc<dyn ComplexToReal<T>>
             } else {
-                Arc::new(ComplexToRealEven::new(len, &mut self.planner))
-                    as Arc<dyn ComplexToReal<T>>
+                Arc::new(ComplexToRealEven::new(len, &mut self.planner)) as Arc<dyn ComplexToReal<T>>
             };
             self.c2r_cache.insert(len, Arc::clone(&fft));
             fft
@@ -307,21 +291,13 @@ impl<T: FftNum> RealToComplex<T> for RealToComplexOdd<T> {
         self.process_with_scratch(input, output, &mut scratch)
     }
 
-    fn process_with_scratch(
-        &self,
-        input: &mut [T],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) -> Res<()> {
+    fn process_with_scratch(&self, input: &mut [T], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) -> Res<()> {
         if input.len() != self.length {
             return Err(FftError::InputBuffer(self.length, input.len()));
         }
         let expected_output_buffer_size = self.complex_len();
         if output.len() != expected_output_buffer_size {
-            return Err(FftError::OutputBuffer(
-                expected_output_buffer_size,
-                output.len(),
-            ));
+            return Err(FftError::OutputBuffer(expected_output_buffer_size, output.len()));
         }
         if scratch.len() < (self.scratch_len) {
             return Err(FftError::ScratchBuffer(self.scratch_len, scratch.len()));
@@ -369,11 +345,7 @@ impl<T: FftNum> RealToComplexEven<T> {
         if length % 2 > 0 {
             panic!("Length must be even, got {}", length,);
         }
-        let twiddle_count = if length % 4 == 0 {
-            length / 4
-        } else {
-            length / 4 + 1
-        };
+        let twiddle_count = if length % 4 == 0 { length / 4 } else { length / 4 + 1 };
         let twiddles: Vec<Complex<T>> = (1..twiddle_count)
             .map(|i| compute_twiddle(i, length) * T::from_f64(0.5).unwrap())
             .collect();
@@ -394,21 +366,13 @@ impl<T: FftNum> RealToComplex<T> for RealToComplexEven<T> {
         self.process_with_scratch(input, output, &mut scratch)
     }
 
-    fn process_with_scratch(
-        &self,
-        input: &mut [T],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) -> Res<()> {
+    fn process_with_scratch(&self, input: &mut [T], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) -> Res<()> {
         if input.len() != self.length {
             return Err(FftError::InputBuffer(self.length, input.len()));
         }
         let expected_output_buffer_size = self.complex_len();
         if output.len() != expected_output_buffer_size {
-            return Err(FftError::OutputBuffer(
-                expected_output_buffer_size,
-                output.len(),
-            ));
+            return Err(FftError::OutputBuffer(expected_output_buffer_size, output.len()));
         }
         if scratch.len() < (self.scratch_len) {
             return Err(FftError::ScratchBuffer(self.scratch_len, scratch.len()));
@@ -538,18 +502,10 @@ impl<T: FftNum> ComplexToReal<T> for ComplexToRealOdd<T> {
         self.process_with_scratch(input, output, &mut scratch)
     }
 
-    fn process_with_scratch(
-        &self,
-        input: &mut [Complex<T>],
-        output: &mut [T],
-        scratch: &mut [Complex<T>],
-    ) -> Res<()> {
+    fn process_with_scratch(&self, input: &mut [Complex<T>], output: &mut [T], scratch: &mut [Complex<T>]) -> Res<()> {
         let expected_input_buffer_size = self.complex_len();
         if input.len() != expected_input_buffer_size {
-            return Err(FftError::InputBuffer(
-                expected_input_buffer_size,
-                input.len(),
-            ));
+            return Err(FftError::InputBuffer(expected_input_buffer_size, input.len()));
         }
         if output.len() != self.length {
             return Err(FftError::OutputBuffer(self.length, output.len()));
@@ -568,12 +524,7 @@ impl<T: FftNum> ComplexToReal<T> for ComplexToRealOdd<T> {
         let (buffer, fft_scratch) = scratch.split_at_mut(self.length);
 
         buffer[0..input.len()].copy_from_slice(input);
-        for (buf, val) in buffer
-            .iter_mut()
-            .rev()
-            .take(self.length / 2)
-            .zip(input.iter().skip(1))
-        {
+        for (buf, val) in buffer.iter_mut().rev().take(self.length / 2).zip(input.iter().skip(1)) {
             *buf = val.conj();
         }
         self.fft.process_with_scratch(buffer, fft_scratch);
@@ -616,14 +567,8 @@ impl<T: FftNum> ComplexToRealEven<T> {
         if length % 2 > 0 {
             panic!("Length must be even, got {}", length,);
         }
-        let twiddle_count = if length % 4 == 0 {
-            length / 4
-        } else {
-            length / 4 + 1
-        };
-        let twiddles: Vec<Complex<T>> = (1..twiddle_count)
-            .map(|i| compute_twiddle(i, length).conj())
-            .collect();
+        let twiddle_count = if length % 4 == 0 { length / 4 } else { length / 4 + 1 };
+        let twiddles: Vec<Complex<T>> = (1..twiddle_count).map(|i| compute_twiddle(i, length).conj()).collect();
         let fft = fft_planner.plan_fft_inverse(length / 2);
         let scratch_len = fft.get_outofplace_scratch_len();
         ComplexToRealEven {
@@ -640,18 +585,10 @@ impl<T: FftNum> ComplexToReal<T> for ComplexToRealEven<T> {
         self.process_with_scratch(input, output, &mut scratch)
     }
 
-    fn process_with_scratch(
-        &self,
-        input: &mut [Complex<T>],
-        output: &mut [T],
-        scratch: &mut [Complex<T>],
-    ) -> Res<()> {
+    fn process_with_scratch(&self, input: &mut [Complex<T>], output: &mut [T], scratch: &mut [Complex<T>]) -> Res<()> {
         let expected_input_buffer_size = self.complex_len();
         if input.len() != expected_input_buffer_size {
-            return Err(FftError::InputBuffer(
-                expected_input_buffer_size,
-                input.len(),
-            ));
+            return Err(FftError::InputBuffer(expected_input_buffer_size, input.len()));
         }
         if output.len() != self.length {
             return Err(FftError::OutputBuffer(self.length, output.len()));
@@ -769,4 +706,3 @@ impl<T: FftNum> ComplexToReal<T> for ComplexToRealEven<T> {
         vec![Complex::zero(); self.get_scratch_len()]
     }
 }
-

@@ -238,6 +238,31 @@ let config = ardftsrc::Config::new(48_000, 44_100, 2).with_alias_floor_db(-3.0);
 
 This is not the same as removing the low-pass filter: the passband is unchanged, and content above the extended stopband is still suppressed. Alias rejection is intentionally reduced. Pre-decimation stages stay strict.
 
+## Experimental GPU backend
+
+The optional `gpu` feature provides a Vulkan backend. `GpuContext<T>` owns a validated
+resampling configuration, chunk-group shader geometry, and a lazy compiled-shader cache;
+`GpuCore<T>` owns the runtime ring depth and streaming state.
+
+`GpuContext::new` automatically selects a preferred compute-capable device. Applications that
+need explicit selection can enumerate `GpuDevice::list()`, retain a returned `GpuDeviceId`, create
+the device with `GpuDevice::new(id)`, and pass it to `GpuContext::with_device`.
+
+```rust,ignore
+use std::sync::Arc;
+
+let config = ardftsrc::Config::new(44_100, 48_000, 2);
+let context = Arc::new(ardftsrc::GpuContext::<f32>::new(config, 4)?);
+let shaders = context.shaders()?;
+std::fs::write("ardftsrc.gpu-shaders", shaders.to_bytes())?;
+let mut core = ardftsrc::GpuCore::new(context, 4)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+On a later run, decode with `GpuShaders::from_bytes` and call
+`GpuContext::load_shaders`. Loading validates the archive against the exact GPU, precision,
+resampling geometry, and chunk-group count before accepting it.
+
 ## Feature Flags
 
 | Flag           | Enables                                                                           | Default |
@@ -250,5 +275,6 @@ This is not the same as removing the low-pass filter: the passband is unchanged,
 | `wasm_simd`    | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
 | `f128`         | Quad (`f128`, ~113-bit) precision FFT for extreme quality. Requires nightly `rustc`. | No      |
+| `gpu`          | Experimental Vulkan GPU backend and serializable compiled shaders                | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 

@@ -1,13 +1,13 @@
 use std::cmp::max;
 use std::sync::Arc;
 
+use crate::f128_fft::vendor::transpose;
 use num_complex::Complex;
 use num_traits::Zero;
-use crate::f128_fft::vendor::transpose;
 
 use crate::f128_fft::vendor::rustfft::array_utils;
-use crate::f128_fft::vendor::rustfft::{common::FftNum, twiddles, FftDirection};
 use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
+use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// Implementation of the Mixed-Radix FFT algorithm
 ///
@@ -52,9 +52,12 @@ impl<T: FftNum> MixedRadix<T> {
     /// Creates a FFT instance which will process inputs/outputs of size `width_fft.len() * height_fft.len()`
     pub fn new(width_fft: Arc<dyn Fft<T>>, height_fft: Arc<dyn Fft<T>>) -> Self {
         assert_eq!(
-            width_fft.fft_direction(), height_fft.fft_direction(),
+            width_fft.fft_direction(),
+            height_fft.fft_direction(),
             "width_fft and height_fft must have the same direction. got width direction={}, height direction={}",
-            width_fft.fft_direction(), height_fft.fft_direction());
+            width_fft.fft_direction(),
+            height_fft.fft_direction()
+        );
 
         let direction = width_fft.fft_direction();
 
@@ -138,8 +141,7 @@ impl<T: FftNum> MixedRadix<T> {
         } else {
             &mut buffer[..]
         };
-        self.height_size_fft
-            .process_with_scratch(scratch, height_scratch);
+        self.height_size_fft.process_with_scratch(scratch, height_scratch);
 
         // STEP 3: Apply twiddle factors
         for (element, twiddle) in scratch.iter_mut().zip(self.twiddles.iter()) {
@@ -157,18 +159,12 @@ impl<T: FftNum> MixedRadix<T> {
         transpose::transpose(scratch, buffer, self.width, self.height);
     }
 
-    fn perform_fft_immut(
-        &self,
-        input: &[Complex<T>],
-        output: &mut [Complex<T>],
-        scratch_raw: &mut [Complex<T>],
-    ) {
+    fn perform_fft_immut(&self, input: &[Complex<T>], output: &mut [Complex<T>], scratch_raw: &mut [Complex<T>]) {
         // STEP 1: transpose
         transpose::transpose(input, output, self.width, self.height);
 
         // STEP 2: perform FFTs of size `height`
-        self.height_size_fft
-            .process_with_scratch(output, scratch_raw);
+        self.height_size_fft.process_with_scratch(output, scratch_raw);
 
         // STEP 3: Apply twiddle factors
         for (element, twiddle) in output.iter_mut().zip(self.twiddles.iter()) {
@@ -181,8 +177,7 @@ impl<T: FftNum> MixedRadix<T> {
         transpose::transpose(output, scratch, self.height, self.width);
 
         // STEP 5: perform FFTs of size `width`
-        self.width_size_fft
-            .process_with_scratch(scratch, inner_scratch);
+        self.width_size_fft.process_with_scratch(scratch, inner_scratch);
 
         // STEP 6: transpose again
         transpose::transpose(scratch, output, self.width, self.height);
@@ -205,8 +200,7 @@ impl<T: FftNum> MixedRadix<T> {
         } else {
             &mut input[..]
         };
-        self.height_size_fft
-            .process_with_scratch(output, height_scratch);
+        self.height_size_fft.process_with_scratch(output, height_scratch);
 
         // STEP 3: Apply twiddle factors
         for (element, twiddle) in output.iter_mut().zip(self.twiddles.iter()) {
@@ -222,8 +216,7 @@ impl<T: FftNum> MixedRadix<T> {
         } else {
             &mut output[..]
         };
-        self.width_size_fft
-            .process_with_scratch(input, width_scratch);
+        self.width_size_fft.process_with_scratch(input, width_scratch);
 
         // STEP 6: transpose again
         transpose::transpose(input, output, self.width, self.height);
@@ -279,20 +272,47 @@ impl<T: FftNum> MixedRadixSmall<T> {
     /// Creates a FFT instance which will process inputs/outputs of size `width_fft.len() * height_fft.len()`
     pub fn new(width_fft: Arc<dyn Fft<T>>, height_fft: Arc<dyn Fft<T>>) -> Self {
         assert_eq!(
-            width_fft.fft_direction(), height_fft.fft_direction(),
+            width_fft.fft_direction(),
+            height_fft.fft_direction(),
             "width_fft and height_fft must have the same direction. got width direction={}, height direction={}",
-            width_fft.fft_direction(), height_fft.fft_direction());
+            width_fft.fft_direction(),
+            height_fft.fft_direction()
+        );
 
         // Verify that the inner FFTs don't require out-of-place scratch, and only arequire a small amount of inplace scratch
         let width = width_fft.len();
         let height = height_fft.len();
         let len = width * height;
 
-        assert_eq!(width_fft.get_outofplace_scratch_len(), 0, "MixedRadixSmall should only be used with algorithms that require 0 out-of-place scratch. Width FFT (len={}) requires {}, should require 0", width, width_fft.get_outofplace_scratch_len());
-        assert_eq!(height_fft.get_outofplace_scratch_len(), 0, "MixedRadixSmall should only be used with algorithms that require 0 out-of-place scratch. Height FFT (len={}) requires {}, should require 0", height, height_fft.get_outofplace_scratch_len());
+        assert_eq!(
+            width_fft.get_outofplace_scratch_len(),
+            0,
+            "MixedRadixSmall should only be used with algorithms that require 0 out-of-place scratch. Width FFT (len={}) requires {}, should require 0",
+            width,
+            width_fft.get_outofplace_scratch_len()
+        );
+        assert_eq!(
+            height_fft.get_outofplace_scratch_len(),
+            0,
+            "MixedRadixSmall should only be used with algorithms that require 0 out-of-place scratch. Height FFT (len={}) requires {}, should require 0",
+            height,
+            height_fft.get_outofplace_scratch_len()
+        );
 
-        assert!(width_fft.get_inplace_scratch_len() <= width, "MixedRadixSmall should only be used with algorithms that require little inplace scratch. Width FFT (len={}) requires {}, should require {} or less", width, width_fft.get_inplace_scratch_len(), width);
-        assert!(height_fft.get_inplace_scratch_len() <= height, "MixedRadixSmall should only be used with algorithms that require little inplace scratch. Height FFT (len={}) requires {}, should require {} or less", height, height_fft.get_inplace_scratch_len(), height);
+        assert!(
+            width_fft.get_inplace_scratch_len() <= width,
+            "MixedRadixSmall should only be used with algorithms that require little inplace scratch. Width FFT (len={}) requires {}, should require {} or less",
+            width,
+            width_fft.get_inplace_scratch_len(),
+            width
+        );
+        assert!(
+            height_fft.get_inplace_scratch_len() <= height,
+            "MixedRadixSmall should only be used with algorithms that require little inplace scratch. Height FFT (len={}) requires {}, should require {} or less",
+            height,
+            height_fft.get_inplace_scratch_len(),
+            height
+        );
 
         let direction = width_fft.fft_direction();
 
@@ -340,12 +360,7 @@ impl<T: FftNum> MixedRadixSmall<T> {
         unsafe { array_utils::transpose_small(self.width, self.height, scratch, buffer) };
     }
 
-    fn perform_fft_immut(
-        &self,
-        input: &[Complex<T>],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) {
+    fn perform_fft_immut(&self, input: &[Complex<T>], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
         // SIX STEP FFT:
         // STEP 1: transpose
         unsafe { array_utils::transpose_small(self.width, self.height, input, output) };
@@ -403,4 +418,3 @@ boilerplate_fft!(
     |_| 0,
     |this: &MixedRadixSmall<_>| this.len()
 );
-

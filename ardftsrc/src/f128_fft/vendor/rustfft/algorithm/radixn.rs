@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::rustfft::array_utils::{factor_transpose, Load, LoadStore, TransposeFactor};
+use crate::f128_fft::vendor::rustfft::array_utils::{Load, LoadStore, TransposeFactor, factor_transpose};
 use crate::f128_fft::vendor::rustfft::common::RadixFactor;
-use crate::f128_fft::vendor::rustfft::{common::FftNum, twiddles, FftDirection};
 use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
+use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 use super::butterflies::{Butterfly2, Butterfly3, Butterfly4, Butterfly5, Butterfly6, Butterfly7};
 
@@ -96,10 +96,7 @@ impl<T: FftNum> RadixN<T> {
                 }
             }
             if push_new {
-                transpose_factors.push(TransposeFactor {
-                    factor: *f,
-                    count: 1,
-                });
+                transpose_factors.push(TransposeFactor { factor: *f, count: 1 });
             }
         }
 
@@ -164,34 +161,17 @@ impl<T: FftNum> RadixN<T> {
         self.immut_scratch_len
     }
 
-    fn perform_fft_immut(
-        &self,
-        input: &[Complex<T>],
-        output: &mut [Complex<T>],
-        scratch: &mut [Complex<T>],
-    ) {
+    fn perform_fft_immut(&self, input: &[Complex<T>], output: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
         if let Some(unroll_factor) = self.factors.first() {
             // for performance, we really, really want to unroll the transpose, but we need to make sure the output length is divisible by the unroll amount
             // choosing the first factor seems to reliably perform well
             match unroll_factor.factor {
-                RadixFactor::Factor2 => {
-                    factor_transpose::<Complex<T>, 2>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor3 => {
-                    factor_transpose::<Complex<T>, 3>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor4 => {
-                    factor_transpose::<Complex<T>, 4>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor5 => {
-                    factor_transpose::<Complex<T>, 5>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor6 => {
-                    factor_transpose::<Complex<T>, 6>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor7 => {
-                    factor_transpose::<Complex<T>, 7>(self.base_len, input, output, &self.factors)
-                }
+                RadixFactor::Factor2 => factor_transpose::<Complex<T>, 2>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor3 => factor_transpose::<Complex<T>, 3>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor4 => factor_transpose::<Complex<T>, 4>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor5 => factor_transpose::<Complex<T>, 5>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor6 => factor_transpose::<Complex<T>, 6>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor7 => factor_transpose::<Complex<T>, 7>(self.base_len, input, output, &self.factors),
             }
         } else {
             // no factors, so just pass data straight to our base
@@ -257,24 +237,12 @@ impl<T: FftNum> RadixN<T> {
             // for performance, we really, really want to unroll the transpose, but we need to make sure the output length is divisible by the unroll amount
             // choosing the first factor seems to reliably perform well
             match unroll_factor.factor {
-                RadixFactor::Factor2 => {
-                    factor_transpose::<Complex<T>, 2>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor3 => {
-                    factor_transpose::<Complex<T>, 3>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor4 => {
-                    factor_transpose::<Complex<T>, 4>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor5 => {
-                    factor_transpose::<Complex<T>, 5>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor6 => {
-                    factor_transpose::<Complex<T>, 6>(self.base_len, input, output, &self.factors)
-                }
-                RadixFactor::Factor7 => {
-                    factor_transpose::<Complex<T>, 7>(self.base_len, input, output, &self.factors)
-                }
+                RadixFactor::Factor2 => factor_transpose::<Complex<T>, 2>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor3 => factor_transpose::<Complex<T>, 3>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor4 => factor_transpose::<Complex<T>, 4>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor5 => factor_transpose::<Complex<T>, 5>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor6 => factor_transpose::<Complex<T>, 6>(self.base_len, input, output, &self.factors),
+                RadixFactor::Factor7 => factor_transpose::<Complex<T>, 7>(self.base_len, input, output, &self.factors),
             }
         } else {
             // no factors, so just pass data straight to our base
@@ -488,4 +456,3 @@ pub(crate) unsafe fn butterfly_7<T: FftNum>(
         data.store(scratch[6], idx + 6 * num_columns);
     }
 }
-

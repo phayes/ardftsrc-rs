@@ -99,7 +99,12 @@ pub(crate) trait Fft<T: FftNum>: Length + Direction + Sync + Send {
         scratch: &mut [Complex<T>],
     );
 
-    fn process_immutable_with_scratch(&self, input: &[Complex<T>], output: &mut [Complex<T>], scratch: &mut [Complex<T>]);
+    fn process_immutable_with_scratch(
+        &self,
+        input: &[Complex<T>],
+        output: &mut [Complex<T>],
+        scratch: &mut [Complex<T>],
+    );
 
     fn get_inplace_scratch_len(&self) -> usize;
     fn get_outofplace_scratch_len(&self) -> usize;

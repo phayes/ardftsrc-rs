@@ -1,14 +1,14 @@
-//! Vulkan/VkFFT GPU backend infrastructure.
+//! Vulkan/VkFFT GPU backend.
 //!
-//! This module owns infrastructure shared by [`GpuCore`]: long-lived Vulkan objects, device
-//! capability reporting, and GPU-specific error types. It intentionally does not implement any
-//! DSP itself -- the CPU core (`crate::cpu_core::CpuCore`) remains the reference implementation,
-//! and [`GpuCore`] is built independently on top of this module rather than sharing execution
-//! logic with it.
+//! [`GpuDevice`] owns shareable Vulkan infrastructure. [`GpuContext`] owns one validated
+//! resampling configuration, its derived geometry, chunk-group parallelism, and lazily compiled
+//! [`GpuShaders`]. [`GpuCore`] adds only ring-buffer depth and mutable streaming state. Compiled
+//! shaders can be persisted with [`GpuShaders::to_bytes`] and restored with
+//! [`GpuContext::load_shaders`].
 //!
 //! Both `f32` and `f64` are targeted; `f128` is out of scope on the GPU backend
 //! ([`GpuError::F128UnsupportedOnGpu`]), and `f64` execution itself requires a device that
-//! reports `shaderFloat64` support ([`GpuContext::require_f64`]) -- notably, this is never
+//! reports `shaderFloat64` support ([`GpuDevice::require_f64`]) -- notably, this is never
 //! true on Apple GPUs, since Metal (and therefore MoltenVK) has no double-precision shader
 //! type.
 
@@ -20,8 +20,10 @@ mod fft_program;
 mod gpu_core;
 mod overlap_shader;
 mod remap_shader;
+mod shaders;
 mod transform_pipeline;
 
-pub use context::{GpuCapabilities, GpuContext};
+pub use context::{GpuContext, GpuDevice, GpuDeviceId, GpuDeviceType, GpuInfo, GpuPipelineCacheId};
 pub use error::GpuError;
 pub use gpu_core::GpuCore;
+pub use shaders::GpuShaders;

@@ -39,9 +39,7 @@ where
     /// FFT geometry cannot be prepared.
     pub fn new(config: Config) -> Result<Self, Error> {
         let derived = config.derive_config::<T>()?;
-        let cores = (0..config.channels)
-            .map(|_| CpuCore::new(derived.clone()))
-            .collect();
+        let cores = (0..config.channels).map(|_| CpuCore::new(derived.clone())).collect();
 
         Ok(Self { config, derived, cores })
     }

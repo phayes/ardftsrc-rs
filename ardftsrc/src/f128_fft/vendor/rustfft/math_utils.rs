@@ -132,10 +132,7 @@ impl PrimeFactors {
 
                 // If this entry is actually a divisor of the given number, add it to the array
                 if count > 0 {
-                    result.other_factors.push(PrimeFactor {
-                        value: divisor,
-                        count,
-                    });
+                    result.other_factors.push(PrimeFactor { value: divisor, count });
                     result.total_factor_count += count;
                     result.distinct_factor_count += 1;
 
@@ -148,9 +145,7 @@ impl PrimeFactors {
 
             // because of our limit logic, there might be one factor left
             if n > 1 {
-                result
-                    .other_factors
-                    .push(PrimeFactor { value: n, count: 1 });
+                result.other_factors.push(PrimeFactor { value: n, count: 1 });
                 result.total_factor_count += 1;
                 result.distinct_factor_count += 1;
             }
@@ -238,22 +233,14 @@ impl PrimeFactors {
 
     // returns true if we have any factors whose value is less than or equal to the provided factor
     pub fn has_factors_leq(&self, factor: usize) -> bool {
-        self.power_two > 0
-            || self.power_three > 0
-            || self
-                .other_factors
-                .first()
-                .map_or(false, |f| f.value <= factor)
+        self.power_two > 0 || self.power_three > 0 || self.other_factors.first().map_or(false, |f| f.value <= factor)
     }
 
     // returns true if we have any factors whose value is greater than the provided factor
     pub fn has_factors_gt(&self, factor: usize) -> bool {
         (factor < 2 && self.power_two > 0)
             || (factor < 3 && self.power_three > 0)
-            || self
-                .other_factors
-                .last()
-                .map_or(false, |f| f.value > factor)
+            || self.other_factors.last().map_or(false, |f| f.value > factor)
     }
 
     // returns the product of all factors greater than the provided min_factor
@@ -273,10 +260,7 @@ impl PrimeFactors {
         // If the given length is a perfect square, put the square root into both returned arays
         if self.power_two % 2 == 0
             && self.power_three % 2 == 0
-            && self
-                .other_factors
-                .iter()
-                .all(|factor| factor.count % 2 == 0)
+            && self.other_factors.iter().all(|factor| factor.count % 2 == 0)
         {
             let mut new_product = 1;
 
@@ -443,11 +427,7 @@ impl PartialFactors {
     }
     #[allow(unused)]
     pub fn product(&self) -> usize {
-        (self.other_factors
-            * 3.pow(self.power3)
-            * 5.pow(self.power5)
-            * 7.pow(self.power7)
-            * 11.pow(self.power11))
+        (self.other_factors * 3.pow(self.power3) * 5.pow(self.power5) * 7.pow(self.power7) * 11.pow(self.power11))
             << self.power2
     }
     #[allow(unused)]
@@ -462,13 +442,7 @@ impl PartialFactors {
         let seven_divides = self.power7 >= divisor.power7;
         let eleven_divides = self.power11 >= divisor.power11;
         let other_divides = self.other_factors % divisor.other_factors == 0;
-        if two_divides
-            && three_divides
-            && five_divides
-            && seven_divides
-            && eleven_divides
-            && other_divides
-        {
+        if two_divides && three_divides && five_divides && seven_divides && eleven_divides && other_divides {
             Some(Self {
                 power2: self.power2 - divisor.power2,
                 power3: self.power3 - divisor.power3,
@@ -486,4 +460,3 @@ impl PartialFactors {
         }
     }
 }
-

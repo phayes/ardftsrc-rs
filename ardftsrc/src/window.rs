@@ -42,7 +42,12 @@ pub(crate) fn copy_post_head<T: Float>(post: Option<&[T]>, dst: &mut [T]) -> usi
 }
 
 /// Fills a synthetic forward tail from `post` first, then `extrapolation` fallback.
-pub(crate) fn build_tail_prediction<T: Float>(post: Option<&[T]>, base: &[T], needed: usize, extrapolation: Extrapolation) -> Vec<T> {
+pub(crate) fn build_tail_prediction<T: Float>(
+    post: Option<&[T]>,
+    base: &[T],
+    needed: usize,
+    extrapolation: Extrapolation,
+) -> Vec<T> {
     let mut predicted = vec![T::zero(); needed];
     let copied = copy_post_head(post, &mut predicted);
     if copied < needed {
@@ -126,14 +131,20 @@ pub(crate) fn write_short_final_window<T: Float>(
     }
 
     window.fill(T::zero());
-    window[input_offset..input_offset + input_chunk_frames].copy_from_slice(&work[pad_samples..pad_samples + input_chunk_frames]);
+    window[input_offset..input_offset + input_chunk_frames]
+        .copy_from_slice(&work[pad_samples..pad_samples + input_chunk_frames]);
 }
 
 /// Persists the current window so a later [`write_finalize_tail_window`] call has sample-local
 /// history. Must be called after every full (non-short-final) chunk.
 ///
 /// `prev_input_window` must be `input_chunk_frames * 2` samples.
-pub(crate) fn save_current_window<T: Float>(prev_input_window: &mut [T], window: &[T], input_offset: usize, input_chunk_frames: usize) {
+pub(crate) fn save_current_window<T: Float>(
+    prev_input_window: &mut [T],
+    window: &[T],
+    input_offset: usize,
+    input_chunk_frames: usize,
+) {
     let history_start = input_offset;
     let history_end = history_start + input_chunk_frames;
     prev_input_window[..input_chunk_frames].copy_from_slice(&window[history_start..history_end]);
@@ -163,5 +174,6 @@ pub(crate) fn write_finalize_tail_window<T: Float>(
     prev_input_window[input_chunk_frames..input_chunk_frames + predicted.len()].copy_from_slice(&predicted);
 
     window.fill(T::zero());
-    window[input_offset..input_offset + input_chunk_frames].copy_from_slice(&prev_input_window[input_chunk_frames..input_chunk_frames * 2]);
+    window[input_offset..input_offset + input_chunk_frames]
+        .copy_from_slice(&prev_input_window[input_chunk_frames..input_chunk_frames * 2]);
 }

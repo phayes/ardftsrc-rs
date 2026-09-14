@@ -330,7 +330,10 @@ mod tests {
         assert!(is_finite_and_bounded(&out, 1.0));
         let settled = &out[out.len() / 2..];
         let max_abs = settled.iter().fold(0.0f64, |acc, value| acc.max(value.abs()));
-        assert!(max_abs < 0.05, "expected strong attenuation at Nyquist, got max_abs={max_abs}");
+        assert!(
+            max_abs < 0.05,
+            "expected strong attenuation at Nyquist, got max_abs={max_abs}"
+        );
     }
 
     #[test]
@@ -350,7 +353,10 @@ mod tests {
         assert!(is_finite_and_bounded(&out, 1.2));
         let settled = &out[out.len() / 2..];
         let max_abs = settled.iter().fold(0.0f64, |acc, value| acc.max(value.abs()));
-        assert!(max_abs > 0.8, "expected low frequency content to pass through mostly intact, got {max_abs}");
+        assert!(
+            max_abs > 0.8,
+            "expected low frequency content to pass through mostly intact, got {max_abs}"
+        );
     }
 
     #[test]
