@@ -306,12 +306,17 @@ mod tests {
         vec![
             TaperType::Cosine(3.4375),
             TaperType::Planck,
+            TaperType::Tanh(3.0),
             TaperType::BetaCdf {
                 alpha: 10.0,
                 beta: 10.0,
             },
             #[cfg(feature = "bessel")]
             TaperType::Bessel(6.0),
+            #[cfg(feature = "bessel")]
+            TaperType::Kbd(6.0),
+            #[cfg(feature = "bessel")]
+            TaperType::HalfKaiser(6.0),
         ]
     }
 
@@ -595,13 +600,14 @@ mod tone_tests {
         let mut tapers = vec![
             TaperType::Cosine(3.4375),
             TaperType::Planck,
+            TaperType::Tanh(3.0),
             TaperType::BetaCdf {
                 alpha: 10.0,
                 beta: 10.0,
             },
         ];
         #[cfg(feature = "bessel")]
-        tapers.push(TaperType::Bessel(6.0));
+        tapers.extend([TaperType::Bessel(6.0), TaperType::Kbd(6.0), TaperType::HalfKaiser(6.0)]);
 
         let input = tone(96_000, 22_300.0, 0.3);
         for taper_type in tapers {

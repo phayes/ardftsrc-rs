@@ -206,6 +206,9 @@ pub struct Config {
     ///
     /// - `Planck`: Uses a Planck taper transition.
     /// - `Bessel(alpha)`: Uses a cumulative Bessel-I0 taper transition. Requires the `bessel` feature.
+    /// - `Kbd(alpha)`: Descending half of a KBD window (Kaiser beta = pi * alpha). Requires `bessel`.
+    /// - `HalfKaiser(alpha)`: Endpoint-normalized half-Kaiser (beta = pi * alpha). Requires `bessel`.
+    /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
@@ -427,6 +430,9 @@ impl Config {
     ///
     /// - `Planck`: Uses a Planck taper transition.
     /// - `Bessel(alpha)`: Uses a cumulative Bessel-I0 taper transition. Requires the `bessel` feature.
+    /// - `Kbd(alpha)`: Descending half of a KBD window (Kaiser beta = pi * alpha). Requires `bessel`.
+    /// - `HalfKaiser(alpha)`: Endpoint-normalized half-Kaiser (beta = pi * alpha). Requires `bessel`.
+    /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///

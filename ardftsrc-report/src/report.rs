@@ -140,11 +140,7 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
                     let _ = writeln!(out);
                     let _ = writeln!(out, "{}", spec.description);
                     let _ = writeln!(out);
-                    let _ = writeln!(
-                        out,
-                        r#"<img src="{dest}" alt="{}" width="50%" />"#,
-                        spec.title
-                    );
+                    let _ = writeln!(out, r#"<img src="{dest}" alt="{}" width="50%" />"#, spec.title);
                 }
             }
             None => {
@@ -199,12 +195,7 @@ fn write_index(out_dir: &Path, presets: &[Preset], revision: Option<&str>, quiet
         let _ = writeln!(out);
     }
     for &preset in presets {
-        let _ = writeln!(
-            out,
-            "- [{}](report_{}.md)",
-            capitalize(preset.label()),
-            preset.label()
-        );
+        let _ = writeln!(out, "- [{}](report_{}.md)", capitalize(preset.label()), preset.label());
     }
 
     let path = out_dir.join("README.md");

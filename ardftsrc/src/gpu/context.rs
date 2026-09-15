@@ -246,9 +246,22 @@ impl GpuDevice {
         Self::create(None)
     }
 
+    /// Creates a logical device on the preferred GPU that can run the requested precision.
+    ///
+    /// Software/CPU Vulkan implementations are never selected. When `require_f64` is `true`,
+    /// devices that do not report `shaderFloat64` are skipped -- this excludes Apple GPUs
+    /// (Metal via MoltenVK has no double-precision shader type).
+    pub fn auto_select_compatible(require_f64: bool) -> Result<Self, GpuError> {
+        Self::create_filtered(None, DeviceFilter::Appropriate { require_f64 })
+    }
+
     fn create(requested: Option<GpuDeviceId>) -> Result<Self, GpuError> {
+        Self::create_filtered(requested, DeviceFilter::AllCompute)
+    }
+
+    fn create_filtered(requested: Option<GpuDeviceId>, filter: DeviceFilter) -> Result<Self, GpuError> {
         let (entry, instance) = Self::create_instance()?;
-        let selected = match Self::select_physical_device(&instance, requested) {
+        let selected = match Self::select_physical_device(&instance, requested, filter) {
             Ok(selected) => selected,
             Err(err) => {
                 // SAFETY: no device/other child objects were created from this instance yet.
@@ -419,6 +432,7 @@ impl GpuDevice {
     fn select_physical_device(
         instance: &ash::Instance,
         requested: Option<GpuDeviceId>,
+        filter: DeviceFilter,
     ) -> Result<SelectedDevice, GpuError> {
         let devices = Self::compatible_devices(instance)?;
         match requested {
@@ -428,6 +442,7 @@ impl GpuDevice {
                 .ok_or(GpuError::DeviceNotFound(id)),
             None => devices
                 .into_iter()
+                .filter(|device| filter.allows(&device.info))
                 .max_by_key(|device| device_score(device.info.device_type))
                 .ok_or(GpuError::NoCompatibleDevice),
         }
@@ -991,6 +1006,25 @@ const fn device_score(device_type: GpuDeviceType) -> u8 {
     }
 }
 
+#[derive(Clone, Copy)]
+enum DeviceFilter {
+    /// Any compute-capable Vulkan device, including software/CPU implementations.
+    AllCompute,
+    /// A real GPU that can execute the requested precision.
+    Appropriate { require_f64: bool },
+}
+
+impl DeviceFilter {
+    fn allows(self, info: &GpuInfo) -> bool {
+        match self {
+            Self::AllCompute => true,
+            Self::Appropriate { require_f64 } => {
+                info.device_type != GpuDeviceType::Cpu && (!require_f64 || info.shader_float64)
+            }
+        }
+    }
+}
+
 impl Drop for GpuDevice {
     fn drop(&mut self) {
         // SAFETY: every buffer allocation, bound pipeline, and pending submission owns an
@@ -1081,5 +1115,49 @@ mod tests {
             unsafe { mismatched.load_shaders(decoded) },
             Err(GpuError::IncompatibleShaders(_))
         ));
+    }
+
+    fn test_gpu_info(device_type: GpuDeviceType, shader_float64: bool) -> GpuInfo {
+        GpuInfo {
+            id: GpuDeviceId {
+                device_uuid: [0; vk::UUID_SIZE],
+            },
+            pipeline_cache_id: GpuPipelineCacheId {
+                vendor_id: 0,
+                device_id: 0,
+                pipeline_cache_uuid: [0; vk::UUID_SIZE],
+            },
+            device_type,
+            api_version: 0,
+            driver_version: 0,
+            shader_float64,
+            max_storage_buffer_range: 0,
+            max_compute_workgroup_count: [0; 3],
+            max_compute_workgroup_size: [0; 3],
+            max_compute_work_group_invocations: 0,
+            device_name: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn appropriate_filter_rejects_cpu_and_f64_incapable_devices() {
+        let discrete_f64 = test_gpu_info(GpuDeviceType::Discrete, true);
+        let integrated_f32 = test_gpu_info(GpuDeviceType::Integrated, false);
+        let cpu_f64 = test_gpu_info(GpuDeviceType::Cpu, true);
+
+        let any = DeviceFilter::AllCompute;
+        assert!(any.allows(&discrete_f64));
+        assert!(any.allows(&integrated_f32));
+        assert!(any.allows(&cpu_f64));
+
+        let f32_gpu = DeviceFilter::Appropriate { require_f64: false };
+        assert!(f32_gpu.allows(&discrete_f64));
+        assert!(f32_gpu.allows(&integrated_f32));
+        assert!(!f32_gpu.allows(&cpu_f64));
+
+        let f64_gpu = DeviceFilter::Appropriate { require_f64: true };
+        assert!(f64_gpu.allows(&discrete_f64));
+        assert!(!f64_gpu.allows(&integrated_f32));
+        assert!(!f64_gpu.allows(&cpu_f64));
     }
 }

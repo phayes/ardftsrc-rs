@@ -195,15 +195,8 @@ pub fn run_sweep<F: FnMut(&CaseResult)>(
                 for &f128 in F128_VARIANTS {
                     for &freq_hz in frequencies_hz {
                         for &amplitude_dbfs in amplitudes_dbfs {
-                            let case = run_case(
-                                input_rate,
-                                output_rate,
-                                preset,
-                                f128,
-                                decimate,
-                                freq_hz,
-                                amplitude_dbfs,
-                            );
+                            let case =
+                                run_case(input_rate, output_rate, preset, f128, decimate, freq_hz, amplitude_dbfs);
                             on_case(&case);
                             cases.push(case);
                         }

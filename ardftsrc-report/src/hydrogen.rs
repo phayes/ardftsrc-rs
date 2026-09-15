@@ -182,9 +182,10 @@ fn copy_figures(preset: Preset, figures: &[PathBuf], out_dir: &Path) -> Vec<Stri
     FIGURES
         .iter()
         .filter_map(|spec| {
-            let Some(src) = figures.iter().find(|path| {
-                path.file_name().and_then(|name| name.to_str()) == Some(spec.file_name)
-            }) else {
+            let Some(src) = figures
+                .iter()
+                .find(|path| path.file_name().and_then(|name| name.to_str()) == Some(spec.file_name))
+            else {
                 eprintln!(
                     "hydrogen_src: warning: missing figure {} for {}",
                     spec.file_name,
@@ -216,8 +217,7 @@ fn resample_f64(request: ResampleRequestF64, base: Config) -> Vec<f64> {
         channels: request.channels,
         ..base
     };
-    let mut resampler =
-        PlanarResampler::<f64>::new(config).expect("ardftsrc-report preset configs are always valid");
+    let mut resampler = PlanarResampler::<f64>::new(config).expect("ardftsrc-report preset configs are always valid");
     let mut output = resampler
         .process_all(&[request.samples.as_slice()])
         .expect("resampling the HydrogenAudio test pack should never fail");

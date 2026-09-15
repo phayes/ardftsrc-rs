@@ -14,6 +14,17 @@ pub enum TaperType {
     #[cfg(feature = "bessel")]
     Bessel(f32),
 
+    /// Descending half of a Kaiser–Bessel-derived window, with beta = pi * alpha.
+    #[cfg(feature = "bessel")]
+    Kbd(f32),
+
+    /// Descending half-Kaiser, shifted and scaled to reach zero; beta = pi * alpha.
+    #[cfg(feature = "bessel")]
+    HalfKaiser(f32),
+
+    /// Endpoint-normalized hyperbolic tangent transition. Alpha controls steepness.
+    Tanh(f32),
+
     /// Uses a sigmoid-warped cosine transition.
     ///
     /// `alpha` controls the sharpness of the transition.
@@ -68,6 +79,11 @@ impl TaperType {
             TaperType::Planck => planck_transition(taper_bins),
             #[cfg(feature = "bessel")]
             TaperType::Bessel(alpha) => cumulative_bessel_i0_transition(taper_bins, *alpha),
+            #[cfg(feature = "bessel")]
+            TaperType::Kbd(alpha) => kbd_transition(taper_bins, *alpha),
+            #[cfg(feature = "bessel")]
+            TaperType::HalfKaiser(alpha) => half_kaiser_transition(taper_bins, *alpha),
+            TaperType::Tanh(alpha) => tanh_transition(taper_bins, *alpha),
             TaperType::Cosine(alpha) => cosine_transition(taper_bins, *alpha),
             TaperType::BetaCdf { alpha, beta } => beta_cdf_transition(taper_bins, *alpha, *beta),
         }
@@ -111,14 +127,14 @@ impl TaperType {
         match self {
             TaperType::Planck => Ok(()),
             #[cfg(feature = "bessel")]
-            TaperType::Bessel(alpha) => {
+            TaperType::Bessel(alpha) | TaperType::Kbd(alpha) | TaperType::HalfKaiser(alpha) => {
                 if *alpha <= 0.0 || !alpha.is_finite() {
                     return Err(Error::InvalidAlpha(*alpha));
                 } else {
                     Ok(())
                 }
             }
-            TaperType::Cosine(alpha) => {
+            TaperType::Cosine(alpha) | TaperType::Tanh(alpha) => {
                 if *alpha <= 0.0 || !alpha.is_finite() {
                     return Err(Error::InvalidAlpha(*alpha));
                 } else {
@@ -199,6 +215,93 @@ fn cumulative_bessel_i0_transition<T: Float>(taper_bins: usize, alpha: f32) -> V
         .iter()
         .map(|value| T::from(*value).expect("T should be f64 or f32 and be able to convert from f64"))
         .collect()
+}
+
+// Logarithmic evaluation keeps the new Kaiser profiles finite for large alpha.
+// Above 500, use I0(x) ~ exp(x)/sqrt(2*pi*x) times its four-term correction.
+#[cfg(feature = "bessel")]
+fn log_i0(x: f64) -> f64 {
+    if x < 500.0 {
+        pxfm::f_i0(x).ln()
+    } else {
+        let inv = 1.0 / x;
+        let correction = inv * (1.0 / 8.0 + inv * (9.0 / 128.0 + inv * (225.0 / 3072.0 + inv * 11025.0 / 98304.0)));
+        x - 0.5 * (2.0 * std::f64::consts::PI * x).ln() + correction.ln_1p()
+    }
+}
+
+/// Standard KBD cumulative normalization, returning only its descending half.
+#[cfg(feature = "bessel")]
+fn kbd_transition<T: Float>(n: usize, alpha: f32) -> Vec<T> {
+    if n == 0 {
+        return Vec::new();
+    }
+    let beta = std::f64::consts::PI * f64::from(alpha);
+    let logs: Vec<_> = (0..=n)
+        .map(|i| {
+            let x = 2.0 * i as f64 / n as f64 - 1.0;
+            log_i0(beta * (1.0 - x * x).max(0.0).sqrt())
+        })
+        .collect();
+    let peak = logs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let weights: Vec<_> = logs.iter().map(|v| (v - peak).exp()).collect();
+    let total: f64 = weights.iter().sum();
+    let mut sum = 0.0;
+    let mut raw: Vec<f64> = weights[..n]
+        .iter()
+        .map(|w| {
+            sum += w;
+            (sum / total).clamp(0.0, 1.0).sqrt()
+        })
+        .collect();
+    raw.reverse();
+    trim_transition(&raw).iter().map(|v| T::from(*v).unwrap()).collect()
+}
+
+/// log(I0(x) - 1), using the series near zero to avoid cancellation.
+#[cfg(feature = "bessel")]
+fn log_i0_minus_one(x: f64) -> f64 {
+    if x < 1e-3 {
+        let q = x * x / 4.0;
+        q.ln() + (q / 4.0 + q * q / 36.0).ln_1p()
+    } else {
+        let log = log_i0(x);
+        log + (-(-log).exp_m1()).ln()
+    }
+}
+
+/// (I0(beta * sqrt(1-x²)) - 1) / (I0(beta) - 1), for x in [0, 1].
+#[cfg(feature = "bessel")]
+fn half_kaiser_transition<T: Float>(n: usize, alpha: f32) -> Vec<T> {
+    let beta = std::f64::consts::PI * f64::from(alpha);
+    let denominator = log_i0_minus_one(beta);
+    sampled_transition(n, |x| {
+        (log_i0_minus_one(beta * (1.0 - x * x).sqrt()) - denominator).exp()
+    })
+}
+
+/// (1 - tanh(alpha * (2*x-1)) / tanh(alpha)) / 2.
+fn tanh_transition<T: Float>(n: usize, alpha: f32) -> Vec<T> {
+    let alpha = f64::from(alpha);
+    sampled_transition(n, |x| 0.5 * (1.0 - (alpha * (2.0 * x - 1.0)).tanh() / alpha.tanh()))
+}
+
+/// Sample an endpoint-normalized profile; a single transition bin uses its midpoint.
+fn sampled_transition<T: Float>(n: usize, profile: impl Fn(f64) -> f64) -> Vec<T> {
+    let raw: Vec<f64> = (0..n)
+        .map(|i| {
+            if n == 1 {
+                profile(0.5)
+            } else if i == 0 {
+                1.0
+            } else if i == n - 1 {
+                0.0
+            } else {
+                profile(i as f64 / (n - 1) as f64).clamp(0.0, 1.0)
+            }
+        })
+        .collect();
+    trim_transition(&raw).iter().map(|v| T::from(*v).unwrap()).collect()
 }
 
 /// Builds a Planck-taper transition.
@@ -366,5 +469,77 @@ mod tests {
         assert!((pxfm::f_i0(0.0) - 1.0).abs() < 1e-15);
         assert!((pxfm::f_i0(1.0) - 1.266_065_877_752_008_2).abs() < 1e-15);
         assert!((pxfm::f_i0(2.0) - 2.279_585_302_336_067_3).abs() < 1e-15);
+    }
+}
+
+#[cfg(test)]
+mod new_taper_tests {
+    use super::*;
+
+    #[test]
+    fn new_profiles_are_finite_monotone_and_validated() {
+        for alpha in [f32::MIN_POSITIVE, 0.1, 3.0, 6.0, 200.0, f32::MAX] {
+            let tapers = [
+                TaperType::Tanh(alpha),
+                #[cfg(feature = "bessel")]
+                TaperType::Kbd(alpha),
+                #[cfg(feature = "bessel")]
+                TaperType::HalfKaiser(alpha),
+            ];
+            for taper in tapers {
+                assert!(taper.validate().is_ok());
+                for n in [0, 1, 2, 3, 16, 63] {
+                    let mask = taper.build_taper::<f64>(256, 100, n, false);
+                    assert!(
+                        mask.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
+                        "{taper:?}, n={n}"
+                    );
+                    assert!(mask.windows(2).all(|v| v[0] >= v[1]), "{taper:?}, n={n}");
+                    assert_eq!(mask[0], 1.0);
+                    assert_eq!(mask[100], 0.0);
+                    assert!(taper.build_taper::<f32>(256, 100, n, true).iter().all(|v| *v == 1.0));
+                }
+            }
+        }
+        for alpha in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(TaperType::Tanh(alpha).validate().is_err());
+            #[cfg(feature = "bessel")]
+            {
+                assert!(TaperType::Kbd(alpha).validate().is_err());
+                assert!(TaperType::HalfKaiser(alpha).validate().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn tanh_has_midpoint_and_complementary_symmetry() {
+        let shape = tanh_transition::<f64>(9, 3.0);
+        assert_eq!(shape[shape.len() / 2], 0.5);
+        for (a, b) in shape.iter().zip(shape.iter().rev()) {
+            assert!((a + b - 1.0).abs() < 1e-14);
+        }
+    }
+
+    #[cfg(feature = "bessel")]
+    #[test]
+    fn kbd_matches_four_point_reference_and_power_complementarity() {
+        let beta = std::f64::consts::PI * 2.0;
+        let center = pxfm::f_i0(beta);
+        let shape = kbd_transition::<f64>(2, 2.0);
+        assert!((shape[0] - ((1.0 + center) / (2.0 + center)).sqrt()).abs() < 1e-14);
+        assert!((shape[1] - (1.0 / (2.0 + center)).sqrt()).abs() < 1e-14);
+        let shape = kbd_transition::<f64>(32, 2.0);
+        for (a, b) in shape.iter().zip(shape.iter().rev()) {
+            assert!((a * a + b * b - 1.0).abs() < 1e-14);
+        }
+    }
+
+    #[cfg(feature = "bessel")]
+    #[test]
+    fn half_kaiser_matches_shifted_window_and_small_alpha_limit() {
+        let beta = 2.0 * std::f64::consts::PI;
+        let expected = (pxfm::f_i0(beta * 0.75_f64.sqrt()) - 1.0) / (pxfm::f_i0(beta) - 1.0);
+        assert!((half_kaiser_transition::<f64>(3, 2.0)[0] - expected).abs() < 1e-14);
+        assert!((half_kaiser_transition::<f64>(3, 1e-20)[0] - 0.75).abs() < 1e-13);
     }
 }

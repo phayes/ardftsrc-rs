@@ -261,13 +261,27 @@ The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-r
 
 You can use this as a utility, or use it to benchmark this project.
 
+Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, so `--preset high` and `--preset extreme` are rejected). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. A compatible Vulkan GPU is used automatically when one is available: `f64` needs `shaderFloat64` (not available on Apple GPUs), while `--f32` can run on any real GPU. Pass `--cpu` to force CPU even when a GPU is available. `--gpu-group-chunks` and `--gpu-ring-slots` tune GPU batching (defaults are both 4). Configurations the GPU backend cannot run (`--decimate`, `--f128`) stay on CPU.
+
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ./target/release/ardftsrc-rs --help
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset high
+./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset good --f32
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset extreme \
     --taper-type beta_cdf --alpha 10 --beta 10 --dd-fft --decimate --phase -0.5
 ```
+
+### Additional taper profiles
+
+Select `--taper-type tanh --alpha 3` for an endpoint-normalized hyperbolic
+tangent transition. With the `bessel` feature enabled, `--taper-type kbd`
+selects the descending half of a standard Kaiser–Bessel-derived window, and
+`--taper-type half_kaiser` (also `half-kaiser`) selects a descending half-Kaiser
+shifted and scaled to reach zero at the stopband. Both default to `--alpha 6`
+and use Kaiser beta = pi × alpha, like the existing cumulative `bessel` taper.
+The library variants are `TaperType::Tanh(alpha)`, `TaperType::Kbd(alpha)`, and
+`TaperType::HalfKaiser(alpha)`. All require finite, positive alpha.
 
 ## Quality Reporting
 
@@ -333,6 +347,5 @@ AI use is allowed for the following:
 
 ### Development TODOs:
 
-1. Add `tanh` taper.
-2. Add bindings to other languages, python, cpp, c#, ts (wasm) etc.
-3. Investigate why the optional audioadapter interface appears to be much slower than other paths.
+1. Add bindings to other languages, python, cpp, c#, ts (wasm) etc.
+2. Investigate why the optional audioadapter interface appears to be much slower than other paths.
