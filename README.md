@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ardftsrc_logo.png" alt="ARDFTSRC logo" width="128">
+</p>
+
 # ARDFTSRC
 
 [![Crates.io](https://img.shields.io/crates/v/ardftsrc.svg)](https://crates.io/crates/ardftsrc)
