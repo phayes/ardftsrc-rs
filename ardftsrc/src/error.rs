@@ -26,9 +26,9 @@ pub enum Error {
     #[error("quality greater than 8192 is not supported for f32. Use f64 instead.")]
     QualityTooHighForF32,
 
-    /// `f128: true` is not compatible with f32. Use f64 instead.
-    #[error("f128: true and f32 are not compatible. Use f64 when f128 is enabled")]
-    F128IncompatibleWithF32,
+    /// A high-precision FFT backend is not compatible with f32. Use f64 instead.
+    #[error("high_precision and f32 are not compatible. Use f64 when high_precision is set")]
+    HighPrecisionIncompatibleWithF32,
 
     /// Bandwidth is outside the valid normalized range `[0.0, 1.0]`.
     #[error("bandwidth must be in the range 0.0..=1.0, got {0}")]

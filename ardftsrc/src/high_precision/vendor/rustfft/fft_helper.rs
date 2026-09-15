@@ -1,4 +1,4 @@
-use crate::f128_fft::vendor::rustfft::{
+use crate::high_precision::vendor::rustfft::{
     array_utils,
     common::{fft_error_immut, fft_error_inplace, fft_error_outofplace},
 };

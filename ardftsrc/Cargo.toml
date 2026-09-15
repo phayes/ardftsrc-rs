@@ -21,6 +21,9 @@ ash = { version = "0.38", optional = true }
 vkfft-rs = { git = "https://github.com/phayes/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
 num-complex = { workspace = true, optional = true }
 num-integer = { workspace = true, optional = true }
+twofloat = { workspace = true, optional = true }
+f256 = { workspace = true, optional = true }
+rustc_apfloat = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 ash-molten = { version = "0.20", optional = true, features = ["pre-built"] }
@@ -55,12 +58,14 @@ rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
 tracing = ["dep:tracing"]
 
-# Makes the optional f128 (~113-bit) precision FFT backend available for extreme quality.
-# Select it per f64 resampler with `Config::with_f128(true)`. Requires a nightly `rustc`
-# (the `f128` primitive type is still unstable).
-f128 = [
+# Makes the optional high-precision FFT backends (double-double, f128, f256) available for
+# extreme quality. Select one per f64 resampler with `Config::with_high_precision`.
+high_precision = [
     "dep:num-complex",
     "dep:num-integer",
+    "dep:twofloat",
+    "dep:f256",
+    "dep:rustc_apfloat",
 ]
 
  # Rodio features (examples only)
@@ -87,4 +92,4 @@ name = "rodio_adapter_with_spans"
 required-features = ["rodio-playback"]
 
 [package.metadata.docs.rs]
-features = ["rodio", "f128"]
+features = ["rodio", "high_precision"]

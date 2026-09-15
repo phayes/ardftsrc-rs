@@ -124,7 +124,7 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
             Some(case) => {
                 let _ = writeln!(
                     out,
-                    "Local HydrogenAudio Test Suite run, `f64`, `f128` off. See \
+                    "Local HydrogenAudio Test Suite run, `f64`, no high-precision backend. See \
                      <https://src.hydrogenaudio.org/> for the test suite's own scoring \
                      methodology."
                 );

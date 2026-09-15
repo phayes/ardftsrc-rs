@@ -1,6 +1,6 @@
-use crate::f128_fft::vendor::rustfft::Complex;
-use crate::f128_fft::vendor::rustfft::FftNum;
-use crate::f128_fft::vendor::rustfft::common::RadixFactor;
+use crate::high_precision::vendor::rustfft::Complex;
+use crate::high_precision::vendor::rustfft::FftNum;
+use crate::high_precision::vendor::rustfft::common::RadixFactor;
 use std::ops::{Deref, DerefMut};
 
 /// Given an array of size width * height, representing a flattened 2D array,

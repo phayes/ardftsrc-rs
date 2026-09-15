@@ -2,8 +2,7 @@ use num_complex::Complex;
 use num_traits::{FromPrimitive, Signed};
 use std::fmt::Debug;
 
-use crate::f128_fft::numeric::F128;
-use crate::f128_fft::vendor::rustfft::FftDirection;
+use crate::high_precision::vendor::rustfft::FftDirection;
 
 /// Generic floating point number.
 ///
@@ -11,11 +10,12 @@ use crate::f128_fft::vendor::rustfft::FftDirection;
 /// single blanket impl and generates twiddle factors by computing the angle and its sin/cos in
 /// `f64` before widening to `T` (see `rustfft::twiddles::compute_twiddle`). That throws away any
 /// extra precision `T` might carry, which defeats the entire point of this module -- it exists
-/// specifically to compute twiddles for [`F128`], our quad-precision type. So instead of a
-/// blanket impl, `twiddle()` is a required method implemented per-type: `f32`/`f64` keep
-/// upstream's f64-intermediate behavior (kept only so this vendored engine can be cross-checked
-/// against the real `realfft`/`rustfft` output at matching precision), and `F128` computes its
-/// twiddle factors natively in `f128` precision.
+/// specifically to compute twiddles for the high-precision types in
+/// `high_precision::numeric`. So instead of a blanket impl, `twiddle()` is a required method
+/// implemented per-type: `f32`/`f64` keep upstream's f64-intermediate behavior (kept only so this
+/// vendored engine can be cross-checked against the real `realfft`/`rustfft` output at matching
+/// precision), and each high-precision type computes its twiddle factors natively in its own
+/// precision (its impl lives alongside the type).
 pub trait FftNum: Copy + FromPrimitive + Signed + Sync + Send + Debug + 'static {
     /// Builds the unit-magnitude twiddle factor for `numerator / denominator` turns, at this
     /// type's native precision.
@@ -43,12 +43,6 @@ macro_rules! impl_fftnum_via_f64 {
 
 impl_fftnum_via_f64!(f32);
 impl_fftnum_via_f64!(f64);
-
-impl FftNum for F128 {
-    fn twiddle(numerator: usize, denominator: usize, direction: FftDirection) -> Complex<Self> {
-        F128::twiddle_factor(numerator, denominator, direction)
-    }
-}
 
 // Prints an error raised by an in-place FFT algorithm's `process_inplace` method
 // Marked cold and inline never to keep all formatting code out of the many monomorphized process_inplace methods
@@ -159,7 +153,7 @@ macro_rules! boilerplate_fft_oop {
                 output: &mut [Complex<T>],
                 scratch: &mut [Complex<T>],
             ) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_immut(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_immut(
                     input,
                     output,
                     scratch,
@@ -174,7 +168,7 @@ macro_rules! boilerplate_fft_oop {
                 output: &mut [Complex<T>],
                 scratch: &mut [Complex<T>],
             ) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_outofplace(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_outofplace(
                     input,
                     output,
                     scratch,
@@ -184,7 +178,7 @@ macro_rules! boilerplate_fft_oop {
                 );
             }
             fn process_with_scratch(&self, buffer: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_inplace(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_inplace(
                     buffer,
                     scratch,
                     self.len(),
@@ -233,7 +227,7 @@ macro_rules! boilerplate_fft {
                 output: &mut [Complex<T>],
                 scratch: &mut [Complex<T>],
             ) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_immut(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_immut(
                     input,
                     output,
                     scratch,
@@ -249,7 +243,7 @@ macro_rules! boilerplate_fft {
                 output: &mut [Complex<T>],
                 scratch: &mut [Complex<T>],
             ) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_outofplace(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_outofplace(
                     input,
                     output,
                     scratch,
@@ -259,7 +253,7 @@ macro_rules! boilerplate_fft {
                 );
             }
             fn process_with_scratch(&self, buffer: &mut [Complex<T>], scratch: &mut [Complex<T>]) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_inplace(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_inplace(
                     buffer,
                     scratch,
                     self.len(),

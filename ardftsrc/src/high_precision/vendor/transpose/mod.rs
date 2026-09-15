@@ -1,4 +1,4 @@
-//! Vendored from the `transpose` crate 0.2.3 (MIT OR Apache-2.0): see `f128_fft::vendor` module docs
+//! Vendored from the `transpose` crate 0.2.3 (MIT OR Apache-2.0): see `high_precision::vendor` module docs
 //! for why. rustfft uses this for cache-friendly out-of-place matrix transposes in mixed-radix
 //! and Good–Thomas. Upstream also ships an in-place path (`transpose_inplace`); it is dropped
 //! here because nothing in this engine calls it.

@@ -1,5 +1,5 @@
 //! Vendored+adapted from `realfft` 3.5.0 (MIT): real-input FFT built on top of `super`'s
-//! (vendored, scalar-only) complex FFT engine. See `f128_fft::vendor` module docs for why this is
+//! (vendored, scalar-only) complex FFT engine. See `high_precision::vendor` module docs for why this is
 //! vendored rather than depended on -- the short version is that `compute_twiddle` below is the
 //! one spot that needed to change, to stop discarding precision through an `f64` intermediate.
 

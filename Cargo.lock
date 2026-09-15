@@ -126,6 +126,7 @@ dependencies = [
  "audioadapter-buffers",
  "criterion",
  "dasp_signal",
+ "f256",
  "md5",
  "mimalloc",
  "num-complex",
@@ -136,10 +137,12 @@ dependencies = [
  "realfft",
  "rodio",
  "rubato",
+ "rustc_apfloat",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
  "tracing",
+ "twofloat",
  "vkfft-rs",
  "wavers",
 ]
@@ -958,6 +961,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "f256"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5390b8cc6379c77609e7fb5d1d8e0a5e178a89a9e5aea812409cf8d8d88cc8a2"
+dependencies = [
+ "f256_pow10_div_pow2_lut",
+ "f256_pow2_div_pow10_lut",
+ "f256_pow2_div_pow5_lut",
+ "f256_pow5_div_pow2_lut",
+]
+
+[[package]]
+name = "f256_pow10_div_pow2_lut"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6ca8d1ce1a433ed0939ca1e054b561002cbcb9740d1d36c18d89009eb003002"
+
+[[package]]
+name = "f256_pow2_div_pow10_lut"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6580e1604d17d3723f9ea45d9d3b230b6d716bad991ec7cceda1ad760fa202b4"
+
+[[package]]
+name = "f256_pow2_div_pow5_lut"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76b7418cb2e2a5be0dfb64027d7f009f9660ed6875ee049bc5ff30be006fcf6e"
+
+[[package]]
+name = "f256_pow5_div_pow2_lut"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "250ea0f9a0eb0e71b9040133a84777ddfd97a3c57689c249acb5917e1d869cb8"
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1148,6 +1187,22 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "hexf"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6618f4550dcd7d9ddb5126ab18d48dfa31aa952159cb832390bda464d3bc827e"
+dependencies = [
+ "hexf-parse",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "hexf-parse"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
 name = "hmac"
@@ -2417,6 +2472,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
+name = "rustc_apfloat"
+version = "0.2.3+llvm-462a31f5a5ab"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "486c2179b4796f65bfe2ee33679acf0927ac83ecf583ad6c91c3b4570911b9ad"
+dependencies = [
+ "bitflags",
+ "smallvec",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2809,6 +2874,17 @@ dependencies = [
 
 [[package]]
 name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
@@ -3167,6 +3243,17 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "twofloat"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f25f7bfd28a043cba51ea618ad2d29c5fa991a1237a4c0b592b466fbbb60c5c"
+dependencies = [
+ "hexf",
+ "libm",
+ "num-traits",
+]
 
 [[package]]
 name = "typed-path"

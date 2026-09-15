@@ -1,10 +1,10 @@
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum};
 
-use crate::f128_fft::vendor::rustfft::array_utils::{DoubleBuf, LoadStore};
-use crate::f128_fft::vendor::rustfft::twiddles;
-use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
+use crate::high_precision::vendor::rustfft::array_utils::{DoubleBuf, LoadStore};
+use crate::high_precision::vendor::rustfft::twiddles;
+use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
 
 #[allow(unused)]
 macro_rules! boilerplate_fft_butterfly {
@@ -23,7 +23,7 @@ macro_rules! boilerplate_fft_butterfly {
                 output: &mut [Complex<T>],
                 _scratch: &mut [Complex<T>],
             ) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_immut(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_immut(
                     input,
                     output,
                     &mut [],
@@ -43,7 +43,7 @@ macro_rules! boilerplate_fft_butterfly {
                 output: &mut [Complex<T>],
                 _scratch: &mut [Complex<T>],
             ) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_outofplace(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_outofplace(
                     input,
                     output,
                     &mut [],
@@ -58,7 +58,7 @@ macro_rules! boilerplate_fft_butterfly {
                 );
             }
             fn process_with_scratch(&self, buffer: &mut [Complex<T>], _scratch: &mut [Complex<T>]) {
-                crate::f128_fft::vendor::rustfft::fft_helper::fft_helper_inplace(
+                crate::high_precision::vendor::rustfft::fft_helper::fft_helper_inplace(
                     buffer,
                     &mut [],
                     self.len(),
@@ -641,7 +641,7 @@ impl<T: FftNum> Butterfly8<T> {
     pub fn new(direction: FftDirection) -> Self {
         Self {
             // sqrt(1/2) == cos(pi/4), which compute_twiddle can give us at full T precision --
-            // avoids routing this constant through T::from_f64 (see f128_fft module docs).
+            // avoids routing this constant through T::from_f64 (see high_precision module docs).
             root2: twiddles::compute_twiddle::<T>(1, 8, FftDirection::Forward).re,
             direction,
         }
@@ -3044,7 +3044,7 @@ impl<T: FftNum> Butterfly24<T> {
             twiddle8: twiddles::compute_twiddle(8, 24, direction),
             twiddle10: twiddles::compute_twiddle(10, 24, direction),
             // sqrt(1/2) == cos(pi/4), which compute_twiddle can give us at full T precision --
-            // avoids routing this constant through T::from_f64 (see f128_fft module docs).
+            // avoids routing this constant through T::from_f64 (see high_precision module docs).
             root2: twiddles::compute_twiddle::<T>(1, 8, FftDirection::Forward).re,
         }
     }

@@ -15,20 +15,19 @@ flac-codec.workspace = true
 i24.workspace = true
 mimalloc.workspace = true
 rayon = { workspace = true, optional = true }
+symphonia.workspace = true
 wavers.workspace = true
 
 [features]
-# f128 requires a nightly rustc, so (unlike the old dd_fft feature this replaces) it is
-# opt-in rather than on by default: pass --features f128 explicitly (with a nightly toolchain)
-# to include it.
-default = ["avx", "neon", "sse", "wasm_simd", "rayon"]
+default = ["avx", "neon", "sse", "wasm_simd", "rayon", "gpu", "high_precision"]
 bessel = ["ardftsrc/bessel"]
 rayon = ["dep:rayon", "ardftsrc/rayon"]
 avx = ["ardftsrc/avx"]
 neon = ["ardftsrc/neon"]
 sse = ["ardftsrc/sse"]
 wasm_simd = ["ardftsrc/wasm_simd"]
-f128 = ["ardftsrc/f128"]
+high_precision = ["ardftsrc/high_precision"]
+gpu = ["ardftsrc/gpu"]
 
 [profile.release]
 opt-level = 3

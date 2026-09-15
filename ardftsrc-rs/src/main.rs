@@ -1,15 +1,26 @@
 use ardftsrc::{
     AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType,
 };
+#[cfg(feature = "gpu")]
+use ardftsrc::{GpuContext, GpuDevice, GpuError, PlanarGpuResampler};
 use clap::{Parser, ValueEnum};
-use flac_codec::decode::FlacChannelReader;
 use flac_codec::encode::{FlacChannelWriter, Options as FlacOptions};
-use flac_codec::metadata::Metadata;
 use i24::i24;
 use mimalloc::MiMalloc;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::fs::File;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "gpu")]
+use std::sync::Arc;
+use symphonia::core::audio::conv::ConvertibleSample;
+use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::TrackType;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
 use wavers::{Wav, WavType, read, write};
 
 #[cfg(feature = "rayon")]
@@ -25,6 +36,7 @@ const DEFAULT_BETA_CDF_ALPHA: f32 = 10.0;
 const DEFAULT_BETA_CDF_BETA: f32 = 10.0;
 const DEFAULT_ALLOW_ALIASING_DB: f32 = -3.0;
 const FLAC_WRITE_CHUNK_FRAMES: usize = 32768;
+const MAX_F32_QUALITY: usize = 8192;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum PresetArg {
@@ -45,6 +57,15 @@ enum TaperTypeArg {
     /// Cumulative Bessel-I0 taper transition.
     #[cfg(feature = "bessel")]
     Bessel,
+    /// Descending Kaiser-Bessel-derived transition.
+    #[cfg(feature = "bessel")]
+    Kbd,
+    /// Endpoint-normalized descending half-Kaiser transition.
+    #[cfg(feature = "bessel")]
+    #[value(name = "half_kaiser", alias = "half-kaiser")]
+    HalfKaiser,
+    /// Endpoint-normalized hyperbolic tangent transition.
+    Tanh,
     /// Sigmoid-warped cosine taper transition.
     Cosine,
     /// Beta-CDF taper transition.
@@ -58,6 +79,11 @@ impl TaperTypeArg {
             Self::Planck => "planck",
             #[cfg(feature = "bessel")]
             Self::Bessel => "bessel",
+            #[cfg(feature = "bessel")]
+            Self::Kbd => "kbd",
+            #[cfg(feature = "bessel")]
+            Self::HalfKaiser => "half_kaiser",
+            Self::Tanh => "tanh",
             Self::Cosine => "cosine",
             Self::BetaCdf => "beta_cdf",
         }
@@ -65,21 +91,21 @@ impl TaperTypeArg {
 
     fn accepts_alpha(self) -> bool {
         match self {
-            Self::Cosine | Self::BetaCdf => true,
+            Self::Cosine | Self::BetaCdf | Self::Tanh => true,
             Self::Planck => false,
             #[cfg(feature = "bessel")]
-            Self::Bessel => true,
+            Self::Bessel | Self::Kbd | Self::HalfKaiser => true,
         }
     }
 
     fn compatible_alpha_types() -> &'static str {
         #[cfg(feature = "bessel")]
         {
-            "cosine, beta_cdf, bessel"
+            "cosine, beta_cdf, tanh, bessel, kbd, half_kaiser"
         }
         #[cfg(not(feature = "bessel"))]
         {
-            "cosine, beta_cdf"
+            "cosine, beta_cdf, tanh"
         }
     }
 
@@ -112,7 +138,9 @@ enum AudioContainer {
 
 #[derive(Debug, Parser)]
 #[command(name = "ardftsrc-rs")]
-#[command(about = "General-purpose wav and flac sample-rate converter powered by ardftsrc")]
+#[command(
+    about = "General-purpose wav and flac sample-rate converter powered by ardftsrc. Uses a compatible GPU automatically when available; pass --cpu to force CPU."
+)]
 struct Args {
     /// One or more input audio paths (.wav or .flac).
     #[arg(long = "input", required = true)]
@@ -138,10 +166,10 @@ struct Args {
     #[arg(long)]
     bandwidth: Option<f32>,
 
-    /// Taper alpha. Requires a compatible --taper-type (cosine, beta_cdf, and bessel when enabled).
+    /// Taper alpha. Requires a compatible --taper-type (cosine, beta_cdf, tanh, or a Bessel-family taper).
     ///
     /// For cosine, higher values are sharper cutoff; lower values are smoother.
-    /// Defaults: cosine 3.4375, beta_cdf 10.0, bessel 6.0.
+    /// Defaults: cosine 3.4375, beta_cdf 10.0, tanh 3.0, bessel/kbd/half_kaiser 6.0.
     #[arg(long)]
     alpha: Option<f32>,
 
@@ -180,10 +208,33 @@ struct Args {
     #[arg(long)]
     decimate: bool,
 
-    /// Use the f128-precision FFT backend. Much slower; intended for extreme quality.
-    #[cfg(feature = "f128")]
-    #[arg(long = "f128")]
-    f128: bool,
+    /// Use a high-precision FFT backend. Much slower; intended for extreme quality.
+    /// double-double (~106-bit) is the fastest; f256 (~237-bit) is the most precise.
+    #[cfg(feature = "high_precision")]
+    #[arg(long = "high-precision", value_enum, conflicts_with = "use_f32")]
+    high_precision: Option<HighPrecisionArg>,
+
+    /// Process as 32-bit floats instead of the default 64-bit. Quality above 8192 is not
+    /// supported (`--preset high` and `--preset extreme` exceed this limit).
+    #[arg(long = "f32")]
+    use_f32: bool,
+
+    /// Force CPU resampling even when a compatible GPU is available.
+    #[arg(long = "cpu")]
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    force_cpu: bool,
+
+    /// FFT chunks combined into each GPU submission. Default is 4. Use 1 for low latency;
+    /// values above 4 may help large offline jobs. Ignored on CPU.
+    #[cfg(feature = "gpu")]
+    #[arg(long = "gpu-group-chunks")]
+    gpu_group_chunks: Option<usize>,
+
+    /// Reusable GPU work groups in the streaming ring. Default is 4 (also the effective
+    /// minimum). 8 can help when host-to-GPU submission is starved. Ignored on CPU.
+    #[cfg(feature = "gpu")]
+    #[arg(long = "gpu-ring-slots")]
+    gpu_ring_slots: Option<usize>,
 
     /// Output sample format. For .flac output, float formats are rejected.
     #[arg(long = "out-format", value_enum, default_value_t = OutFormatArg::Same)]
@@ -195,17 +246,129 @@ struct Args {
 }
 
 #[derive(Debug)]
-struct InputTrack {
-    samples_f64: PlanarVecs<f64>,
+struct InputTrack<T> {
+    samples: PlanarVecs<T>,
     channels: usize,
     input_rate_hz: usize,
     source_out_format: OutFormatArg,
 }
 
 #[derive(Debug)]
-struct InputJob {
+struct InputJob<T> {
     output_path: PathBuf,
-    track: InputTrack,
+    track: InputTrack<T>,
+}
+
+/// Decode, resample, and encode sample type (`f32` or `f64`).
+trait ProcessingSample: Copy + Default + Send + Sync + ConvertibleSample + 'static {
+    fn read_wav_planar(path: &Path, channels: usize) -> Result<PlanarVecs<Self>, Box<dyn Error>>;
+    fn to_i16(self) -> i16;
+    fn to_i24(self) -> i24;
+    fn to_i24_i32(self) -> i32;
+    fn to_i32(self) -> i32;
+    fn to_f32(self) -> f32;
+    fn to_f64(self) -> f64;
+
+    fn resample(
+        config: Config,
+        inputs: Vec<PlanarVecs<Self>>,
+        gapless: bool,
+        #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+    ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>>;
+}
+
+impl ProcessingSample for f32 {
+    fn read_wav_planar(path: &Path, channels: usize) -> Result<PlanarVecs<Self>, Box<dyn Error>> {
+        let (samples, _) = read::<f32, _>(path)?;
+        interleaved_to_planar(samples.as_ref(), channels)
+    }
+
+    fn to_i16(self) -> i16 {
+        (self.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16
+    }
+
+    fn to_i24(self) -> i24 {
+        i24::from_i32(self.to_i24_i32())
+    }
+
+    fn to_i24_i32(self) -> i32 {
+        const I24_MAX: f32 = ((1 << 23) - 1) as f32;
+        (self.clamp(-1.0, 1.0) * I24_MAX).round() as i32
+    }
+
+    fn to_i32(self) -> i32 {
+        (self.clamp(-1.0, 1.0) * i32::MAX as f32).round() as i32
+    }
+
+    fn to_f32(self) -> f32 {
+        self
+    }
+
+    fn to_f64(self) -> f64 {
+        f64::from(self)
+    }
+
+    fn resample(
+        config: Config,
+        inputs: Vec<PlanarVecs<Self>>,
+        gapless: bool,
+        #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+    ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>> {
+        resample_f32(
+            config,
+            inputs,
+            gapless,
+            #[cfg(feature = "gpu")]
+            gpu,
+        )
+    }
+}
+
+impl ProcessingSample for f64 {
+    fn read_wav_planar(path: &Path, channels: usize) -> Result<PlanarVecs<Self>, Box<dyn Error>> {
+        let (samples, _) = read::<f64, _>(path)?;
+        interleaved_to_planar(samples.as_ref(), channels)
+    }
+
+    fn to_i16(self) -> i16 {
+        (self.clamp(-1.0, 1.0) * f64::from(i16::MAX)).round() as i16
+    }
+
+    fn to_i24(self) -> i24 {
+        i24::from_i32(self.to_i24_i32())
+    }
+
+    fn to_i24_i32(self) -> i32 {
+        const I24_MAX: f64 = ((1 << 23) - 1) as f64;
+        (self.clamp(-1.0, 1.0) * I24_MAX).round() as i32
+    }
+
+    fn to_i32(self) -> i32 {
+        (self.clamp(-1.0, 1.0) * f64::from(i32::MAX)).round() as i32
+    }
+
+    fn to_f32(self) -> f32 {
+        self as f32
+    }
+
+    fn to_f64(self) -> f64 {
+        self
+    }
+
+    fn resample(
+        config: Config,
+        inputs: Vec<PlanarVecs<Self>>,
+        gapless: bool,
+        #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+    ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>> {
+        resample_f64(
+            config,
+            inputs,
+            gapless,
+            #[cfg(feature = "gpu")]
+            gpu,
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -218,10 +381,32 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     validate_args(&args)?;
 
+    #[cfg(feature = "gpu")]
+    let gpu = select_gpu(&args);
+
+    if args.use_f32 {
+        convert_all::<f32>(
+            &args,
+            #[cfg(feature = "gpu")]
+            gpu.as_ref(),
+        )
+    } else {
+        convert_all::<f64>(
+            &args,
+            #[cfg(feature = "gpu")]
+            gpu.as_ref(),
+        )
+    }
+}
+
+fn convert_all<T: ProcessingSample>(
+    args: &Args,
+    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+) -> Result<(), Box<dyn Error>> {
     let tracks = args
         .input
         .iter()
-        .map(|path| read_audio_file(path))
+        .map(|path| read_audio_file::<T>(path))
         .collect::<Result<Vec<_>, _>>()?;
 
     let jobs = tracks
@@ -235,48 +420,77 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("--gapless requires all inputs to have matching channel count and sample rate".into());
     }
 
-    process_and_write_all_groups(&args, grouped_jobs)?;
-
-    Ok(())
+    process_and_write_all_groups(
+        args,
+        grouped_jobs,
+        #[cfg(feature = "gpu")]
+        gpu,
+    )
 }
 
 #[cfg(feature = "rayon")]
-fn process_and_write_all_groups(args: &Args, grouped_jobs: Vec<Vec<InputJob>>) -> Result<(), Box<dyn Error>> {
+fn process_and_write_all_groups<T: ProcessingSample>(
+    args: &Args,
+    grouped_jobs: Vec<Vec<InputJob<T>>>,
+    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+) -> Result<(), Box<dyn Error>> {
     grouped_jobs
         .into_par_iter()
-        .map(|group| process_batch_group(args, group).map_err(|err| err.to_string()))
+        .map(|group| {
+            process_batch_group(
+                args,
+                group,
+                #[cfg(feature = "gpu")]
+                gpu,
+            )
+            .map_err(|err| err.to_string())
+        })
         .collect::<Result<Vec<_>, _>>()
         .map(|_| ())
         .map_err(|err: String| -> Box<dyn Error> { std::io::Error::other(err).into() })
 }
 
 #[cfg(not(feature = "rayon"))]
-fn process_and_write_all_groups(args: &Args, grouped_jobs: Vec<Vec<InputJob>>) -> Result<(), Box<dyn Error>> {
+fn process_and_write_all_groups<T: ProcessingSample>(
+    args: &Args,
+    grouped_jobs: Vec<Vec<InputJob<T>>>,
+    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+) -> Result<(), Box<dyn Error>> {
     for group in grouped_jobs {
-        process_batch_group(args, group)?;
+        process_batch_group(
+            args,
+            group,
+            #[cfg(feature = "gpu")]
+            gpu,
+        )?;
     }
     Ok(())
 }
 
-fn process_batch_group(args: &Args, group: Vec<InputJob>) -> Result<(), Box<dyn Error>> {
+fn process_batch_group<T: ProcessingSample>(
+    args: &Args,
+    group: Vec<InputJob<T>>,
+    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+) -> Result<(), Box<dyn Error>> {
     let output_rate_hz = args.output_rate as u32;
     let out_format = args.out_format;
     let first = group.first().ok_or("batch group cannot be empty")?;
     let config = build_config(args, first.track.input_rate_hz, first.track.channels)?;
-    let processor = PlanarResampler::<f64>::new(config)?;
 
     let mut metadata = Vec::with_capacity(group.len());
     let mut inputs = Vec::with_capacity(group.len());
     for job in group {
         metadata.push((job.output_path, job.track.source_out_format));
-        inputs.push(job.track.samples_f64);
+        inputs.push(job.track.samples);
     }
 
-    let converted = if args.gapless {
-        processor.batch_gapless(inputs)?
-    } else {
-        processor.batch(inputs)?
-    };
+    let converted = T::resample(
+        config,
+        inputs,
+        args.gapless,
+        #[cfg(feature = "gpu")]
+        gpu,
+    )?;
 
     if metadata.len() != converted.len() {
         return Err(std::io::Error::other(format!(
@@ -305,9 +519,9 @@ fn process_batch_group(args: &Args, group: Vec<InputJob>) -> Result<(), Box<dyn 
 }
 
 #[cfg(feature = "rayon")]
-fn write_output(
+fn write_output<T: ProcessingSample>(
     metadata: Vec<(PathBuf, OutFormatArg)>,
-    converted: Vec<PlanarVecs<f64>>,
+    converted: Vec<PlanarVecs<T>>,
     output_rate_hz: u32,
     out_format: OutFormatArg,
 ) -> Vec<(PathBuf, Option<String>)> {
@@ -330,9 +544,9 @@ fn write_output(
 }
 
 #[cfg(not(feature = "rayon"))]
-fn write_output(
+fn write_output<T: ProcessingSample>(
     metadata: Vec<(PathBuf, OutFormatArg)>,
-    converted: Vec<PlanarVecs<f64>>,
+    converted: Vec<PlanarVecs<T>>,
     output_rate_hz: u32,
     out_format: OutFormatArg,
 ) -> Vec<(PathBuf, Option<String>)> {
@@ -428,15 +642,25 @@ fn validate_args(args: &Args) -> Result<(), Box<dyn Error>> {
             }
         }
     }
+    if args.use_f32 {
+        let quality = args.quality.unwrap_or(preset_config(args.preset).quality);
+        if quality > MAX_F32_QUALITY {
+            return Err(format!(
+                "--f32 does not support quality {quality} (maximum is {MAX_F32_QUALITY}). \
+                 Use --preset good or --preset fast, or omit --f32 to keep f64 processing."
+            )
+            .into());
+        }
+    }
     Ok(())
 }
 
-fn group_compatible_jobs(jobs: Vec<InputJob>) -> Result<Vec<Vec<InputJob>>, Box<dyn Error>> {
+fn group_compatible_jobs<T>(jobs: Vec<InputJob<T>>) -> Result<Vec<Vec<InputJob<T>>>, Box<dyn Error>> {
     if jobs.is_empty() {
         return Err("at least one input track is required".into());
     }
 
-    let mut groups = Vec::<Vec<InputJob>>::new();
+    let mut groups = Vec::<Vec<InputJob<T>>>::new();
     let mut group_index_by_key = HashMap::<BatchGroupKey, usize>::new();
 
     for job in jobs {
@@ -456,16 +680,20 @@ fn group_compatible_jobs(jobs: Vec<InputJob>) -> Result<Vec<Vec<InputJob>>, Box<
     Ok(groups)
 }
 
-fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Result<Config, Box<dyn Error>> {
-    let mut config = match args.preset {
+fn preset_config(preset: PresetArg) -> Config {
+    match preset {
         PresetArg::Fast => PRESET_FAST,
         PresetArg::Good => PRESET_GOOD,
         PresetArg::High => PRESET_HIGH,
         PresetArg::Extreme => PRESET_EXTREME,
     }
-    .with_input_rate(input_sample_rate)
-    .with_output_rate(args.output_rate)
-    .with_channels(channels);
+}
+
+fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Result<Config, Box<dyn Error>> {
+    let mut config = preset_config(args.preset)
+        .with_input_rate(input_sample_rate)
+        .with_output_rate(args.output_rate)
+        .with_channels(channels);
 
     if let Some(quality) = args.quality {
         config.quality = quality;
@@ -491,9 +719,17 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if args.decimate {
         config.decimate = true;
     }
-    #[cfg(feature = "f128")]
-    if args.f128 {
-        config.f128 = true;
+    #[cfg(feature = "high_precision")]
+    if let Some(high_precision) = args.high_precision {
+        config.high_precision = Some(high_precision.into());
+    }
+    #[cfg(feature = "gpu")]
+    if let Some(gpu_group_chunks) = args.gpu_group_chunks {
+        config.gpu_group_chunks = gpu_group_chunks;
+    }
+    #[cfg(feature = "gpu")]
+    if let Some(gpu_ring_slots) = args.gpu_ring_slots {
+        config.gpu_ring_slots = gpu_ring_slots;
     }
 
     if let Some(taper_type) = args.taper_type {
@@ -504,6 +740,11 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
                 let alpha = args.alpha.unwrap_or(DEFAULT_BESSEL_ALPHA);
                 TaperType::Bessel(alpha)
             }
+            #[cfg(feature = "bessel")]
+            TaperTypeArg::Kbd => TaperType::Kbd(args.alpha.unwrap_or(DEFAULT_BESSEL_ALPHA)),
+            #[cfg(feature = "bessel")]
+            TaperTypeArg::HalfKaiser => TaperType::HalfKaiser(args.alpha.unwrap_or(DEFAULT_BESSEL_ALPHA)),
+            TaperTypeArg::Tanh => TaperType::Tanh(args.alpha.unwrap_or(3.0)),
             TaperTypeArg::Cosine => {
                 let alpha = args.alpha.unwrap_or(DEFAULT_ALPHA);
                 TaperType::Cosine(alpha)
@@ -520,76 +761,266 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     Ok(config)
 }
 
-fn read_audio_file(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
-    match audio_container(path) {
-        Some(AudioContainer::Wav) => read_wav_as_f64(path),
-        Some(AudioContainer::Flac) => read_flac_as_f64(path),
-        None => Err(format!(
-            "unsupported input extension for {} (supported: .wav, .flac)",
-            path.display()
-        )
-        .into()),
+#[cfg(feature = "high_precision")]
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum HighPrecisionArg {
+    /// Double-double (~106-bit mantissa).
+    DoubleDouble,
+    /// IEEE binary128 (113-bit mantissa).
+    F128,
+    /// IEEE binary256 (237-bit mantissa).
+    F256,
+}
+
+#[cfg(feature = "high_precision")]
+impl From<HighPrecisionArg> for ardftsrc::HighPrecision {
+    fn from(arg: HighPrecisionArg) -> Self {
+        match arg {
+            HighPrecisionArg::DoubleDouble => Self::DoubleDouble,
+            HighPrecisionArg::F128 => Self::F128,
+            HighPrecisionArg::F256 => Self::F256,
+        }
     }
 }
 
-fn read_wav_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
+#[cfg(feature = "gpu")]
+fn gpu_config_supported(args: &Args) -> bool {
+    if args.decimate {
+        return false;
+    }
+    #[cfg(feature = "high_precision")]
+    if args.high_precision.is_some() {
+        return false;
+    }
+    true
+}
+
+#[cfg(feature = "gpu")]
+fn select_gpu(args: &Args) -> Option<Arc<GpuDevice>> {
+    if args.force_cpu || !gpu_config_supported(args) {
+        return None;
+    }
+    match GpuDevice::auto_select_compatible(!args.use_f32) {
+        Ok(device) => {
+            eprintln!("ardftsrc-rs: using GPU ({})", device.device_name());
+            Some(Arc::new(device))
+        }
+        Err(_) => None,
+    }
+}
+
+fn resample_f64(
+    config: Config,
+    inputs: Vec<PlanarVecs<f64>>,
+    gapless: bool,
+    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+) -> Result<Vec<PlanarVecs<f64>>, Box<dyn Error>> {
+    #[cfg(feature = "gpu")]
+    if let Some(device) = gpu {
+        match start_gpu_resampler_f64(device, config.clone()) {
+            Ok(processor) => return gpu_batch_f64(processor, inputs, gapless),
+            Err(err) => {
+                eprintln!("ardftsrc-rs: GPU resampler failed to start ({err}); using CPU");
+            }
+        }
+    }
+    resample_cpu_f64(config, inputs, gapless)
+}
+
+fn resample_f32(
+    config: Config,
+    inputs: Vec<PlanarVecs<f32>>,
+    gapless: bool,
+    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
+) -> Result<Vec<PlanarVecs<f32>>, Box<dyn Error>> {
+    #[cfg(feature = "gpu")]
+    if let Some(device) = gpu {
+        match start_gpu_resampler_f32(device, config.clone()) {
+            Ok(processor) => return gpu_batch_f32(processor, inputs, gapless),
+            Err(err) => {
+                eprintln!("ardftsrc-rs: GPU resampler failed to start ({err}); using CPU");
+            }
+        }
+    }
+    resample_cpu_f32(config, inputs, gapless)
+}
+
+fn resample_cpu_f64(
+    config: Config,
+    inputs: Vec<PlanarVecs<f64>>,
+    gapless: bool,
+) -> Result<Vec<PlanarVecs<f64>>, Box<dyn Error>> {
+    let processor = PlanarResampler::<f64>::new(config)?;
+    if gapless {
+        Ok(processor.batch_gapless(inputs)?)
+    } else {
+        Ok(processor.batch(inputs)?)
+    }
+}
+
+fn resample_cpu_f32(
+    config: Config,
+    inputs: Vec<PlanarVecs<f32>>,
+    gapless: bool,
+) -> Result<Vec<PlanarVecs<f32>>, Box<dyn Error>> {
+    let processor = PlanarResampler::<f32>::new(config)?;
+    if gapless {
+        Ok(processor.batch_gapless(inputs)?)
+    } else {
+        Ok(processor.batch(inputs)?)
+    }
+}
+
+#[cfg(feature = "gpu")]
+fn start_gpu_resampler_f64(device: &Arc<GpuDevice>, config: Config) -> Result<PlanarGpuResampler<f64>, GpuError> {
+    PlanarGpuResampler::new(GpuContext::<f64>::with_device(Arc::clone(device), config)?)
+}
+
+#[cfg(feature = "gpu")]
+fn start_gpu_resampler_f32(device: &Arc<GpuDevice>, config: Config) -> Result<PlanarGpuResampler<f32>, GpuError> {
+    PlanarGpuResampler::new(GpuContext::<f32>::with_device(Arc::clone(device), config)?)
+}
+
+#[cfg(feature = "gpu")]
+fn gpu_batch_f64(
+    processor: PlanarGpuResampler<f64>,
+    inputs: Vec<PlanarVecs<f64>>,
+    gapless: bool,
+) -> Result<Vec<PlanarVecs<f64>>, Box<dyn Error>> {
+    if gapless {
+        Ok(processor.batch_gapless(inputs)?)
+    } else {
+        Ok(processor.batch(inputs)?)
+    }
+}
+
+#[cfg(feature = "gpu")]
+fn gpu_batch_f32(
+    processor: PlanarGpuResampler<f32>,
+    inputs: Vec<PlanarVecs<f32>>,
+    gapless: bool,
+) -> Result<Vec<PlanarVecs<f32>>, Box<dyn Error>> {
+    if gapless {
+        Ok(processor.batch_gapless(inputs)?)
+    } else {
+        Ok(processor.batch(inputs)?)
+    }
+}
+
+fn read_audio_file<T: ProcessingSample>(path: &Path) -> Result<InputTrack<T>, Box<dyn Error>> {
+    let result = match audio_container(path) {
+        Some(AudioContainer::Wav) => read_wav(path),
+        Some(AudioContainer::Flac) => read_flac(path),
+        None => {
+            return Err(format!(
+                "unsupported input extension for {} (supported: .wav, .flac)",
+                path.display()
+            )
+            .into());
+        }
+    };
+    result.map_err(|err| format!("failed to read {}: {err}", path.display()).into())
+}
+
+fn read_wav<T: ProcessingSample>(path: &Path) -> Result<InputTrack<T>, Box<dyn Error>> {
     let probe = Wav::<f32>::from_path(path)?;
     let channels = probe.n_channels() as usize;
     let input_rate_hz = probe.sample_rate() as usize;
     let source_format = probe.encoding();
     drop(probe);
 
-    let (samples, _) = read::<f64, _>(path)?;
     Ok(InputTrack {
-        samples_f64: interleaved_to_planar(samples.as_ref(), channels)?,
+        samples: T::read_wav_planar(path, channels)?,
         channels,
         input_rate_hz,
         source_out_format: wav_source_to_out_format(source_format),
     })
 }
 
-fn read_flac_as_f64(path: &Path) -> Result<InputTrack, Box<dyn Error>> {
-    let mut reader = FlacChannelReader::open(path)?;
-    let channels = reader.channel_count() as usize;
-    let input_rate_hz = reader.sample_rate() as usize;
-    let bits_per_sample = reader.bits_per_sample();
-    let source_out_format = flac_bits_to_out_format(bits_per_sample);
-    let scale = pcm_scale_from_bits(bits_per_sample)?;
+fn read_flac<T: ProcessingSample>(path: &Path) -> Result<InputTrack<T>, Box<dyn Error>> {
+    let file = File::open(path)?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let mut format =
+        symphonia::default::get_probe().probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())?;
+
+    let track = format
+        .default_track(TrackType::Audio)
+        .ok_or("FLAC file does not contain a default audio track")?
+        .clone();
+    let track_id = track.id;
+    let audio = track
+        .codec_params
+        .as_ref()
+        .and_then(|params| params.audio())
+        .ok_or("FLAC track is missing audio codec parameters")?;
+    let channels = audio
+        .channels
+        .as_ref()
+        .ok_or("FLAC track is missing channel information")?
+        .count();
+    if channels == 0 {
+        return Err("FLAC track has zero channels".into());
+    }
+    let input_rate_hz = audio.sample_rate.ok_or("FLAC track is missing sample rate")? as usize;
+    let bits_per_sample = audio.bits_per_sample.unwrap_or(16);
+    let source_out_format = flac_bits_to_out_format(bits_per_sample);
+
+    let mut decoder = symphonia::default::get_codecs().make_audio_decoder(audio, &AudioDecoderOptions::default())?;
     let mut per_channel = (0..channels)
-        .map(|_| Vec::with_capacity(reader.total_samples().unwrap_or(0) as usize))
+        .map(|_| Vec::with_capacity(track.num_frames.unwrap_or(0) as usize))
         .collect::<Vec<_>>();
 
     loop {
-        let frames = {
-            let decoded = reader.fill_buf()?;
-            let frames = decoded.first().map_or(0, |channel| channel.len());
-            if frames == 0 {
-                break;
+        let packet = match format.next_packet() {
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
+            Err(SymphoniaError::ResetRequired) => {
+                return Err("FLAC decoder reset required mid-stream".into());
             }
-            if decoded.len() != channels || decoded.iter().any(|channel| channel.len() != frames) {
-                return Err("FLAC reader returned inconsistent channel buffers".into());
-            }
-
-            for (dst, src) in per_channel.iter_mut().zip(decoded) {
-                dst.extend(src.iter().map(|sample| (*sample as f64 / scale).clamp(-1.0, 1.0)));
-            }
-            frames
+            Err(err) => return Err(err.into()),
         };
-        reader.consume(frames);
+        if packet.track_id != track_id {
+            continue;
+        }
+
+        let decoded = decoder.decode(&packet)?;
+        if decoded.spec().channels().count() != channels {
+            return Err("FLAC packet channel count does not match the track".into());
+        }
+
+        let frames = decoded.frames();
+        if frames == 0 {
+            continue;
+        }
+
+        for channel in &mut per_channel {
+            channel.resize(channel.len() + frames, T::default());
+        }
+        let mut planes = per_channel
+            .iter_mut()
+            .map(|channel| {
+                let start = channel.len() - frames;
+                &mut channel[start..]
+            })
+            .collect::<Vec<_>>();
+        decoded.copy_to_slice_planar(&mut planes);
     }
 
-    let samples_f64 = PlanarVecs::new(per_channel)?;
-
     Ok(InputTrack {
-        samples_f64,
+        samples: PlanarVecs::new(per_channel)?,
         channels,
         input_rate_hz,
         source_out_format,
     })
 }
 
-fn interleaved_to_planar(samples: &[f64], channels: usize) -> Result<PlanarVecs<f64>, Box<dyn Error>> {
+fn interleaved_to_planar<T: Copy + Default>(samples: &[T], channels: usize) -> Result<PlanarVecs<T>, Box<dyn Error>> {
     if channels == 0 {
         return Err("audio input cannot have zero channels".into());
     }
@@ -603,7 +1034,7 @@ fn interleaved_to_planar(samples: &[f64], channels: usize) -> Result<PlanarVecs<
     }
 
     let frames = samples.len() / channels;
-    let mut planar = vec![vec![0.0; frames]; channels];
+    let mut planar = vec![vec![T::default(); frames]; channels];
     for (frame_idx, frame) in samples.chunks_exact(channels).enumerate() {
         for (channel_idx, sample) in frame.iter().enumerate() {
             planar[channel_idx][frame_idx] = *sample;
@@ -613,10 +1044,10 @@ fn interleaved_to_planar(samples: &[f64], channels: usize) -> Result<PlanarVecs<
     Ok(PlanarVecs::new(planar)?)
 }
 
-fn write_output_audio(
+fn write_output_audio<T: ProcessingSample>(
     path: &Path,
     output_rate_hz: u32,
-    samples: PlanarVecs<f64>,
+    samples: PlanarVecs<T>,
     out_format: OutFormatArg,
     source_out_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
@@ -640,41 +1071,41 @@ fn write_output_audio(
     }
 }
 
-fn write_output_wav(
+fn write_output_wav<T: ProcessingSample>(
     path: &Path,
     output_rate_hz: u32,
-    samples_f64: &PlanarVecs<f64>,
+    samples: &PlanarVecs<T>,
     target_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
     let sample_rate = output_rate_hz as i32;
-    let n_channels = samples_f64.channels() as u16;
+    let n_channels = samples.channels() as u16;
     match target_format {
         OutFormatArg::Same => unreachable!("same is resolved to a concrete format"),
         OutFormatArg::I16 => {
-            let out = interleave_planar_mapped(samples_f64, float64_to_i16);
+            let out = interleave_planar_mapped(samples, T::to_i16);
             write::<i16, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::I24 => {
-            let out = interleave_planar_mapped(samples_f64, float64_to_i24);
+            let out = interleave_planar_mapped(samples, T::to_i24);
             write::<i24, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::I32 => {
-            let out = interleave_planar_mapped(samples_f64, float64_to_i32);
+            let out = interleave_planar_mapped(samples, T::to_i32);
             write::<i32, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::F32 => {
-            let out = interleave_planar_mapped(samples_f64, |sample| sample as f32);
+            let out = interleave_planar_mapped(samples, T::to_f32);
             write::<f32, _>(path, &out, sample_rate, n_channels)?;
         }
         OutFormatArg::F64 => {
-            let out = interleave_planar_mapped(samples_f64, std::convert::identity);
+            let out = interleave_planar_mapped(samples, T::to_f64);
             write::<f64, _>(path, &out, sample_rate, n_channels)?;
         }
     }
     Ok(())
 }
 
-fn interleave_planar_mapped<T>(samples: &PlanarVecs<f64>, mut map_sample: impl FnMut(f64) -> T) -> Vec<T> {
+fn interleave_planar_mapped<S: Copy, T>(samples: &PlanarVecs<S>, mut map_sample: impl FnMut(S) -> T) -> Vec<T> {
     let channels = samples.channels();
     let frames = samples.frames();
     let per_channel = samples.as_slice();
@@ -689,10 +1120,10 @@ fn interleave_planar_mapped<T>(samples: &PlanarVecs<f64>, mut map_sample: impl F
     output
 }
 
-fn write_output_flac(
+fn write_output_flac<T: ProcessingSample>(
     path: &Path,
     output_rate_hz: u32,
-    samples: PlanarVecs<f64>,
+    samples: PlanarVecs<T>,
     target_format: OutFormatArg,
 ) -> Result<(), Box<dyn Error>> {
     let channels = samples.channels();
@@ -737,7 +1168,7 @@ fn write_output_flac(
             let encoded_channel = channel[frame_offset..end]
                 .iter()
                 .copied()
-                .map(|sample| encode_flac_sample(sample, target_format))
+                .map(|sample| encode_flac_sample::<T>(sample, target_format))
                 .collect::<Vec<i32>>();
             encoded_chunk.push(encoded_channel);
         }
@@ -749,11 +1180,11 @@ fn write_output_flac(
     Ok(())
 }
 
-fn encode_flac_sample(sample: f64, target_format: OutFormatArg) -> i32 {
+fn encode_flac_sample<T: ProcessingSample>(sample: T, target_format: OutFormatArg) -> i32 {
     match target_format {
-        OutFormatArg::I16 => i32::from(float64_to_i16(sample)),
-        OutFormatArg::I24 => float64_to_i24_i32(sample),
-        OutFormatArg::I32 => float64_to_i32(sample),
+        OutFormatArg::I16 => i32::from(sample.to_i16()),
+        OutFormatArg::I24 => sample.to_i24_i32(),
+        OutFormatArg::I32 => sample.to_i32(),
         OutFormatArg::F32 | OutFormatArg::F64 | OutFormatArg::Same => unreachable!(),
     }
 }
@@ -787,41 +1218,6 @@ fn flac_bits_to_out_format(bits_per_sample: u32) -> OutFormatArg {
     }
 }
 
-fn pcm_scale_from_bits(bits_per_sample: u32) -> Result<f64, Box<dyn Error>> {
-    if !(1..=32).contains(&bits_per_sample) {
-        return Err(format!(
-            "unsupported FLAC bits-per-sample value: {} (expected 1..=32)",
-            bits_per_sample
-        )
-        .into());
-    }
-    let max_int = ((1_i64 << (bits_per_sample - 1)) - 1) as f64;
-    Ok(max_int.max(1.0))
-}
-
-fn float64_to_i16(value: f64) -> i16 {
-    let clamped = value.clamp(-1.0, 1.0);
-    (clamped * i16::MAX as f64).round() as i16
-}
-
-fn float64_to_i24(value: f64) -> i24 {
-    const I24_MAX: f64 = ((1 << 23) - 1) as f64;
-    let clamped = value.clamp(-1.0, 1.0);
-    let as_i32 = (clamped * I24_MAX).round() as i32;
-    i24::from_i32(as_i32)
-}
-
-fn float64_to_i24_i32(value: f64) -> i32 {
-    const I24_MAX: f64 = ((1 << 23) - 1) as f64;
-    let clamped = value.clamp(-1.0, 1.0);
-    (clamped * I24_MAX).round() as i32
-}
-
-fn float64_to_i32(value: f64) -> i32 {
-    let clamped = value.clamp(-1.0, 1.0);
-    (clamped * i32::MAX as f64).round() as i32
-}
-
 fn audio_container(path: &Path) -> Option<AudioContainer> {
     path.extension().and_then(|ext| ext.to_str()).and_then(|ext| {
         if ext.eq_ignore_ascii_case("wav") {
@@ -832,4 +1228,109 @@ fn audio_container(path: &Path) -> Option<AudioContainer> {
             None
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_taper_cli_options_apply_defaults_and_alpha() {
+        let cases = [
+            ("tanh", TaperType::Tanh(3.0), TaperType::Tanh(2.0)),
+            #[cfg(feature = "bessel")]
+            ("kbd", TaperType::Kbd(6.0), TaperType::Kbd(2.0)),
+            #[cfg(feature = "bessel")]
+            ("half_kaiser", TaperType::HalfKaiser(6.0), TaperType::HalfKaiser(2.0)),
+            #[cfg(feature = "bessel")]
+            ("half-kaiser", TaperType::HalfKaiser(6.0), TaperType::HalfKaiser(2.0)),
+        ];
+        for (name, default, overridden) in cases {
+            let mut argv = vec![
+                "ardftsrc-rs",
+                "--input",
+                "in.wav",
+                "--output",
+                "out.wav",
+                "--output-rate",
+                "48000",
+                "--taper-type",
+                name,
+            ];
+            let args = Args::try_parse_from(&argv).unwrap();
+            assert!(args.taper_type.unwrap().accepts_alpha());
+            assert_eq!(build_config(&args, 44_100, 2).unwrap().taper_type, default);
+            argv.extend(["--alpha", "2"]);
+            let args = Args::try_parse_from(&argv).unwrap();
+            assert_eq!(build_config(&args, 44_100, 2).unwrap().taper_type, overridden);
+        }
+    }
+
+    #[test]
+    fn cpu_flag_is_accepted() {
+        let args = Args::try_parse_from([
+            "ardftsrc-rs",
+            "--input",
+            "in.wav",
+            "--output",
+            "out.wav",
+            "--output-rate",
+            "48000",
+            "--cpu",
+        ])
+        .unwrap();
+        assert!(args.force_cpu);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn gpu_config_flags_apply_to_config() {
+        let args = Args::try_parse_from([
+            "ardftsrc-rs",
+            "--input",
+            "in.wav",
+            "--output",
+            "out.wav",
+            "--output-rate",
+            "48000",
+            "--gpu-group-chunks",
+            "8",
+            "--gpu-ring-slots",
+            "8",
+        ])
+        .unwrap();
+        let config = build_config(&args, 44_100, 2).unwrap();
+        assert_eq!(config.gpu_group_chunks, 8);
+        assert_eq!(config.gpu_ring_slots, 8);
+    }
+
+    #[test]
+    fn f32_quality_limit_matches_supported_presets() {
+        assert!(preset_config(PresetArg::Fast).quality <= MAX_F32_QUALITY);
+        assert!(preset_config(PresetArg::Good).quality <= MAX_F32_QUALITY);
+        assert!(preset_config(PresetArg::High).quality > MAX_F32_QUALITY);
+        assert!(preset_config(PresetArg::Extreme).quality > MAX_F32_QUALITY);
+    }
+
+    #[test]
+    fn interleaved_to_planar_is_generic_over_precision() {
+        let interleaved_f32 = [0.5_f32, 1.0, -0.25, 0.0];
+        let planar = interleaved_to_planar(&interleaved_f32, 2).unwrap();
+        assert_eq!(planar.as_slice(), &[vec![0.5_f32, -0.25], vec![1.0, 0.0]]);
+    }
+
+    #[test]
+    fn f32_pcm_conversions_stay_in_f32() {
+        assert_eq!(1.0_f32.to_i16(), i16::MAX);
+        assert_eq!((-1.0_f32).to_i16(), -i16::MAX);
+        assert_eq!(1.0_f32.to_f32(), 1.0);
+        assert_eq!(0.5_f32.to_f64(), 0.5);
+    }
+
+    #[test]
+    fn f64_pcm_conversions_stay_in_f64() {
+        assert_eq!(1.0_f64.to_i16(), i16::MAX);
+        assert_eq!(1.0_f64.to_f64(), 1.0);
+        assert_eq!(0.5_f64.to_f32(), 0.5);
+    }
 }

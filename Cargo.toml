@@ -33,6 +33,9 @@ audio-core = "0.2"
 rodio = { version = "0.22", default-features = false }
 num-complex = "0.4"
 num-integer = "0.1.40"
+twofloat = "0.8"
+f256 = { version = "0.11", default-features = false, features = ["std"] }
+rustc_apfloat = "=0.2.3"
 
 [profile.release]
 opt-level = 3

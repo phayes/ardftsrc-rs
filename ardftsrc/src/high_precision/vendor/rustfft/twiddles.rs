@@ -1,11 +1,11 @@
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum};
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::strength_reduce::{StrengthReducedU64, StrengthReducedU128};
+use crate::high_precision::vendor::strength_reduce::{StrengthReducedU64, StrengthReducedU128};
 
 pub fn compute_twiddle<T: FftNum>(index: usize, fft_len: usize, direction: FftDirection) -> Complex<T> {
     // Delegate to T::twiddle rather than computing the angle/sin/cos here in f64: see the
-    // `FftNum` doc comment in `common.rs` for why that distinction matters for `F128`.
+    // `FftNum` doc comment in `common.rs` for why that distinction matters for high-precision types.
     T::twiddle(index, fft_len, direction)
 }
 

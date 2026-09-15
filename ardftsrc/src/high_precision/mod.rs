@@ -1,21 +1,45 @@
-//! Quad-precision real FFT engine, compiled by the `f128` feature and selected with
-//! [`Config::f128`](crate::Config::f128) or
-//! [`Config::with_f128(true)`](crate::Config::with_f128).
+//! High-precision real FFT engines, compiled by the `high_precision` feature and selected with
+//! [`Config::high_precision`](crate::Config::high_precision).
 //!
 //! `ardftsrc`'s default FFT backend (`realfft`, backed by `rustfft`) computes twiddle factors in
-//! plain `f64`. This module is an alternative backend for callers who want to push past that ceiling:
-//! it runs the same FFT algorithms (mixed-radix, Bluestein's, Rader's -- vendored from `rustfft`, see `vendor` for
-//! details and rationale) but with every twiddle factor and internal accumulation computed in
-//! `f128` (113-bit mantissa, vs. 53 for `f64`).
+//! plain `f64`. This module provides alternative backends for callers who want to push past that
+//! ceiling: they run the same FFT algorithms (mixed-radix, Bluestein's, Rader's -- vendored from
+//! `rustfft`, see `vendor` for details and rationale) with every twiddle factor and internal
+//! accumulation computed in a wider type:
 //!
-//! It is not a general replacement: there's no SIMD, and `f128` arithmetic costs roughly one to
-//! two orders of magnitude more than `f64` per operation, so this is meant for offline / opt-in
-//! use at extreme quality settings, not realtime streaming.
+//! - [`HighPrecision::DoubleDouble`]: double-double (~106-bit mantissa), backed by `twofloat`.
+//! - [`HighPrecision::F128`]: IEEE binary128 (113-bit mantissa), backed by `rustc_apfloat`.
+//! - [`HighPrecision::F256`]: IEEE binary256 (237-bit mantissa), backed by `f256`.
+//!
+//! None of them are general replacements: there's no SIMD, and every backend is at least an order
+//! of magnitude slower than `f64` per operation (the binary128 and binary256 backends are pure
+//! software floats), so they are meant for offline / opt-in use at extreme quality settings, not
+//! realtime streaming.
 
 mod numeric;
 mod real;
 #[allow(unused)]
 mod vendor;
 
-// With all this vendoring, these are the only functions we actually need to expose.
-pub(crate) use real::{plan_fft_forward, plan_fft_inverse};
+use std::sync::Arc;
+
+use crate::HighPrecision;
+use numeric::{Dd, F128, F256};
+
+/// Plans a forward real FFT of `len` samples in the selected precision.
+pub(crate) fn plan_fft_forward(len: usize, precision: HighPrecision) -> Arc<dyn realfft::RealToComplex<f64>> {
+    match precision {
+        HighPrecision::DoubleDouble => real::plan_fft_forward::<Dd>(len),
+        HighPrecision::F128 => real::plan_fft_forward::<F128>(len),
+        HighPrecision::F256 => real::plan_fft_forward::<F256>(len),
+    }
+}
+
+/// Inverse counterpart of [`plan_fft_forward`].
+pub(crate) fn plan_fft_inverse(len: usize, precision: HighPrecision) -> Arc<dyn realfft::ComplexToReal<f64>> {
+    match precision {
+        HighPrecision::DoubleDouble => real::plan_fft_inverse::<Dd>(len),
+        HighPrecision::F128 => real::plan_fft_inverse::<F128>(len),
+        HighPrecision::F256 => real::plan_fft_inverse::<F256>(len),
+    }
+}

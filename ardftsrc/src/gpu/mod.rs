@@ -6,8 +6,8 @@
 //! shaders can be persisted with [`GpuShaders::to_bytes`] and restored with
 //! [`GpuContext::load_shaders`].
 //!
-//! Both `f32` and `f64` are targeted; `f128` is out of scope on the GPU backend
-//! ([`GpuError::F128UnsupportedOnGpu`]), and `f64` execution itself requires a device that
+//! Both `f32` and `f64` are targeted; `high_precision` is out of scope on the GPU backend
+//! ([`GpuError::HighPrecisionUnsupportedOnGpu`]), and `f64` execution itself requires a device that
 //! reports `shaderFloat64` support ([`GpuDevice::require_f64`]) -- notably, this is never
 //! true on Apple GPUs, since Metal (and therefore MoltenVK) has no double-precision shader
 //! type.

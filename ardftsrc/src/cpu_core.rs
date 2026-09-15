@@ -102,8 +102,8 @@ where
     /// Returns a ready-to-use core instance.
     pub fn new(derived: DerivedConfig<T>) -> Self {
         let mut planner = RealFftPlanner::<T>::new();
-        let forward = plan_forward(&mut planner, derived.input_fft_size, derived.f128);
-        let inverse = plan_inverse(&mut planner, derived.output_fft_size, derived.f128);
+        let forward = plan_forward(&mut planner, &derived);
+        let inverse = plan_inverse(&mut planner, &derived);
         let output_offset = derived.output_offset;
         let scratch = Scratch {
             rdft_in: forward.make_input_vec(),
@@ -658,68 +658,58 @@ where
 
 /// Plans the forward real FFT for one [`CpuCore`] instance.
 ///
-/// When the `f128` feature is compiled in, `use_f128` selects the `f128`-precision engine for
-/// `f64`; otherwise the stock `realfft` planner is used. `T` is a compile-time generic parameter,
-/// so "is `T` `f64`" is checked with `TypeId`. The downcast is safe because it only runs after
-/// confirming that `T` and `f64` are the same type.
+/// When the `high_precision` feature is compiled in, [`DerivedConfig::high_precision`] selects a
+/// high-precision engine for `f64`; otherwise the stock `realfft` planner is used. `T` is a
+/// compile-time generic parameter, so "is `T` `f64`" is checked with `TypeId`. The downcast is
+/// safe because it only runs after confirming that `T` and `f64` are the same type.
 ///
 /// See [`plan_inverse`] for the inverse counterpart.
-fn plan_forward<T: Float + FftNum>(
-    planner: &mut RealFftPlanner<T>,
-    len: usize,
-    use_f128: bool,
-) -> Arc<dyn RealToComplex<T>> {
-    #[cfg(feature = "f128")]
-    {
+fn plan_forward<T: Float + FftNum>(planner: &mut RealFftPlanner<T>, derived: &DerivedConfig<T>) -> Arc<dyn RealToComplex<T>> {
+    let len = derived.input_fft_size;
+
+    #[cfg(feature = "high_precision")]
+    if let Some(precision) = derived.high_precision {
         use std::any::{Any, TypeId};
 
-        if use_f128 && TypeId::of::<T>() == TypeId::of::<f64>() {
-            let f128: Arc<dyn RealToComplex<f64>> = crate::f128_fft::plan_fft_forward(len);
-            let f128: Box<dyn Any> = Box::new(f128);
-            return *f128
+        if TypeId::of::<T>() == TypeId::of::<f64>() {
+            let fft: Arc<dyn RealToComplex<f64>> = crate::high_precision::plan_fft_forward(len, precision);
+            let fft: Box<dyn Any> = Box::new(fft);
+            return *fft
                 .downcast::<Arc<dyn RealToComplex<T>>>()
                 .expect("TypeId check above guarantees T == f64");
         }
     }
-
-    #[cfg(not(feature = "f128"))]
-    let _ = use_f128;
 
     planner.plan_fft_forward(len)
 }
 
 /// Inverse counterpart of [`plan_forward`]. Plans the inverse real FFT for one [`CpuCore`] instance.
 ///
-/// When the `f128` feature is compiled in, `use_f128` selects the `f128`-precision engine for
-/// `f64`; otherwise the stock `realfft` planner is used. `T` is a compile-time generic parameter,
-/// so "is `T` `f64`" is checked with `TypeId`. The downcast is safe because it only runs after
-/// confirming that `T` and `f64` are the same type.
-fn plan_inverse<T: Float + FftNum>(
-    planner: &mut RealFftPlanner<T>,
-    len: usize,
-    use_f128: bool,
-) -> Arc<dyn ComplexToReal<T>> {
-    #[cfg(feature = "f128")]
-    {
+/// When the `high_precision` feature is compiled in, [`DerivedConfig::high_precision`] selects a
+/// high-precision engine for `f64`; otherwise the stock `realfft` planner is used. `T` is a
+/// compile-time generic parameter, so "is `T` `f64`" is checked with `TypeId`. The downcast is
+/// safe because it only runs after confirming that `T` and `f64` are the same type.
+fn plan_inverse<T: Float + FftNum>(planner: &mut RealFftPlanner<T>, derived: &DerivedConfig<T>) -> Arc<dyn ComplexToReal<T>> {
+    let len = derived.output_fft_size;
+
+    #[cfg(feature = "high_precision")]
+    if let Some(precision) = derived.high_precision {
         use std::any::{Any, TypeId};
 
-        if use_f128 && TypeId::of::<T>() == TypeId::of::<f64>() {
-            let f128: Arc<dyn ComplexToReal<f64>> = crate::f128_fft::plan_fft_inverse(len);
-            let f128: Box<dyn Any> = Box::new(f128);
-            return *f128
+        if TypeId::of::<T>() == TypeId::of::<f64>() {
+            let fft: Arc<dyn ComplexToReal<f64>> = crate::high_precision::plan_fft_inverse(len, precision);
+            let fft: Box<dyn Any> = Box::new(fft);
+            return *fft
                 .downcast::<Arc<dyn ComplexToReal<T>>>()
                 .expect("TypeId check above guarantees T == f64");
         }
     }
 
-    #[cfg(not(feature = "f128"))]
-    let _ = use_f128;
-
     planner.plan_fft_inverse(len)
 }
 
 #[cfg(test)]
-mod dd_backend_wiring_tests {
+mod backend_wiring_tests {
     use super::*;
     use crate::Config;
 
@@ -729,10 +719,24 @@ mod dd_backend_wiring_tests {
         assert_f64_core_resamples_a_sine_correctly(config);
     }
 
-    #[cfg(feature = "f128")]
+    #[cfg(feature = "high_precision")]
+    #[test]
+    fn double_double_core_resamples_a_sine_correctly() {
+        let config = Config::new(44_100, 48_000, 1).with_high_precision(Some(crate::HighPrecision::DoubleDouble));
+        assert_f64_core_resamples_a_sine_correctly(config);
+    }
+
+    #[cfg(feature = "high_precision")]
     #[test]
     fn f128_core_resamples_a_sine_correctly() {
-        let config = Config::new(44_100, 48_000, 1).with_f128(true);
+        let config = Config::new(44_100, 48_000, 1).with_high_precision(Some(crate::HighPrecision::F128));
+        assert_f64_core_resamples_a_sine_correctly(config);
+    }
+
+    #[cfg(feature = "high_precision")]
+    #[test]
+    fn f256_core_resamples_a_sine_correctly() {
+        let config = Config::new(44_100, 48_000, 1).with_high_precision(Some(crate::HighPrecision::F256));
         assert_f64_core_resamples_a_sine_correctly(config);
     }
 

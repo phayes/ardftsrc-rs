@@ -20,7 +20,5 @@ jobs:
       run: cargo check --verbose
     - name: Run tests
       run: cargo test --workspace --no-default-features --features "avx,neon,sse,wasm_simd,rayon,audioadapter" --verbose
-    - name: Install nightly toolchain for f128
-      uses: dtolnay/rust-toolchain@nightly
-    - name: Run f128 tests
-      run: cargo +nightly test -p ardftsrc --no-default-features --features "f128" --lib --verbose
+    - name: Run high_precision tests
+      run: cargo test -p ardftsrc --no-default-features --features "high_precision" --lib --verbose

@@ -1,5 +1,4 @@
 #![doc = include_str!("../README.md")]
-#![cfg_attr(feature = "f128", feature(f128))]
 
 mod as_channels;
 mod beta_reg;
@@ -17,9 +16,9 @@ mod spectral;
 mod taper;
 mod window;
 
-// feature: f128
-#[cfg(feature = "f128")]
-mod f128_fft;
+// feature: high_precision
+#[cfg(feature = "high_precision")]
+mod high_precision;
 
 // feature: gpu
 #[cfg(feature = "gpu")]
@@ -32,6 +31,8 @@ pub use gpu::{
 };
 
 pub use as_channels::{AsChannels, AsChannelsMut};
+#[cfg(feature = "high_precision")]
+pub use config::HighPrecision;
 pub use config::{AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 pub use cpu_core::CpuCore;
 pub use error::Error;

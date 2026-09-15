@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::rustfft::algorithm::butterflies::{Butterfly1, Butterfly3, Butterfly9, Butterfly27};
-use crate::f128_fft::vendor::rustfft::algorithm::radixn::butterfly_3;
-use crate::f128_fft::vendor::rustfft::array_utils::{bitreversed_transpose, compute_logarithm};
-use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
+use crate::high_precision::vendor::rustfft::algorithm::butterflies::{Butterfly1, Butterfly3, Butterfly9, Butterfly27};
+use crate::high_precision::vendor::rustfft::algorithm::radixn::butterfly_3;
+use crate::high_precision::vendor::rustfft::array_utils::{bitreversed_transpose, compute_logarithm};
+use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// FFT algorithm optimized for power-of-three sizes
 ///

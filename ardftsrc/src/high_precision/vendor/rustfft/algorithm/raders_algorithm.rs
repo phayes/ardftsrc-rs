@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use crate::f128_fft::vendor::primal_check::miller_rabin;
-use crate::f128_fft::vendor::strength_reduce::StrengthReducedU64;
+use crate::high_precision::vendor::primal_check::miller_rabin;
+use crate::high_precision::vendor::strength_reduce::StrengthReducedU64;
 use num_complex::Complex;
 use num_integer::Integer;
 use num_traits::Zero;
 
-use crate::f128_fft::vendor::rustfft::math_utils;
-use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
+use crate::high_precision::vendor::rustfft::math_utils;
+use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// Implementation of Rader's Algorithm
 ///

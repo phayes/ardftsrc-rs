@@ -255,7 +255,7 @@ On the command line, use `-a` / `--allow-aliasing` (equivalent to `--alias-floor
 | `neon`         | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
 | `wasm_simd`    | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
-| `f128`         | Quad (`f128`, ~113-bit) precision FFT for extreme quality. Requires nightly `rustc`. | No      |
+| `high_precision` | Double-double, `f128`, and `f256` precision FFT backends for extreme quality      | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
 
@@ -265,7 +265,7 @@ The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-r
 
 You can use this as a utility, or use it to benchmark this project.
 
-Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, so `--preset high` and `--preset extreme` are rejected). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. A compatible Vulkan GPU is used automatically when one is available: `f64` needs `shaderFloat64` (not available on Apple GPUs), while `--f32` can run on any real GPU. Pass `--cpu` to force CPU even when a GPU is available. `--gpu-group-chunks` and `--gpu-ring-slots` tune GPU batching (defaults are both 4). Configurations the GPU backend cannot run (`--decimate`, `--f128`) stay on CPU.
+Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, so `--preset high` and `--preset extreme` are rejected). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. A compatible Vulkan GPU is used automatically when one is available: `f64` needs `shaderFloat64` (not available on Apple GPUs), while `--f32` can run on any real GPU. Pass `--cpu` to force CPU even when a GPU is available. `--gpu-group-chunks` and `--gpu-ring-slots` tune GPU batching (defaults are both 4). Configurations the GPU backend cannot run (`--decimate`, `--high-precision`) stay on CPU. Pass `--high-precision double-double|f128|f256` to use a high-precision FFT backend (much slower; for extreme quality).
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release

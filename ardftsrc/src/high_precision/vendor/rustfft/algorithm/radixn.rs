@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use num_complex::Complex;
 
-use crate::f128_fft::vendor::rustfft::array_utils::{Load, LoadStore, TransposeFactor, factor_transpose};
-use crate::f128_fft::vendor::rustfft::common::RadixFactor;
-use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
+use crate::high_precision::vendor::rustfft::array_utils::{Load, LoadStore, TransposeFactor, factor_transpose};
+use crate::high_precision::vendor::rustfft::common::RadixFactor;
+use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 use super::butterflies::{Butterfly2, Butterfly3, Butterfly4, Butterfly5, Butterfly6, Butterfly7};
 

@@ -153,15 +153,19 @@ fn gapless_context_keeps_length_with_alias_floor() {
     );
 }
 
-#[cfg(feature = "f128")]
+#[cfg(feature = "high_precision")]
 #[test]
-fn f128_applies_alias_floor() {
-    let strict = Config::new(96_000, 44_100, 1).with_f128(true);
-    let aliased = strict.clone().with_alias_floor_db(-3.0);
-    let input = signal(96_000, 1, 22_300.0);
+fn high_precision_applies_alias_floor() {
+    use ardftsrc::HighPrecision;
 
-    assert_alias_floor_applied(
-        &run_interleaved(strict, &input, None),
-        &run_interleaved(aliased, &input, None),
-    );
+    for precision in [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256] {
+        let strict = Config::new(96_000, 44_100, 1).with_high_precision(Some(precision));
+        let aliased = strict.clone().with_alias_floor_db(-3.0);
+        let input = signal(96_000, 1, 22_300.0);
+
+        assert_alias_floor_applied(
+            &run_interleaved(strict, &input, None),
+            &run_interleaved(aliased, &input, None),
+        );
+    }
 }

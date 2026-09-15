@@ -22,10 +22,9 @@ tabled = "0.22.0"
 [features]
 default = []
 
-# Also runs every thdn sweep case with ardftsrc's f128 (~113-bit) FFT backend. Requires a
-# nightly rustc, so (unlike the old dd_fft feature this replaces) it is opt-in rather than
-# on by default: pass --features f128 explicitly (with a nightly toolchain) to include it.
-f128 = ["ardftsrc/f128"]
+# Also runs every thdn sweep case with each of ardftsrc's high-precision FFT backends
+# (double-double, f128, f256). Opt-in because it multiplies sweep time several-fold.
+high_precision = ["ardftsrc/high_precision"]
 
 [[bin]]
 name = "ardftsrc-report"

@@ -1,4 +1,4 @@
-//! Vendored from the `primal-check` crate (MIT OR Apache-2.0): see `f128_fft::vendor` module docs
+//! Vendored from the `primal-check` crate (MIT OR Apache-2.0): see `high_precision::vendor` module docs
 //! for why -- it's a tiny crate providing just Miller-Rabin primality testing (used by Rader's
 //! algorithm), not worth taking on as an external dependency.
 

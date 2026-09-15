@@ -1,13 +1,13 @@
 use std::cmp::max;
 use std::sync::Arc;
 
-use crate::f128_fft::vendor::transpose;
+use crate::high_precision::vendor::transpose;
 use num_complex::Complex;
 use num_traits::Zero;
 
-use crate::f128_fft::vendor::rustfft::array_utils;
-use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
+use crate::high_precision::vendor::rustfft::array_utils;
+use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// Implementation of the Mixed-Radix FFT algorithm
 ///

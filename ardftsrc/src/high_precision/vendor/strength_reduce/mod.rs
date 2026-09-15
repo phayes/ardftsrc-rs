@@ -34,7 +34,7 @@
 //!
 //! The optimizations that this library provides are inherently dependent on architecture, compiler, and platform,
 //! so test before you use.
-// Vendored from the `strength_reduce` crate (MIT OR Apache-2.0): see `f128_fft::vendor` module docs
+// Vendored from the `strength_reduce` crate (MIT OR Apache-2.0): see `high_precision::vendor` module docs
 // for why. Upstream is `#![no_std]`; that attribute is crate-root-only so it's dropped here, but
 // nothing below actually needs `std` (only `core`).
 

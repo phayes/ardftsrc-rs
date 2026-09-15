@@ -328,14 +328,14 @@ pub struct Config {
     #[cfg(feature = "gpu")]
     pub gpu_ring_slots: usize,
 
-    /// Selects the `f128`-precision FFT backend.
+    /// Selects a high-precision FFT backend, or `None` (the default) for the standard `realfft`
+    /// backend.
     ///
-    /// The `f128` feature makes this backend available; this setting opts an `f64` resampler
-    /// into using it. It is substantially slower and more memory intensive than the default FFT
-    /// backend, but can produce better results at extreme quality settings. Requires a nightly
-    /// `rustc` to build.
-    #[cfg(feature = "f128")]
-    pub f128: bool,
+    /// The `high_precision` feature makes these backends available; this setting opts an `f64`
+    /// resampler into one of them. They are substantially slower and more memory intensive than
+    /// the default FFT backend, but can produce better results at extreme quality settings.
+    #[cfg(feature = "high_precision")]
+    pub high_precision: Option<HighPrecision>,
 }
 
 impl Config {
@@ -357,8 +357,8 @@ impl Config {
         gpu_group_chunks: 4,
         #[cfg(feature = "gpu")]
         gpu_ring_slots: 4,
-        #[cfg(feature = "f128")]
-        f128: false,
+        #[cfg(feature = "high_precision")]
+        high_precision: None,
     };
 
     /// Builds a config with explicit sample rates/channel count and default (PRESET_GOOD) quality settings.
@@ -567,15 +567,15 @@ impl Config {
         self
     }
 
-    /// Selects the `f128`-precision FFT backend.
+    /// Selects a high-precision FFT backend, or `None` for the standard `realfft` backend.
     ///
-    /// This backend is substantially slower and more memory intensive than the default
-    /// `realfft` backend. It is intended for offline processing at extreme quality settings and
-    /// is only compatible with `f64` processing.
+    /// These backends are substantially slower and more memory intensive than the default
+    /// `realfft` backend. They are intended for offline processing at extreme quality settings
+    /// and are only compatible with `f64` processing.
     #[must_use]
-    #[cfg(feature = "f128")]
-    pub fn with_f128(mut self, f128: bool) -> Self {
-        self.f128 = f128;
+    #[cfg(feature = "high_precision")]
+    pub fn with_high_precision(mut self, high_precision: Option<HighPrecision>) -> Self {
+        self.high_precision = high_precision;
         self
     }
 
@@ -652,9 +652,9 @@ impl Config {
         // Detect `T == f32` without specialization: only `f32` shares IEEE single max with `f32::MAX`.
         if let Some(f32_max) = num_traits::NumCast::from(f32::MAX) {
             if <T as Float>::max_value() == f32_max {
-                #[cfg(feature = "f128")]
-                if self.f128 {
-                    return Err(Error::F128IncompatibleWithF32);
+                #[cfg(feature = "high_precision")]
+                if self.high_precision.is_some() {
+                    return Err(Error::HighPrecisionIncompatibleWithF32);
                 }
                 if self.quality > 8192 {
                     return Err(Error::QualityTooHighForF32);
@@ -670,6 +670,24 @@ impl Default for Config {
     fn default() -> Self {
         Self::DEFAULT
     }
+}
+
+/// High-precision FFT backend selected by [`Config::high_precision`].
+///
+/// Every backend runs the same scalar FFT algorithms with twiddle factors and internal
+/// accumulation computed in a wider numeric type, converting to and from `f64` only at the
+/// transform boundary. All are much slower than the default SIMD `f64` backend.
+#[cfg(feature = "high_precision")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HighPrecision {
+    /// Double-double arithmetic (~106-bit mantissa). The fastest of the high-precision backends,
+    /// since it is built from hardware `f64` operations, but not correctly rounded.
+    DoubleDouble,
+    /// IEEE 754 binary128 (113-bit mantissa), correctly rounded software floating point.
+    F128,
+    /// IEEE 754 binary256 (237-bit mantissa), correctly rounded software floating point. The
+    /// most precise and slowest backend.
+    F256,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -689,8 +707,9 @@ pub struct DerivedConfig<T> {
     pub(crate) decimation_stages: usize,
     /// FIR coefficients shared by every decimation stage (empty when `decimation_stages == 0`).
     pub(crate) decimation_taps: Vec<T>,
-    /// Whether to use the optional `f128`-precision FFT backend.
-    pub(crate) f128: bool,
+    /// High-precision FFT backend selection; see [`Config::high_precision`].
+    #[cfg(feature = "high_precision")]
+    pub(crate) high_precision: Option<HighPrecision>,
     /// Strategy used to synthesize missing start/stop-edge samples; see [`Config::extrapolation`].
     pub(crate) extrapolation: Extrapolation,
 }
@@ -702,6 +721,17 @@ impl<T> DerivedConfig<T> {
     #[inline]
     pub(crate) fn raw_input_chunk_frames(&self) -> usize {
         self.input_chunk_frames << self.decimation_stages
+    }
+
+    /// Whether a high-precision FFT backend is selected (always `false` without the
+    /// `high_precision` feature).
+    #[cfg(feature = "gpu")]
+    #[inline]
+    pub(crate) fn uses_high_precision(&self) -> bool {
+        #[cfg(feature = "high_precision")]
+        return self.high_precision.is_some();
+        #[cfg(not(feature = "high_precision"))]
+        return false;
     }
 }
 
@@ -758,11 +788,6 @@ where
             Vec::new()
         };
 
-        #[cfg(feature = "f128")]
-        let f128 = config.f128;
-        #[cfg(not(feature = "f128"))]
-        let f128 = false;
-
         Self {
             input_sample_rate: config.input_sample_rate,
             output_sample_rate: config.output_sample_rate,
@@ -775,7 +800,8 @@ where
             spectral,
             decimation_stages,
             decimation_taps,
-            f128,
+            #[cfg(feature = "high_precision")]
+            high_precision: config.high_precision,
             extrapolation: config.extrapolation,
         }
     }
@@ -1078,38 +1104,35 @@ mod tests {
         assert!(config.derive_config::<f64>().is_ok());
     }
 
-    #[cfg(feature = "f128")]
+    #[cfg(feature = "high_precision")]
+    const ALL_HIGH_PRECISION: [HighPrecision; 3] = [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256];
+
+    #[cfg(feature = "high_precision")]
     #[test]
-    fn rejects_f128_for_f32_derived_config() {
-        let config = Config {
-            input_sample_rate: 48_000,
-            output_sample_rate: 48_000,
-            f128: true,
-            ..Config::default()
-        };
-        assert!(matches!(
-            config.derive_config::<f32>(),
-            Err(Error::F128IncompatibleWithF32)
-        ));
+    fn rejects_high_precision_for_f32_derived_config() {
+        for precision in ALL_HIGH_PRECISION {
+            let config = Config::new(48_000, 48_000, 2).with_high_precision(Some(precision));
+            assert!(matches!(
+                config.derive_config::<f32>(),
+                Err(Error::HighPrecisionIncompatibleWithF32)
+            ));
+        }
     }
 
-    #[cfg(feature = "f128")]
+    #[cfg(feature = "high_precision")]
     #[test]
-    fn allows_f128_for_f64_derived_config() {
-        let config = Config {
-            input_sample_rate: 48_000,
-            output_sample_rate: 48_000,
-            f128: true,
-            ..Config::default()
-        };
-        assert!(config.derive_config::<f64>().unwrap().f128);
+    fn allows_high_precision_for_f64_derived_config() {
+        for precision in ALL_HIGH_PRECISION {
+            let config = Config::new(48_000, 48_000, 2).with_high_precision(Some(precision));
+            assert_eq!(config.derive_config::<f64>().unwrap().high_precision, Some(precision));
+        }
     }
 
-    #[cfg(feature = "f128")]
+    #[cfg(feature = "high_precision")]
     #[test]
-    fn leaves_f128_disabled_for_default_f64_derived_config() {
+    fn leaves_high_precision_disabled_for_default_f64_derived_config() {
         let config = Config::new(48_000, 48_000, 2);
-        assert!(!config.derive_config::<f64>().unwrap().f128);
+        assert_eq!(config.derive_config::<f64>().unwrap().high_precision, None);
     }
 
     #[test]

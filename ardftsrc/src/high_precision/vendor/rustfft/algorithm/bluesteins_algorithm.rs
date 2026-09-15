@@ -3,8 +3,8 @@ use std::sync::Arc;
 use num_complex::Complex;
 use num_traits::Zero;
 
-use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
+use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// Implementation of Bluestein's Algorithm
 ///

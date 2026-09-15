@@ -1,5 +1,5 @@
 //! Scalar-only FFT engine vendored and trimmed from `rustfft` 6.4.1 (MIT OR Apache-2.0). See
-//! `f128_fft::vendor` module docs for why this is vendored rather than depended on.
+//! `high_precision::vendor` module docs for why this is vendored rather than depended on.
 //!
 //! ## What's kept vs. dropped from upstream
 //!
@@ -7,17 +7,18 @@
 //! Bluestein's algorithm selection and implementations (`plan.rs`, `algorithm/*.rs`), which
 //! already handle arbitrary (non-power-of-two) FFT sizes correctly and are the hard part to get
 //! right. Dropped: the AVX/SSE/NEON/WASM SIMD backends and the `FftPlanner` dispatch wrapper
-//! around them (`FftPlannerScalar` is used directly instead) -- `f128` arithmetic isn't a
-//! hardware-vectorizable primitive, so there's nothing for those to accelerate here. Also dropped:
+//! around them (`FftPlannerScalar` is used directly instead) -- high-precision arithmetic isn't
+//! a hardware-vectorizable primitive, so there's nothing for those to accelerate here. Also dropped:
 //! upstream's own `#[cfg(test)]` unit tests, which depend on upstream's internal `test_utils`
 //! module (needs `rand`) that wasn't worth vendoring just for that -- correctness here is instead
-//! covered by `f128_fft::real`'s tests, which exercise this engine through the real-FFT layer.
+//! covered by `high_precision::real`'s tests, which exercise this engine through the real-FFT layer.
 //!
 //! Two other changes from upstream, both isolated and mechanical:
 //! - `common::FftNum` gained a `twiddle()` method in place of the original blanket impl; concrete
 //!   impls are provided for `f32`/`f64` (matching upstream's behavior exactly, kept only so this
 //!   vendored engine can be cross-checked against real `rustfft` output at matching precision) and
-//!   for `F128` (genuinely `f128`-precision). See `common.rs` for the full rationale.
+//!   for each high-precision type in `high_precision::numeric` (at that type's full precision).
+//!   See `common.rs` for the full rationale.
 //! - The two hardcoded `sqrt(1/2)` butterfly constants in `algorithm/butterflies.rs` now go
 //!   through `compute_twiddle` (`cos(pi/4) == sqrt(1/2)`) instead of `T::from_f64`, for the same
 //!   reason.

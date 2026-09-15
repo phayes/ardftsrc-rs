@@ -46,9 +46,9 @@ pub enum GpuError {
     #[error("GPU decimation is not yet supported")]
     DecimationUnsupported,
 
-    /// `f128` (quad precision) was requested on the GPU backend, which never supports it.
-    #[error("f128 is not supported on the GPU backend")]
-    F128UnsupportedOnGpu,
+    /// A high-precision FFT backend was requested on the GPU backend, which never supports it.
+    #[error("high_precision is not supported on the GPU backend")]
+    HighPrecisionUnsupportedOnGpu,
 
     /// A GPU core method was called in a state that does not allow it (for example, polling
     /// output on a slot that was never submitted).

@@ -1,4 +1,4 @@
-//! Third-party code vendored for the [`F128`](super::numeric::F128)-precision FFT engine, one
+//! Third-party code vendored for the high-precision FFT engines, one
 //! subdirectory per upstream crate (named after it, license noted in each subdirectory's module
 //! docs). Nothing here is depended on via Cargo -- see below for why.
 //!
@@ -8,9 +8,9 @@
 //!   the angle and taking its `sin`/`cos` in plain `f64`, then converting into whatever
 //!   `T: FftNum` the caller asked for. That means a generic `T` never actually gets more than
 //!   `f64` precision, no matter how much precision `T` itself can represent -- so implementing
-//!   `FftNum` for `F128` and handing it to the real `rustfft` crate would silently cap accuracy at
-//!   `f64` while still paying for the extra arithmetic cost. Getting an actual precision benefit
-//!   out of an `f128` type requires generating twiddles in that type's own precision, which is the
+//!   `FftNum` for a high-precision type and handing it to the real `rustfft` crate would silently
+//!   cap accuracy at `f64` while still paying for the extra arithmetic cost. Getting an actual
+//!   precision benefit requires generating twiddles in that type's own precision, which is the
 //!   one thing changed here (`rustfft::common::FftNum::twiddle`).
 //! - [`realfft`] -- the real-input/real-output FFT layer built on top of `rustfft` (MIT). Carries
 //!   the same one-function fix as `rustfft`, for the same reason.

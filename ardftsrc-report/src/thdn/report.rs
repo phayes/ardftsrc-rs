@@ -29,10 +29,38 @@ pub const DEFAULT_RATE_PAIRS: &[(usize, usize)] = &[
 ];
 pub const DEFAULT_PRESETS: &[Preset] = &Preset::ALL;
 
-#[cfg(feature = "f128")]
-pub const F128_VARIANTS: &[bool] = &[false, true];
-#[cfg(not(feature = "f128"))]
-pub const F128_VARIANTS: &[bool] = &[false];
+/// FFT backend a sweep case ran with: the default `realfft` backend or one of ardftsrc's
+/// high-precision backends. Always available (unlike `ardftsrc::HighPrecision`) so reports
+/// deserialize regardless of which features this build has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HighPrecisionVariant {
+    Off,
+    DoubleDouble,
+    F128,
+    F256,
+}
+
+impl std::fmt::Display for HighPrecisionVariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Off => "off",
+            Self::DoubleDouble => "double_double",
+            Self::F128 => "f128",
+            Self::F256 => "f256",
+        })
+    }
+}
+
+#[cfg(feature = "high_precision")]
+pub const HIGH_PRECISION_VARIANTS: &[HighPrecisionVariant] = &[
+    HighPrecisionVariant::Off,
+    HighPrecisionVariant::DoubleDouble,
+    HighPrecisionVariant::F128,
+    HighPrecisionVariant::F256,
+];
+#[cfg(not(feature = "high_precision"))]
+pub const HIGH_PRECISION_VARIANTS: &[HighPrecisionVariant] = &[HighPrecisionVariant::Off];
 
 /// `Config::decimate`'s pre-decimation stage only ever engages when downsampling by at
 /// least 4x (see its docs); below that it's a documented no-op. So rate pairs under that
@@ -58,21 +86,31 @@ pub fn planned_case_count(
     amplitudes_dbfs: &[f64],
 ) -> usize {
     let decimate_cases: usize = rate_pairs.iter().map(|&(i, o)| decimate_variants(i, o).len()).sum();
-    decimate_cases * presets.len() * F128_VARIANTS.len() * frequencies_hz.len() * amplitudes_dbfs.len()
+    decimate_cases * presets.len() * HIGH_PRECISION_VARIANTS.len() * frequencies_hz.len() * amplitudes_dbfs.len()
 }
 
-#[cfg(feature = "f128")]
-fn config_with_f128(config: Config, f128: bool) -> Config {
-    config.with_f128(f128)
+#[cfg(feature = "high_precision")]
+fn config_with_high_precision(config: Config, high_precision: HighPrecisionVariant) -> Config {
+    use ardftsrc::HighPrecision;
+    config.with_high_precision(match high_precision {
+        HighPrecisionVariant::Off => None,
+        HighPrecisionVariant::DoubleDouble => Some(HighPrecision::DoubleDouble),
+        HighPrecisionVariant::F128 => Some(HighPrecision::F128),
+        HighPrecisionVariant::F256 => Some(HighPrecision::F256),
+    })
 }
 
-#[cfg(not(feature = "f128"))]
-fn config_with_f128(config: Config, f128: bool) -> Config {
-    assert!(!f128, "f128 requested but this build has no `f128` feature");
+#[cfg(not(feature = "high_precision"))]
+fn config_with_high_precision(config: Config, high_precision: HighPrecisionVariant) -> Config {
+    assert_eq!(
+        high_precision,
+        HighPrecisionVariant::Off,
+        "high_precision requested but this build has no `high_precision` feature"
+    );
     config
 }
 
-/// THD+N and related measurements for one (rate pair, decimate, preset, f128,
+/// THD+N and related measurements for one (rate pair, decimate, preset, high_precision,
 /// frequency, amplitude) combination.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CaseResult {
@@ -83,7 +121,7 @@ pub struct CaseResult {
     /// [`decimation_eligible`]).
     pub decimate: bool,
     pub preset: Preset,
-    pub f128: bool,
+    pub high_precision: HighPrecisionVariant,
     pub freq_hz: f64,
     pub amplitude_dbfs: f64,
     /// THD+N over the full DC-Nyquist bandwidth (time-domain sine fit, no FFT).
@@ -114,12 +152,12 @@ pub fn run_case(
     input_rate: usize,
     output_rate: usize,
     preset: Preset,
-    f128: bool,
+    high_precision: HighPrecisionVariant,
     decimate: bool,
     freq_hz: f64,
     amplitude_dbfs: f64,
 ) -> CaseResult {
-    let config = config_with_f128(preset.base_config(), f128)
+    let config = config_with_high_precision(preset.base_config(), high_precision)
         .with_input_rate(input_rate)
         .with_output_rate(output_rate)
         .with_channels(1)
@@ -168,7 +206,7 @@ pub fn run_case(
         output_rate,
         decimate,
         preset,
-        f128,
+        high_precision,
         freq_hz,
         amplitude_dbfs,
         thdn_broadband_db: fit.thdn_db,
@@ -192,11 +230,11 @@ pub fn run_sweep<F: FnMut(&CaseResult)>(
     for &(input_rate, output_rate) in rate_pairs {
         for &decimate in decimate_variants(input_rate, output_rate) {
             for &preset in presets {
-                for &f128 in F128_VARIANTS {
+                for &high_precision in HIGH_PRECISION_VARIANTS {
                     for &freq_hz in frequencies_hz {
                         for &amplitude_dbfs in amplitudes_dbfs {
                             let case =
-                                run_case(input_rate, output_rate, preset, f128, decimate, freq_hz, amplitude_dbfs);
+                                run_case(input_rate, output_rate, preset, high_precision, decimate, freq_hz, amplitude_dbfs);
                             on_case(&case);
                             cases.push(case);
                         }
@@ -271,7 +309,7 @@ impl Report {
     /// Renders a human-readable Markdown *section* (no document title, and no preset
     /// configuration table -- both are the embedding caller's responsibility, since this
     /// is only ever embedded under a preset-scoped report's own title): a worst-case
-    /// summary table followed by one detailed table per (rate pair, preset, f128)
+    /// summary table followed by one detailed table per (rate pair, preset, high_precision)
     /// configuration. Headings start at `###` on the assumption the caller has already
     /// printed an enclosing `##` heading for this section.
     pub fn to_markdown(&self) -> String {
@@ -292,12 +330,12 @@ impl Report {
         );
         let _ = writeln!(out);
 
-        // Group consecutive cases by (rate pair, decimate, preset, f128); run_sweep
+        // Group consecutive cases by (rate pair, decimate, preset, high_precision); run_sweep
         // always emits cases in exactly this grouping, so a simple key-change scan
         // reconstructs it.
-        let mut groups: Vec<(usize, usize, bool, Preset, bool)> = Vec::new();
+        let mut groups: Vec<(usize, usize, bool, Preset, HighPrecisionVariant)> = Vec::new();
         for c in &self.cases {
-            let key = (c.input_rate, c.output_rate, c.decimate, c.preset, c.f128);
+            let key = (c.input_rate, c.output_rate, c.decimate, c.preset, c.high_precision);
             if groups.last() != Some(&key) {
                 groups.push(key);
             }
@@ -306,12 +344,12 @@ impl Report {
         let _ = writeln!(out, "### Summary (worst case per configuration)");
         let _ = writeln!(out);
         // Sorted (stably) by preset so every preset's rows sit together, grouped across
-        // rate pairs/decimate/f128 rather than the other way around.
+        // rate pairs/decimate/high_precision rather than the other way around.
         let mut by_preset = groups.clone();
         by_preset.sort_by_key(|&(_, _, _, preset, _)| preset);
         let summary_rows: Vec<Vec<String>> = by_preset
             .iter()
-            .map(|&(input_rate, output_rate, decimate, preset, f128)| {
+            .map(|&(input_rate, output_rate, decimate, preset, high_precision)| {
                 let group: Vec<&CaseResult> = self
                     .cases
                     .iter()
@@ -320,7 +358,7 @@ impl Report {
                             && c.output_rate == output_rate
                             && c.decimate == decimate
                             && c.preset == preset
-                            && c.f128 == f128
+                            && c.high_precision == high_precision
                     })
                     .collect();
                 let worst_broadband = worst_db(group.iter().map(|c| c.thdn_broadband_db));
@@ -330,7 +368,7 @@ impl Report {
                 vec![
                     format!("{input_rate} -> {output_rate}"),
                     decimate.to_string(),
-                    f128.to_string(),
+                    high_precision.to_string(),
                     format!("{worst_broadband:.2}"),
                     format!("{worst_audio_band:.2}"),
                     format_gain_error_db(worst_gain_error),
@@ -345,7 +383,7 @@ impl Report {
                 &[
                     ("Rate pair", Alignment::left()),
                     ("Decimate", Alignment::left()),
-                    ("f128", Alignment::left()),
+                    ("high_precision", Alignment::left()),
                     ("Worst broadband THD+N (dB)", Alignment::right()),
                     ("Worst audio-band THD+N (dB)", Alignment::right()),
                     ("Worst gain error (dB)", Alignment::right()),
@@ -363,10 +401,10 @@ impl Report {
             ("Gain error (dB)", Alignment::right()),
             ("Max spur (dB @ Hz)", Alignment::right()),
         ];
-        for &(input_rate, output_rate, decimate, preset, f128) in &groups {
+        for &(input_rate, output_rate, decimate, preset, high_precision) in &groups {
             let _ = writeln!(
                 out,
-                "### {input_rate} -> {output_rate}, decimate={decimate}, f128={f128}"
+                "### {input_rate} -> {output_rate}, decimate={decimate}, high_precision={high_precision}"
             );
             let _ = writeln!(out);
             let detail_rows: Vec<Vec<String>> = self
@@ -377,7 +415,7 @@ impl Report {
                         && c.output_rate == output_rate
                         && c.decimate == decimate
                         && c.preset == preset
-                        && c.f128 == f128
+                        && c.high_precision == high_precision
                 })
                 .map(|c| {
                     vec![

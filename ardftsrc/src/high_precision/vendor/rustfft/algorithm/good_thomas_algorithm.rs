@@ -1,14 +1,14 @@
 use std::cmp::max;
 use std::sync::Arc;
 
-use crate::f128_fft::vendor::strength_reduce::StrengthReducedUsize;
-use crate::f128_fft::vendor::transpose;
+use crate::high_precision::vendor::strength_reduce::StrengthReducedUsize;
+use crate::high_precision::vendor::transpose;
 use num_complex::Complex;
 use num_integer::Integer;
 
-use crate::f128_fft::vendor::rustfft::array_utils;
-use crate::f128_fft::vendor::rustfft::{Direction, Fft, Length};
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum};
+use crate::high_precision::vendor::rustfft::array_utils;
+use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum};
 
 /// Implementation of the [Good-Thomas Algorithm (AKA Prime Factor Algorithm)](https://en.wikipedia.org/wiki/Prime-factor_FFT_algorithm)
 ///

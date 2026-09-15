@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::f128_fft::vendor::rustfft::common::RadixFactor;
-use crate::f128_fft::vendor::rustfft::{FftDirection, common::FftNum, fft_cache::FftCache};
+use crate::high_precision::vendor::rustfft::common::RadixFactor;
+use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, fft_cache::FftCache};
 
-use crate::f128_fft::vendor::rustfft::Fft;
-use crate::f128_fft::vendor::rustfft::algorithm::butterflies::*;
-use crate::f128_fft::vendor::rustfft::algorithm::*;
+use crate::high_precision::vendor::rustfft::Fft;
+use crate::high_precision::vendor::rustfft::algorithm::butterflies::*;
+use crate::high_precision::vendor::rustfft::algorithm::*;
 
-use crate::f128_fft::vendor::rustfft::math_utils::PrimeFactors;
+use crate::high_precision::vendor::rustfft::math_utils::PrimeFactors;
 
 // Vendored+trimmed from rustfft 6.4.1's `plan.rs`: only the SIMD-free `FftPlannerScalar` path is
-// kept (see `f128_fft` module docs for why) -- the AVX/SSE/NEON/WASM planner variants and the
+// kept (see `high_precision` module docs for why) -- the AVX/SSE/NEON/WASM planner variants and the
 // `FftPlanner` dispatch wrapper around them are intentionally not ported.
 fn gcd(mut a: usize, mut b: usize) -> usize {
     while b != 0 {
@@ -127,7 +127,7 @@ impl Recipe {
 /// RustFFT has several FFT algorithms available. For a given FFT size, the `FftPlannerScalar` decides which of the
 /// available FFT algorithms to use and then initializes them.
 ///
-/// Use `FftPlannerScalar` instead of [`FftPlanner`](crate::f128_fft::vendor::rustfft::FftPlanner) or [`FftPlannerAvx`](crate::f128_fft::vendor::rustfft::FftPlannerAvx) when you want to explicitly opt out of using any SIMD-accelerated algorithms.
+/// Use `FftPlannerScalar` instead of [`FftPlanner`](crate::high_precision::vendor::rustfft::FftPlanner) or [`FftPlannerAvx`](crate::high_precision::vendor::rustfft::FftPlannerAvx) when you want to explicitly opt out of using any SIMD-accelerated algorithms.
 ///
 /// ~~~
 /// // Perform a forward Fft of size 1234

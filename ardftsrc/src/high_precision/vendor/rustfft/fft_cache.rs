@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::f128_fft::vendor::rustfft::{Fft, FftDirection};
+use crate::high_precision::vendor::rustfft::{Fft, FftDirection};
 
 pub(crate) struct FftCache<T> {
     forward_cache: HashMap<usize, Arc<dyn Fft<T>>>,

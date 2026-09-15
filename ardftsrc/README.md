@@ -278,7 +278,7 @@ resampling geometry, and chunk-group count before accepting it.
 | `neon`         | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
 | `wasm_simd`    | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
-| `f128`         | Quad (`f128`, ~113-bit) precision FFT for extreme quality. Requires nightly `rustc`. | No      |
+| `high_precision` | Double-double, `f128`, and `f256` precision FFT backends for extreme quality      | No      |
 | `gpu`          | Experimental Vulkan GPU backend and serializable compiled shaders                | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
