@@ -41,3 +41,8 @@ rustc_apfloat = "=0.2.3"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
