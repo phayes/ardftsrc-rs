@@ -51,4 +51,21 @@ impl HighPrecisionFloat for Dd {
     }
 }
 
-impl_high_precision_newtype!(Dd, |value| value);
+impl_high_precision_newtype!(Dd, |value| value, div = div);
+
+/// Double-double division by Joldes et al. (2017) Algorithm 17 (relative error below `15u^2`).
+///
+/// `twofloat`'s own `TwoFloat / TwoFloat` (Algorithm 18) forms the reciprocal residual
+/// `1 - y.hi * (1 / y.hi)` with a plain `f64` multiply rather than an FMA, so the residual
+/// usually rounds to zero and the quotient is only `f64`-accurate (e.g. `1 / 3` has a zero low
+/// word). This version relies only on `twofloat`'s `TwoFloat * f64` (Algorithm 9), which is exact
+/// to double-double precision.
+fn div(x: TwoFloat, y: TwoFloat) -> TwoFloat {
+    let th = x.hi() / y.hi();
+    let r = y * th;
+    let pi_h = x.hi() - r.hi();
+    let delta_l = x.lo() - r.lo();
+    let delta = pi_h + delta_l;
+    let tl = delta / y.hi();
+    TwoFloat::new_add(th, tl)
+}

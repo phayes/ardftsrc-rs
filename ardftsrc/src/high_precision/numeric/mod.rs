@@ -64,12 +64,38 @@ pub(crate) fn twiddle_factor<T: HighPrecisionFloat>(
 ///
 /// `$finish` maps the inner type's binary-operator output back to the inner type (identity for
 /// most types; `.value` for `rustc_apfloat`, whose operators return `StatusAnd<T>`).
+///
+/// The `div = $div` form replaces the inner type's `/` with `$div(lhs, rhs) -> inner`, for inner
+/// types whose own division falls short of their precision.
 macro_rules! impl_high_precision_newtype {
     ($ty:ident, $finish:expr) => {
+        impl_high_precision_newtype!(@binop $ty, $finish, Div, div, DivAssign, div_assign, /);
+        impl_high_precision_newtype!(@common $ty, $finish);
+    };
+
+    ($ty:ident, $finish:expr, div = $div:path) => {
+        impl ::std::ops::Div for $ty {
+            type Output = $ty;
+            #[inline]
+            fn div(self, rhs: $ty) -> $ty {
+                $ty($div(self.0, rhs.0))
+            }
+        }
+
+        impl ::std::ops::DivAssign for $ty {
+            #[inline]
+            fn div_assign(&mut self, rhs: $ty) {
+                *self = *self / rhs;
+            }
+        }
+
+        impl_high_precision_newtype!(@common $ty, $finish);
+    };
+
+    (@common $ty:ident, $finish:expr) => {
         impl_high_precision_newtype!(@binop $ty, $finish, Add, add, AddAssign, add_assign, +);
         impl_high_precision_newtype!(@binop $ty, $finish, Sub, sub, SubAssign, sub_assign, -);
         impl_high_precision_newtype!(@binop $ty, $finish, Mul, mul, MulAssign, mul_assign, *);
-        impl_high_precision_newtype!(@binop $ty, $finish, Div, div, DivAssign, div_assign, /);
         impl_high_precision_newtype!(@binop $ty, $finish, Rem, rem, RemAssign, rem_assign, %);
 
         impl ::std::ops::Neg for $ty {
