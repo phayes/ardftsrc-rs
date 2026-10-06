@@ -122,6 +122,21 @@ set before `process_chunk_final(...)`.
 This enables live gapless handoff: while track A is streaming, once track B is known you can
 call `post(...)` on A with B's head samples so A's stop-edge uses real next-track context.
 
+### When `pre` and `post` are not set
+
+Missing edge samples are synthesized with [`Extrapolation`](https://docs.rs/ardftsrc/latest/ardftsrc/enum.Extrapolation.html), set with [`Config::with_extrapolation`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_extrapolation). Passed `pre` and `post` samples are used first, and extrapolation fills any remainder. A missing start edge is predicted backward from the first chunk. A missing stop edge is predicted forward from the last window.
+
+| Strategy | Description |
+| --- | --- |
+| `Extrapolation::Lpc` | Linear prediction from the nearby samples. Default. A diverging prediction fades to silence. |
+| `Extrapolation::OddMirror` | Point-reflects existing samples through the edge sample, so both value and slope stay continuous. |
+| `Extrapolation::Mirror` | Reflects existing samples back across the edge, without repeating the edge sample. The slope reverses at the edge. |
+| `Extrapolation::Zero` | Silence. Can click if the signal near the extrapolation edge is not near zero. |
+
+```rust
+let config = ardftsrc::PRESET_GOOD.with_extrapolation(ardftsrc::Extrapolation::Mirror);
+```
+
 ## Realtime Resampling
 
 ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via [`RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) (`rodio` feature) and the ability to build your own custom realtime audio resampling pipeline via [`RealtimeResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RealtimeResampler.html). 
@@ -345,3 +360,4 @@ AI use is allowed for the following:
 
 1. Add bindings to other languages, python, cpp, c#, ts (wasm) etc.
 2. Investigate why the optional audioadapter interface appears to be much slower than other paths.
+3. Add an optional raised-cosine fade on extrapolated edge samples, ending where the synthetic span meets the FFT window's zero padding, then re-assess `Extrapolation::OddMirror` with fade as the default. Without a fade, `OddMirror` loses to `Lpc` at start edges, especially on tonal material. A short final chunk only gets `chunk - input_samples` synthetic samples before that padding, so the fade has to account for it.

@@ -13,10 +13,19 @@ pub enum Extrapolation {
     /// divergence guard, which fades to silence rather than letting the recursion blow up.
     #[default]
     Lpc,
+    /// Point reflection through the edge sample: each synthetic sample is `2 * edge - x`, where
+    /// `x` is the sample the same distance inside the edge. Both the value and the slope stay
+    /// continuous across the edge, so the join adds no kink. Spans longer than the available
+    /// history continue as a [`Mirror`](Self::Mirror) of the reflected sequence.
+    OddMirror,
     /// Reflects existing samples back across the edge (whole-sample mirror, no repeated edge
     /// sample), repeating for spans longer than the available history.
+    ///
+    /// The value is continuous across the edge, but the slope reverses there.
     Mirror,
     /// Silence (zero-fill).
+    ///
+    /// Can click if the signal near the extrapolation edge is not near zero.
     Zero,
 }
 
@@ -28,6 +37,7 @@ impl Extrapolation {
         }
         match self {
             Extrapolation::Lpc => lpc::extrapolate_forward(input, extra, ExtrapolateFallback::Hold),
+            Extrapolation::OddMirror => odd_mirror_forward(input, extra),
             Extrapolation::Mirror => mirror_forward(input, extra),
             Extrapolation::Zero => vec![T::zero(); extra],
         }
@@ -66,6 +76,28 @@ fn mirror_forward<T: Float>(input: &[T], extra: usize) -> Vec<T> {
         .collect()
 }
 
+/// Point-reflection continuation: `2 * e - input[n-2], 2 * e - input[n-3], ..., 2 * e - input[0]`
+/// where `e = input[n-1]`. Spans longer than that continue as a whole-sample [`mirror_forward`]
+/// of `input` followed by its reflection, which stays bounded instead of drifting by
+/// `2 * (e - input[0])` per further reflection.
+fn odd_mirror_forward<T: Float>(input: &[T], extra: usize) -> Vec<T> {
+    let n = input.len();
+    if n == 0 {
+        return vec![T::zero(); extra];
+    }
+
+    let edge = input[n - 1];
+    let reflected = extra.min(n - 1);
+    let mut output: Vec<T> = (0..reflected).map(|i| edge + edge - input[n - 2 - i]).collect();
+    if extra > reflected {
+        let mut extended = Vec::with_capacity(n + reflected);
+        extended.extend_from_slice(input);
+        extended.extend_from_slice(&output);
+        output.extend(mirror_forward(&extended, extra - reflected));
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,7 +113,7 @@ mod tests {
     #[test]
     fn forward_and_reverse_return_empty_for_zero_extra() {
         let input = [1.0f64, 2.0, 3.0];
-        for strategy in [Extrapolation::Lpc, Extrapolation::Mirror, Extrapolation::Zero] {
+        for strategy in [Extrapolation::Lpc, Extrapolation::OddMirror, Extrapolation::Mirror, Extrapolation::Zero] {
             assert!(strategy.forward(&input, 0).is_empty());
             assert!(strategy.reverse(&input, 0).is_empty());
         }
@@ -108,6 +140,41 @@ mod tests {
         let mut expected = mirror_forward(&reversed_input, 6);
         expected.reverse();
         assert_eq!(Extrapolation::Mirror.reverse(&input, 6), expected);
+    }
+
+    #[test]
+    fn odd_mirror_reflects_through_the_edge_sample() {
+        let input = [0.0f64, 1.0, 4.0, 5.0];
+        // Edge 5: 2*5 - 4, 2*5 - 1, 2*5 - 0.
+        assert_eq!(odd_mirror_forward(&input, 3), vec![6.0, 9.0, 10.0]);
+    }
+
+    #[test]
+    fn odd_mirror_continues_a_linear_ramp_exactly() {
+        let input: Vec<f64> = (0..8).map(|i| i as f64 * 0.5).collect();
+        let predicted = odd_mirror_forward(&input, 7);
+        let expected: Vec<f64> = (8..15).map(|i| i as f64 * 0.5).collect();
+        assert_eq!(predicted, expected);
+    }
+
+    #[test]
+    fn odd_mirror_mirrors_the_reflected_sequence_past_the_history() {
+        let input = [0.0f64, 1.0, 4.0, 5.0];
+        // Reflection [6, 9, 10], then a whole-sample mirror of [0, 1, 4, 5, 6, 9, 10].
+        let predicted = odd_mirror_forward(&input, 9);
+        assert_eq!(predicted, vec![6.0, 9.0, 10.0, 9.0, 6.0, 5.0, 4.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn odd_mirror_handles_degenerate_inputs() {
+        assert_eq!(odd_mirror_forward::<f64>(&[], 3), vec![0.0; 3]);
+        assert_eq!(odd_mirror_forward(&[5.0f64], 3), vec![5.0; 3]);
+    }
+
+    #[test]
+    fn odd_mirror_reverse_reflects_through_the_first_sample() {
+        let input = [5.0f64, 4.0, 1.0, 0.0];
+        assert_eq!(Extrapolation::OddMirror.reverse(&input, 3), vec![10.0, 9.0, 6.0]);
     }
 
     #[test]

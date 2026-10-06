@@ -339,8 +339,8 @@ where
     /// - Pass one full input chunk from the end of the previous track.
     /// - Query chunk size with `input_buffer_size()`.
     ///
-    /// Shorter buffers are still valid: any missing start context falls back to LPC
-    /// extrapolation. Longer buffers are truncated to fit.
+    /// Shorter buffers are still valid: any missing start context falls back to
+    /// [`Config::extrapolation`](crate::Config::extrapolation). Longer buffers are truncated to fit.
     pub fn pre<'a>(&mut self, pre: Vec<Vec<T>>) -> Result<(), Error> {
         if pre.len() != self.config.channels {
             return Err(Error::WrongChannelCount {
@@ -379,8 +379,8 @@ where
     /// - Pass one full input chunk from the start of the next track.
     /// - Query chunk size with `input_buffer_size()`.
     ///
-    /// Shorter buffers are still valid: any missing stop context falls back to LPC
-    /// extrapolation.
+    /// Shorter buffers are still valid: any missing stop context falls back to
+    /// [`Config::extrapolation`](crate::Config::extrapolation).
     pub fn post<'a>(&mut self, post: Vec<Vec<T>>) -> Result<(), Error> {
         if post.len() != self.config.channels {
             return Err(Error::WrongChannelCount {

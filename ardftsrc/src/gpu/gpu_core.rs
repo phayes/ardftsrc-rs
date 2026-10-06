@@ -1406,8 +1406,8 @@ mod tests {
     }
 
     #[test]
-    fn mirror_and_zero_extrapolation_avoid_lpc_gpu_divergence() {
-        for strategy in [Extrapolation::Mirror, Extrapolation::Zero] {
+    fn non_lpc_extrapolation_avoids_lpc_gpu_divergence() {
+        for strategy in [Extrapolation::Mirror, Extrapolation::OddMirror, Extrapolation::Zero] {
             let err = max_batch_error_no_context(44_100, 96_000, 44_100 + 777, strategy);
             assert!(
                 err < 1e-3,
@@ -1419,12 +1419,12 @@ mod tests {
     /// Documents a known, not-yet-root-caused issue (see project memory): with no `pre`/`post`
     /// context, `Extrapolation::Lpc`'s tail window -- bit-identical between the CPU and GPU cores
     /// (same shared `crate::window`/`crate::extrapolation` code, same input) -- produces a much
-    /// larger GPU-vs-CPU divergence than the same rate ratio with `Mirror`/`Zero` content (see
-    /// [`mirror_and_zero_extrapolation_avoid_lpc_gpu_divergence`], which stays within 1e-3). Since
+    /// larger GPU-vs-CPU divergence than the same rate ratio with `OddMirror`/`Mirror`/`Zero` content (see
+    /// [`non_lpc_extrapolation_avoids_lpc_gpu_divergence`], which stays within 1e-3). Since
     /// the window content is identical either way, this points at a real precision gap
     /// specifically in how vkfft-rs's generated shader FFT handles this particular window's
     /// content on the GPU, not a general windowing/buffer bug. Real usage should prefer supplying
-    /// real `pre`/`post` context, or `Extrapolation::Mirror`/`Zero`, until this is root-caused.
+    /// real `pre`/`post` context, or a non-LPC `Extrapolation`, until this is root-caused.
     /// This test asserts the bug is still present so a fix gets noticed (and this test updated)
     /// rather than silently regressing back to a large, unexplained error.
     #[test]

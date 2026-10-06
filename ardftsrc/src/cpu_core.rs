@@ -183,8 +183,8 @@ where
     /// - Pass one full input chunk from the end of the previous track.
     /// - Query chunk size with [`input_chunk_samples()`](Self::input_chunk_samples), or [`input_buffer_size()`](Self::input_buffer_size).
     ///
-    /// Shorter buffers are still valid: any missing start context falls back to LPC
-    /// extrapolation.
+    /// Shorter buffers are still valid: any missing start context falls back to
+    /// [`Config::extrapolation`](crate::Config::extrapolation).
     #[inline]
     pub fn pre(&mut self, pre: Vec<T>) {
         let pre = self.decimate_context(&pre);
@@ -204,8 +204,8 @@ where
     /// - Pass one full input chunk from the start of the next track.
     /// - Query chunk size with [`input_chunk_samples()`](Self::input_chunk_samples), or [`input_buffer_size()`](Self::input_buffer_size).
     ///
-    /// Shorter buffers are still valid: any missing stop context falls back to LPC
-    /// extrapolation.
+    /// Shorter buffers are still valid: any missing stop context falls back to
+    /// [`Config::extrapolation`](crate::Config::extrapolation).
     #[inline]
     pub fn post(&mut self, post: Vec<T>) {
         let post = self.decimate_context(&post);
