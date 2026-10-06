@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc_logo.png" alt="ARDFTSRC logo" width="128">
+  <img src="https://raw.githubusercontent.com/phayes/ardftsrc-rs/refs/heads/master/ardftsrc_logo.png" alt="ARDFTSRC logo" width="128">
 </p>
 
 # ARDFTSRC
