@@ -223,7 +223,7 @@ let config = ardftsrc::PRESET_GOOD
 
 ## Extreme Downsampling Ratios
 
-If you need to support very large downsampling ratios (e.g. 192kHz → 8kHz), set [`.with_decimate(true)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_decimate) to speed things up. It enables a conservative pre-decimator (only at ratios of 4:1 or higher) that applies progressive 2:1 decimations before the main resampling stage. It is designed so the FFT stage still performs at least a genuine 2:1 reduction of its own, and respects the configured bandwidth.
+If you need to support very large downsampling ratios (e.g. 192kHz → 24kHz), set [`.with_decimate(true)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_decimate) to speed things up. It enables a conservative pre-decimator (only at ratios of 4:1 or higher) that applies progressive 2:1 decimations before the main resampling stage. It is designed so it respects the configured bandwidth, and so that the FFT stage still performs at least a genuine 2:1 reduction of its own.
 
 ```rust
 let config = ardftsrc::Config::new(192_000, 8_000, 1).with_decimate(true);
@@ -231,18 +231,9 @@ let config = ardftsrc::Config::new(192_000, 8_000, 1).with_decimate(true);
 
 It's a speed/memory optimization, not a way to reduce buffering or latency — for that, lower `quality` instead. If you do lower `quality` for a large ratio, turn `decimate` on too: it keeps a low-`quality` conversion sounding good at ratios where it would otherwise struggle.
 
-## Transition-Band Aliasing
-
-By default the low-pass transition ends at the lower Nyquist frequency and everything beyond it is suppressed. Setting an [`alias_floor`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#structfield.alias_floor) lets the transition extend past Nyquist, which makes it wider and reduces ringing. Energy in the extended region is folded back (downsampling) or imaged (upsampling), but only down to the floor, and never into the passband set by `bandwidth`. This is similar to SoX's `rate -a`.
-
-```rust
-// Fold only down to where the filter response is -3 dB.
-let config = ardftsrc::Config::new(48_000, 44_100, 2).with_alias_floor_db(-3.0);
-```
-
-This is not the same as removing the low-pass filter: the passband is unchanged, and content above the extended stopband is still suppressed. Alias rejection is intentionally reduced. Pre-decimation stages stay strict.
-
 ## Experimental GPU backend
+
+WARNING: Unvetted unsafe. Experimental use only.
 
 The optional `gpu` feature provides a Vulkan backend. `GpuContext<T>` owns a validated
 resampling configuration, chunk-group shader geometry, and a lazy compiled-shader cache;
@@ -269,16 +260,16 @@ resampling geometry, and chunk-group count before accepting it.
 
 ## Feature Flags
 
-| Flag           | Enables                                                                           | Default |
-| -------------- | --------------------------------------------------------------------------------- | ------- |
-| `rodio`        | [`rodio`](https://crates.io/crates/rodio) integration via [`rodio::RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) | No      |
-| `rayon`        | Parallelized resampling (`batch()` and `process_all()` APIs)                      | No      |
-| `avx`          | FFT AVX SIMD                                                                      | Yes     |
-| `sse`          | FFT SSE SIMD                                                                      | Yes     |
-| `neon`         | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
-| `wasm_simd`    | FFT WebAssembly SIMD                                                              | Yes     |
-| `audioadapter` | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
+| Flag             | Enables                                                                           | Default |
+| ---------------- | --------------------------------------------------------------------------------- | ------- |
+| `rodio`          | [`rodio`](https://crates.io/crates/rodio) integration via [`rodio::RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) | No      |
+| `rayon`          | Parallelized resampling (`batch()` and `process_all()` APIs)                      | No      |
+| `avx`            | FFT AVX SIMD                                                                      | Yes     |
+| `sse`            | FFT SSE SIMD                                                                      | Yes     |
+| `neon`           | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
+| `wasm_simd`      | FFT WebAssembly SIMD                                                              | Yes     |
+| `audioadapter`   | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
 | `high_precision` | Double-double, `f128`, and `f256` precision FFT backends for extreme quality      | No      |
-| `gpu`          | Experimental Vulkan GPU backend and serializable compiled shaders                | No      |
+| `gpu`            | Experimental GPU FFT backend - has unvetted unsafe                                | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
