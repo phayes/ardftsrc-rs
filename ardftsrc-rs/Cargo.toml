@@ -5,8 +5,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 homepage = "https://github.com/phayes/ardftsrc-rs"
-description = "Commmandline wav and flac sample-rate converter powered by ardftsrc."
+description = "Command-line wav and flac sample-rate converter powered by ardftsrc."
 
 [dependencies]
 ardftsrc = { path = "../ardftsrc" }
@@ -21,7 +23,7 @@ symphonia.workspace = true
 wavers.workspace = true
 
 [features]
-default = ["avx", "neon", "sse", "wasm_simd", "rayon", "gpu", "high_precision"]
+default = ["avx", "neon", "sse", "wasm_simd", "rayon", "high_precision"]
 bessel = ["ardftsrc/bessel"]
 rayon = ["dep:rayon", "ardftsrc/rayon"]
 avx = ["ardftsrc/avx"]
@@ -29,9 +31,7 @@ neon = ["ardftsrc/neon"]
 sse = ["ardftsrc/sse"]
 wasm_simd = ["ardftsrc/wasm_simd"]
 high_precision = ["ardftsrc/high_precision"]
-gpu = ["ardftsrc/gpu"]
 
-[profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
+# GPU support is unreleased and is not included in the crates.io package.
+# To opt in, clone this repository, uncomment the GPU lines in ../ardftsrc/Cargo.toml, and uncomment the feature below.
+# gpu = ["ardftsrc/gpu"]

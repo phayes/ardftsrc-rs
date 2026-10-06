@@ -20,15 +20,16 @@ mod window;
 #[cfg(feature = "high_precision")]
 mod high_precision;
 
-// feature: gpu
-#[cfg(feature = "gpu")]
-mod gpu;
-
-#[cfg(feature = "gpu")]
-pub use gpu::{
-    GpuContext, GpuCore, GpuDevice, GpuDeviceId, GpuDeviceType, GpuError, GpuInfo, GpuPipelineCacheId, GpuShaders,
-    InterleavedGpuResampler, PlanarGpuResampler,
-};
+// GPU support is unreleased and is not included in the crates.io package.
+// To opt in, clone this repository, uncomment the GPU lines in Cargo.toml, and uncomment the lines below.
+// #[cfg(feature = "gpu")]
+// mod gpu;
+//
+// #[cfg(feature = "gpu")]
+// pub use gpu::{
+//     GpuContext, GpuCore, GpuDevice, GpuDeviceId, GpuDeviceType, GpuError, GpuInfo, GpuPipelineCacheId, GpuShaders,
+//     InterleavedGpuResampler, PlanarGpuResampler,
+// };
 
 pub use as_channels::{AsChannels, AsChannelsMut};
 #[cfg(feature = "high_precision")]

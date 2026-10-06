@@ -243,7 +243,6 @@ It's a speed/memory optimization, not a way to reduce buffering or latency — f
 | `wasm_simd`      | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter`   | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
 | `high_precision` | Double-double, `f128` and `f256` FFT backends for extreme quality                 | No      |
-| `gpu`            | Experimental GPU FFT backend - has unvetted unsafe                                | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
 
@@ -253,7 +252,7 @@ The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-r
 
 You can use this as a utility, or use it to benchmark this project.
 
-Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, so `--preset high` and `--preset extreme` are rejected). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. A compatible Vulkan GPU is used automatically when one is available: `f64` needs `shaderFloat64` (not available on Apple GPUs), while `--f32` can run on any real GPU. Pass `--cpu` to force CPU even when a GPU is available. `--gpu-group-chunks` and `--gpu-ring-slots` tune GPU batching (defaults are both 4). Configurations the GPU backend cannot run (`--decimate`, `--high-precision`) stay on CPU. Pass `--high-precision double-double|f128|f256` to use a high-precision FFT backend (much slower; for extreme quality).
+Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, so `--preset high` and `--preset extreme` are rejected). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. Pass `--high-precision double-double|f128|f256` to use a high-precision FFT backend (much slower; for extreme quality).
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
@@ -261,7 +260,7 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset high
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset good --f32
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset extreme \
-    --taper-type beta_cdf --alpha 10 --beta 10 --dd-fft --decimate --phase -0.5
+    --taper-type beta_cdf --alpha 10 --beta 10 --high-precision double-double --decimate --phase -0.5
 ```
 
 ### Additional taper profiles
@@ -306,7 +305,7 @@ Contributions are welcome!
 
 At a high level there are two layers:
 
-- `ArdftsrcCore<T>` is the core DSP engine. It owns FFT and runs the core ARDFTSRC algorithm. It is private.
+- `CpuCore<T>` is the single-channel DSP engine. It owns the FFT and runs the ARDFTSRC algorithm.
 - `PlanarResampler<T>` and `InterleavedResampler<T>` are fixed-size chunk resamplers. They own one `ArdftsrcCore` per channel and expose full-buffer, chunked, and batch processing APIs for planar or interleaved audio.
 - `AdapterResampler<T>` is optional behind the `audioadapter` feature and adapts generic audioadapter inputs and outputs onto the chunk resampling core. Right now there are performance issues with this.
 - `RealtimeResampler<T>` provides arbitrary-size sample buffering for live resampling.

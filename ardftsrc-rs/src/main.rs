@@ -139,7 +139,7 @@ enum AudioContainer {
 #[derive(Debug, Parser)]
 #[command(name = "ardftsrc-rs")]
 #[command(
-    about = "General-purpose wav and flac sample-rate converter powered by ardftsrc. Uses a compatible GPU automatically when available; pass --cpu to force CPU."
+    about = "General-purpose wav and flac sample-rate converter powered by ardftsrc."
 )]
 struct Args {
     /// One or more input audio paths (.wav or .flac).
@@ -219,22 +219,23 @@ struct Args {
     #[arg(long = "f32")]
     use_f32: bool,
 
-    /// Force CPU resampling even when a compatible GPU is available.
-    #[arg(long = "cpu")]
-    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
-    force_cpu: bool,
+    // GPU device selection is unreleased. Uncomment with the GPU lines in Cargo.toml.
+    // /// Force CPU resampling even when a compatible GPU is available.
+    // #[arg(long = "cpu")]
+    // #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    // force_cpu: bool,
 
-    /// FFT chunks combined into each GPU submission. Default is 4. Use 1 for low latency;
-    /// values above 4 may help large offline jobs. Ignored on CPU.
-    #[cfg(feature = "gpu")]
-    #[arg(long = "gpu-group-chunks")]
-    gpu_group_chunks: Option<usize>,
+    // /// FFT chunks combined into each GPU submission. Default is 4. Use 1 for low latency;
+    // /// values above 4 may help large offline jobs. Ignored on CPU.
+    // #[cfg(feature = "gpu")]
+    // #[arg(long = "gpu-group-chunks")]
+    // gpu_group_chunks: Option<usize>,
 
-    /// Reusable GPU work groups in the streaming ring. Default is 4 (also the effective
-    /// minimum). 8 can help when host-to-GPU submission is starved. Ignored on CPU.
-    #[cfg(feature = "gpu")]
-    #[arg(long = "gpu-ring-slots")]
-    gpu_ring_slots: Option<usize>,
+    // /// Reusable GPU work groups in the streaming ring. Default is 4 (also the effective
+    // /// minimum). 8 can help when host-to-GPU submission is starved. Ignored on CPU.
+    // #[cfg(feature = "gpu")]
+    // #[arg(long = "gpu-ring-slots")]
+    // gpu_ring_slots: Option<usize>,
 
     /// Output sample format. For .flac output, float formats are rejected.
     #[arg(long = "out-format", value_enum, default_value_t = OutFormatArg::Same)]
@@ -723,14 +724,14 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if let Some(high_precision) = args.high_precision {
         config.high_precision = Some(high_precision.into());
     }
-    #[cfg(feature = "gpu")]
-    if let Some(gpu_group_chunks) = args.gpu_group_chunks {
-        config.gpu_group_chunks = gpu_group_chunks;
-    }
-    #[cfg(feature = "gpu")]
-    if let Some(gpu_ring_slots) = args.gpu_ring_slots {
-        config.gpu_ring_slots = gpu_ring_slots;
-    }
+    // #[cfg(feature = "gpu")]
+    // if let Some(gpu_group_chunks) = args.gpu_group_chunks {
+    //     config.gpu_group_chunks = gpu_group_chunks;
+    // }
+    // #[cfg(feature = "gpu")]
+    // if let Some(gpu_ring_slots) = args.gpu_ring_slots {
+    //     config.gpu_ring_slots = gpu_ring_slots;
+    // }
 
     if let Some(taper_type) = args.taper_type {
         config.taper_type = match taper_type {
@@ -797,7 +798,7 @@ fn gpu_config_supported(args: &Args) -> bool {
 
 #[cfg(feature = "gpu")]
 fn select_gpu(args: &Args) -> Option<Arc<GpuDevice>> {
-    if args.force_cpu || !gpu_config_supported(args) {
+    if !gpu_config_supported(args) {
         return None;
     }
     match GpuDevice::auto_select_compatible(!args.use_f32) {
@@ -1266,43 +1267,43 @@ mod tests {
         }
     }
 
-    #[test]
-    fn cpu_flag_is_accepted() {
-        let args = Args::try_parse_from([
-            "ardftsrc-rs",
-            "--input",
-            "in.wav",
-            "--output",
-            "out.wav",
-            "--output-rate",
-            "48000",
-            "--cpu",
-        ])
-        .unwrap();
-        assert!(args.force_cpu);
-    }
+    // #[test]
+    // fn cpu_flag_is_accepted() {
+    //     let args = Args::try_parse_from([
+    //         "ardftsrc-rs",
+    //         "--input",
+    //         "in.wav",
+    //         "--output",
+    //         "out.wav",
+    //         "--output-rate",
+    //         "48000",
+    //         "--cpu",
+    //     ])
+    //     .unwrap();
+    //     assert!(args.force_cpu);
+    // }
 
-    #[cfg(feature = "gpu")]
-    #[test]
-    fn gpu_config_flags_apply_to_config() {
-        let args = Args::try_parse_from([
-            "ardftsrc-rs",
-            "--input",
-            "in.wav",
-            "--output",
-            "out.wav",
-            "--output-rate",
-            "48000",
-            "--gpu-group-chunks",
-            "8",
-            "--gpu-ring-slots",
-            "8",
-        ])
-        .unwrap();
-        let config = build_config(&args, 44_100, 2).unwrap();
-        assert_eq!(config.gpu_group_chunks, 8);
-        assert_eq!(config.gpu_ring_slots, 8);
-    }
+    // #[cfg(feature = "gpu")]
+    // #[test]
+    // fn gpu_config_flags_apply_to_config() {
+    //     let args = Args::try_parse_from([
+    //         "ardftsrc-rs",
+    //         "--input",
+    //         "in.wav",
+    //         "--output",
+    //         "out.wav",
+    //         "--output-rate",
+    //         "48000",
+    //         "--gpu-group-chunks",
+    //         "8",
+    //         "--gpu-ring-slots",
+    //         "8",
+    //     ])
+    //     .unwrap();
+    //     let config = build_config(&args, 44_100, 2).unwrap();
+    //     assert_eq!(config.gpu_group_chunks, 8);
+    //     assert_eq!(config.gpu_ring_slots, 8);
+    // }
 
     #[test]
     fn f32_quality_limit_matches_supported_presets() {

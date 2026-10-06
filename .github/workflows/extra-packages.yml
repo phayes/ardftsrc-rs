@@ -45,7 +45,7 @@ jobs:
           VERSION="${TAG#v}"
           ./scripts/build-deb.sh ardftsrc-rs "$VERSION" "${{ matrix.arch }}" \
             extracted/ardftsrc-rs \
-            "Commandline wav and flac sample-rate converter powered by ardftsrc" \
+            "Command-line wav and flac sample-rate converter powered by ardftsrc" \
             "https://github.com/phayes/ardftsrc-rs" \
             extracted
 
@@ -79,7 +79,7 @@ jobs:
           VERSION="${TAG#v}"
           SHA=$(awk '{print $1}' dl/ardftsrc-rs-x86_64-pc-windows-msvc.zip.sha256)
           ./scripts/gen-scoop-manifest.sh ardftsrc-rs "$VERSION" \
-            "Commandline wav and flac sample-rate converter powered by ardftsrc" \
+            "Command-line wav and flac sample-rate converter powered by ardftsrc" \
             "https://github.com/phayes/ardftsrc-rs" \
             "MIT OR Apache-2.0" \
             ardftsrc-rs "$TAG" \

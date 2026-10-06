@@ -231,33 +231,6 @@ let config = ardftsrc::Config::new(192_000, 8_000, 1).with_decimate(true);
 
 It's a speed/memory optimization, not a way to reduce buffering or latency — for that, lower `quality` instead. If you do lower `quality` for a large ratio, turn `decimate` on too: it keeps a low-`quality` conversion sounding good at ratios where it would otherwise struggle.
 
-## Experimental GPU backend
-
-WARNING: Unvetted unsafe. Experimental use only.
-
-The optional `gpu` feature provides a Vulkan backend. `GpuContext<T>` owns a validated
-resampling configuration, chunk-group shader geometry, and a lazy compiled-shader cache;
-`GpuCore<T>` owns the runtime ring depth and streaming state.
-
-`GpuContext::new` automatically selects a preferred compute-capable device. Applications that
-need explicit selection can enumerate `GpuDevice::list()`, retain a returned `GpuDeviceId`, create
-the device with `GpuDevice::new(id)`, and pass it to `GpuContext::with_device`.
-
-```rust,ignore
-use std::sync::Arc;
-
-let config = ardftsrc::Config::new(44_100, 48_000, 2);
-let context = Arc::new(ardftsrc::GpuContext::<f32>::new(config, 4)?);
-let shaders = context.shaders()?;
-std::fs::write("ardftsrc.gpu-shaders", shaders.to_bytes())?;
-let mut core = ardftsrc::GpuCore::new(context, 4)?;
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-On a later run, decode with `GpuShaders::from_bytes` and call
-`GpuContext::load_shaders`. Loading validates the archive against the exact GPU, precision,
-resampling geometry, and chunk-group count before accepting it.
-
 ## Feature Flags
 
 | Flag             | Enables                                                                           | Default |
@@ -270,6 +243,5 @@ resampling geometry, and chunk-group count before accepting it.
 | `wasm_simd`      | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter`   | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
 | `high_precision` | Double-double, `f128`, and `f256` precision FFT backends for extreme quality      | No      |
-| `gpu`            | Experimental GPU FFT backend - has unvetted unsafe                                | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
