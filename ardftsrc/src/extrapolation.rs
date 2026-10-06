@@ -183,7 +183,10 @@ mod tests {
         let expected_forward = lpc::extrapolate_forward(&input, 16, ExtrapolateFallback::Hold);
         assert_eq!(Extrapolation::Lpc.forward(&input, 16), expected_forward);
 
-        let expected_backward = lpc::extrapolate_backward(&input, 16, ExtrapolateFallback::Hold);
+        let mut reversed = input.clone();
+        reversed.reverse();
+        let mut expected_backward = lpc::extrapolate_forward(&reversed, 16, ExtrapolateFallback::Hold);
+        expected_backward.reverse();
         let actual_backward = Extrapolation::Lpc.reverse(&input, 16);
         assert_no_nans(&actual_backward, "extrapolation::lpc_strategy_matches_crate_lpc_module");
         assert_eq!(actual_backward, expected_backward);

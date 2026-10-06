@@ -323,8 +323,8 @@ pub struct Config {
     ///   use grows and throughput may not improve.
     ///
     /// This setting only affects GPU resamplers.
-    #[cfg(feature = "gpu")]
-    pub gpu_group_chunks: usize,
+    // #[cfg(feature = "gpu")]
+    // pub gpu_group_chunks: usize,
 
     /// Number of reusable GPU work groups kept in the streaming ring.
     ///
@@ -338,8 +338,8 @@ pub struct Config {
     /// - Values above `8`: Usually only useful after workload-specific benchmarking.
     ///
     /// This setting only affects GPU resamplers.
-    #[cfg(feature = "gpu")]
-    pub gpu_ring_slots: usize,
+    // #[cfg(feature = "gpu")]
+    // pub gpu_ring_slots: usize,
 
     /// Selects a high-precision FFT backend, or `None` (the default) for the standard `realfft`
     /// backend.
@@ -366,10 +366,10 @@ impl Config {
         extrapolation: Extrapolation::Lpc,
         #[cfg(feature = "rodio")]
         rodio_fast_start: false,
-        #[cfg(feature = "gpu")]
-        gpu_group_chunks: 4,
-        #[cfg(feature = "gpu")]
-        gpu_ring_slots: 4,
+        // #[cfg(feature = "gpu")]
+        // gpu_group_chunks: 4,
+        // #[cfg(feature = "gpu")]
+        // gpu_ring_slots: 4,
         #[cfg(feature = "high_precision")]
         high_precision: None,
     };
@@ -532,23 +532,23 @@ impl Config {
     ///
     /// Use `1` for latency-sensitive realtime resampling. Start with `4` for offline
     /// resampling, and benchmark larger values before adopting them.
-    #[must_use]
-    #[cfg(feature = "gpu")]
-    pub fn with_gpu_group_chunks(mut self, gpu_group_chunks: usize) -> Self {
-        self.gpu_group_chunks = gpu_group_chunks;
-        self
-    }
+    // #[must_use]
+    // #[cfg(feature = "gpu")]
+    // pub fn with_gpu_group_chunks(mut self, gpu_group_chunks: usize) -> Self {
+    //     self.gpu_group_chunks = gpu_group_chunks;
+    //     self
+    // }
 
     /// Sets the number of reusable GPU work groups in the streaming ring.
     ///
     /// Values below `4` are raised to `4`. Use `4` for realtime resampling; for offline
     /// resampling, benchmark `4` and `8` while considering the additional memory used by `8`.
-    #[must_use]
-    #[cfg(feature = "gpu")]
-    pub fn with_gpu_ring_slots(mut self, gpu_ring_slots: usize) -> Self {
-        self.gpu_ring_slots = gpu_ring_slots;
-        self
-    }
+    // #[must_use]
+    // #[cfg(feature = "gpu")]
+    // pub fn with_gpu_ring_slots(mut self, gpu_ring_slots: usize) -> Self {
+    //     self.gpu_ring_slots = gpu_ring_slots;
+    //     self
+    // }
 
     /// EXPERIMENTAL: Enables an optional 2:1 pre-decimation stage ahead of the FFT resampler for very large
     /// downsampling ratios (e.g. 192kHz -> 48kHz).
@@ -617,10 +617,10 @@ impl Config {
             return Err(Error::InvalidQuality(self.quality));
         }
 
-        #[cfg(feature = "gpu")]
-        if self.gpu_group_chunks == 0 {
-            return Err(Error::InvalidGpuGroupChunks(self.gpu_group_chunks));
-        }
+        // #[cfg(feature = "gpu")]
+        // if self.gpu_group_chunks == 0 {
+        //     return Err(Error::InvalidGpuGroupChunks(self.gpu_group_chunks));
+        // }
 
         if !(0.0..=1.0).contains(&self.bandwidth) || !self.bandwidth.is_finite() {
             return Err(Error::InvalidBandwidth(self.bandwidth));
@@ -736,16 +736,15 @@ impl<T> DerivedConfig<T> {
         self.input_chunk_frames << self.decimation_stages
     }
 
-    /// Whether a high-precision FFT backend is selected (always `false` without the
-    /// `high_precision` feature).
-    #[cfg(feature = "gpu")]
-    #[inline]
-    pub(crate) fn uses_high_precision(&self) -> bool {
-        #[cfg(feature = "high_precision")]
-        return self.high_precision.is_some();
-        #[cfg(not(feature = "high_precision"))]
-        return false;
-    }
+    // /// Whether a high-precision FFT backend is selected (always `false` without the `high_precision` feature).
+    //#[inline]
+    //#[cfg(feature = "gpu")]
+    //pub(crate) fn uses_high_precision(&self) -> bool {
+    //    #[cfg(feature = "high_precision")]
+    //    return self.high_precision.is_some();
+    //    #[cfg(not(feature = "high_precision"))]
+    //    return false;
+    //}
 }
 
 impl<T> DerivedConfig<T>

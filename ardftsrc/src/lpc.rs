@@ -233,18 +233,6 @@ where
     output
 }
 
-/// Predict preceding samples by reversing, forward-extrapolating, then reversing back.
-pub(crate) fn extrapolate_backward<T>(input: &[T], extra: usize, fallback: ExtrapolateFallback) -> Vec<T>
-where
-    T: Float,
-{
-    let mut reversed = input.to_vec();
-    reversed.reverse();
-    let mut predicted = extrapolate_forward(&reversed, extra, fallback);
-    predicted.reverse();
-    predicted
-}
-
 /// Estimate damped LPC coefficients via Burg with finite guards.
 pub(crate) fn lpc_coefficients<T>(input: &[T], order: usize, fallback: ExtrapolateFallback) -> Vec<T>
 where
@@ -282,6 +270,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::extrapolation::Extrapolation;
     use crate::test_utils::assert_no_nans;
 
     fn assert_close(actual: &[f64], expected: &[f64], tol: f64) {
@@ -349,7 +338,7 @@ mod tests {
     #[test]
     fn test_extrapolate_backward_length_and_finite() {
         let input: Vec<f64> = (0..32).map(|i| (i as f64 * 0.1).sin()).collect();
-        let predicted = extrapolate_backward(&input, 24, ExtrapolateFallback::Hold);
+        let predicted = Extrapolation::Lpc.reverse(&input, 24);
         assert_no_nans(&predicted, "lpc::test_extrapolate_backward_length_and_finite predicted");
         assert_eq!(predicted.len(), 24);
         assert!(predicted.iter().all(|v| v.is_finite()));
