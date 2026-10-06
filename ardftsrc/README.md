@@ -221,6 +221,26 @@ let config = ardftsrc::PRESET_GOOD
 
 † You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast,  has very high quality metrics, and has lower pre-ringing artefact as compared PRESET_HIGH and PRESET_EXTREME.
 
+## Taper profiles
+
+The cutoff transition is [`TaperType`](https://docs.rs/ardftsrc/latest/ardftsrc/enum.TaperType.html), set with [`Config::with_taper_type`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_taper_type).
+
+| Taper | Description |
+| --- | --- |
+| `TaperType::Cosine(alpha)` | Sigmoid-warped cosine. Default is `Cosine(3.4375)`. |
+| `TaperType::Planck` | Planck taper. |
+| `TaperType::Tanh(alpha)` | Endpoint-normalized hyperbolic tangent. |
+| `TaperType::BetaCdf { alpha, beta }` | Beta cumulative distribution. Equal `alpha` and `beta` are symmetric. |
+| `TaperType::Bessel(alpha)` | Cumulative Bessel-I0. Requires the `bessel` feature. |
+| `TaperType::Kbd(alpha)` | Descending half of a Kaiser–Bessel-derived window. Kaiser beta = π × `alpha`. Requires the `bessel` feature. |
+| `TaperType::HalfKaiser(alpha)` | Descending half-Kaiser, shifted and scaled to reach zero at the stopband. Kaiser beta = π × `alpha`. Requires the `bessel` feature. |
+
+Higher `alpha` makes the transition steeper. `alpha` and `beta` are `f32` and must be finite and greater than zero. For `Cosine`, `1.5` is very smooth and can raise near-Nyquist artifacts, `3.5` balances smoothness and selectivity, and `4.0` is sharper. The default `3.4375` was chosen on the HydrogenAudio SRC suite.
+
+```rust
+let config = ardftsrc::PRESET_GOOD.with_taper_type(ardftsrc::TaperType::Tanh(3.0));
+```
+
 ## Extreme Downsampling Ratios
 
 If you need to support very large downsampling ratios (e.g. 192kHz → 24kHz), set [`.with_decimate(true)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_decimate) to speed things up. It enables a conservative pre-decimator (only at ratios of 4:1 or higher) that applies progressive 2:1 decimations before the main resampling stage. It is designed so it respects the configured bandwidth, and so that the FFT stage still performs at least a genuine 2:1 reduction of its own.

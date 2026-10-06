@@ -263,16 +263,21 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
     --taper-type beta_cdf --alpha 10 --beta 10 --high-precision double-double --decimate --phase -0.5
 ```
 
-### Additional taper profiles
+### Taper profiles
 
-Select `--taper-type tanh --alpha 3` for an endpoint-normalized hyperbolic
-tangent transition. With the `bessel` feature enabled, `--taper-type kbd`
-selects the descending half of a standard Kaiser–Bessel-derived window, and
-`--taper-type half_kaiser` (also `half-kaiser`) selects a descending half-Kaiser
-shifted and scaled to reach zero at the stopband. Both default to `--alpha 6`
-and use Kaiser beta = pi × alpha, like the existing cumulative `bessel` taper.
-The library variants are `TaperType::Tanh(alpha)`, `TaperType::Kbd(alpha)`, and
-`TaperType::HalfKaiser(alpha)`. All require finite, positive alpha.
+`--taper-type` selects the cutoff transition. Omitting it keeps the preset default, `cosine`.
+
+| Taper | Parameters | Description |
+| --- | --- | --- |
+| `cosine` | `--alpha` (default `3.4375`) | Sigmoid-warped cosine. Default taper. |
+| `planck` | — | Planck taper. |
+| `tanh` | `--alpha` (default `3`) | Endpoint-normalized hyperbolic tangent. |
+| `beta_cdf` (`beta-cdf`) | `--alpha` (default `10`), `--beta` (default `10`) | Beta cumulative distribution. Equal `alpha` and `beta` are symmetric. |
+| `bessel` | `--alpha` (default `6`) | Cumulative Bessel-I0. |
+| `kbd` | `--alpha` (default `6`) | Descending half of a Kaiser–Bessel-derived window. Kaiser beta = π × alpha. |
+| `half_kaiser` (`half-kaiser`) | `--alpha` (default `6`) | Descending half-Kaiser, shifted and scaled to reach zero at the stopband. Kaiser beta = π × alpha. |
+
+Higher `alpha` makes the transition steeper. `alpha` and `beta` must be finite and greater than zero.
 
 ## Quality Reporting
 
