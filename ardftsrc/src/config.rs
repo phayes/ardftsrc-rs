@@ -7,7 +7,11 @@ use num_traits::Float;
 ///
 /// You may prefer using a sinc resampler (eg. rubato) instead.
 ///
-/// **HydrogenAudio SRC quality results f32**
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md),
+/// [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0).
+///
+/// **HA-f32**
 /// - Overall Score: 67.98%
 /// - Spectrogram Score: 50.66%
 /// - Aliasing Score: 100%
@@ -18,7 +22,7 @@ use num_traits::Float;
 /// - Gapless Sine Score: 45.58%
 /// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0>
 ///
-/// **HydrogenAudio SRC quality results f64**
+/// **HA-f64**
 /// - Overall Score: 92.69%
 /// - Spectrogram Score: 91.34%
 /// - Aliasing Score: 100%
@@ -49,7 +53,10 @@ pub const PRESET_FAST: Config = Config {
 
 /// Balanced preset for good realtime quality. ***You should probably use this one.***
 ///
-/// **HydrogenAudio SRC quality results f64**
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0).
+///
+/// **HA-f64**
 /// - Overall Score: 97.45%
 /// - Spectrogram Score: 95.61%
 /// - Aliasing Score: 100%
@@ -79,7 +86,10 @@ pub const PRESET_GOOD: Config = Config {
 
 /// High quality preset suitable for offline processing or realtime applications where quality is critical.
 ///
-/// **HydrogenAudio SRC quality results f64**
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0).
+///
+/// **HA-f64**
 /// - Overall Score: 99.26%
 /// - Spectrogram Score: 99.41%
 /// - Aliasing Score: 100%
@@ -109,7 +119,10 @@ pub const PRESET_HIGH: Config = Config {
 
 /// Maximum quality preset, optimized for offline processing. Not recommended for realtime applications.
 ///
-/// **HydrogenAudio SRC quality results f64**
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0).
+///
+/// **HA-f64**
 /// - Overall Score: 99.70%
 /// - Spectrogram Score: 99.64%
 /// - Aliasing Score: 100%
