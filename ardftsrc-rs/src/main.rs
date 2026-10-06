@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(unexpected_cfgs))]
+
 use ardftsrc::{
     AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType,
 };
