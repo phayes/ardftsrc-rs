@@ -18,24 +18,8 @@ use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twidd
 /// The worst case for this algorithm is when (N - 1) is 2 * prime, resulting in a
 /// [Cunningham Chain](https://en.wikipedia.org/wiki/Cunningham_chain)
 ///
-/// ~~~
-/// // Computes a forward FFT of size 1201 (prime number), using Rader's Algorithm
-/// use rustfft::algorithm::RadersAlgorithm;
-/// use rustfft::{Fft, FftPlanner};
-/// use rustfft::num_complex::Complex;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 1201];
-///
-/// // plan a FFT of size n - 1 = 1200
-/// let mut planner = FftPlanner::new();
-/// let inner_fft = planner.plan_fft_forward(1200);
-///
-/// let fft = RadersAlgorithm::new(inner_fft);
-/// fft.process(&mut buffer);
-/// ~~~
-///
 /// Rader's Algorithm is relatively expensive compared to other FFT algorithms. Benchmarking shows that it is up to
-/// an order of magnitude slower than similar composite sizes. In the example size above of 1201, benchmarking shows
+/// an order of magnitude slower than similar composite sizes. At size 1201, benchmarking shows
 /// that it takes 2.5x more time to compute than a FFT of size 1200.
 
 pub struct RadersAlgorithm<T> {

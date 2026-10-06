@@ -15,25 +15,8 @@ use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twidd
 /// power of two -- but if there's a smaller/faster FFT size that satisfies the `>= 2N - 1` requirement, that will significantly
 /// improve this algorithm's overall performance.
 ///
-/// ~~~
-/// // Computes a forward FFT of size 1201, using Bluestein's Algorithm
-/// use rustfft::algorithm::BluesteinsAlgorithm;
-/// use rustfft::{Fft, FftPlanner};
-/// use rustfft::num_complex::Complex;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 1201];
-///
-/// // We need to find an inner FFT whose size is greater than 1201*2 - 1.
-/// // The size 2401 (7^4) satisfies this requirement, while also being relatively fast.
-/// let mut planner = FftPlanner::new();
-/// let inner_fft = planner.plan_fft_forward(2401);
-///
-/// let fft = BluesteinsAlgorithm::new(1201, inner_fft);
-/// fft.process(&mut buffer);
-/// ~~~
-///
 /// Bluesteins's Algorithm is relatively expensive compared to other FFT algorithms. Benchmarking shows that it is up to
-/// an order of magnitude slower than similar composite sizes. In the example size above of 1201, benchmarking shows
+/// an order of magnitude slower than similar composite sizes. At size 1201, benchmarking shows
 /// that it takes 5x more time to compute than computing a FFT of size 1200 via a step of MixedRadix.
 
 pub struct BluesteinsAlgorithm<T> {

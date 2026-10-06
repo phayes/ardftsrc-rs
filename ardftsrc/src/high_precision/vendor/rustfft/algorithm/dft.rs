@@ -7,18 +7,6 @@ use crate::high_precision::vendor::rustfft::{FftDirection, twiddles};
 /// Naive O(n^2 ) Discrete Fourier Transform implementation
 ///
 /// This implementation is primarily used to test other FFT algorithms.
-///
-/// ~~~
-/// // Computes a naive DFT of size 123
-/// use rustfft::algorithm::Dft;
-/// use rustfft::{Fft, FftDirection};
-/// use rustfft::num_complex::Complex;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 123];
-///
-/// let dft = Dft::new(123, FftDirection::Forward);
-/// dft.process(&mut buffer);
-/// ~~~
 pub struct Dft<T> {
     twiddles: Vec<Complex<T>>,
     direction: FftDirection,

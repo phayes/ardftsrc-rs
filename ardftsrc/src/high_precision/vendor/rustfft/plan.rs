@@ -129,22 +129,6 @@ impl Recipe {
 ///
 /// Use `FftPlannerScalar` instead of [`FftPlanner`](crate::high_precision::vendor::rustfft::FftPlanner) or [`FftPlannerAvx`](crate::high_precision::vendor::rustfft::FftPlannerAvx) when you want to explicitly opt out of using any SIMD-accelerated algorithms.
 ///
-/// ~~~
-/// // Perform a forward Fft of size 1234
-/// use std::sync::Arc;
-/// use rustfft::{FftPlannerScalar, num_complex::Complex};
-///
-/// let mut planner = FftPlannerScalar::new();
-/// let fft = planner.plan_fft_forward(1234);
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 1234];
-/// fft.process(&mut buffer);
-///
-/// // The FFT instance returned by the planner has the type `Arc<dyn Fft<T>>`,
-/// // where T is the numeric type, ie f32 or f64, so it's cheap to clone
-/// let fft_clone = Arc::clone(&fft);
-/// ~~~
-///
 /// If you plan on creating multiple FFT instances, it is recommended to reuse the same planner for all of them. This
 /// is because the planner re-uses internal data across FFT instances wherever possible, saving memory and reducing
 /// setup time. (FFT instances created with one planner will never re-use data and buffers with FFT instances created

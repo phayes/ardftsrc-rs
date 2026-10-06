@@ -5,28 +5,7 @@
 //!
 //! Benchmarking shows a 5-10x speedup or integer division and modulo operations.
 //!
-//! # Example:
-//! ```
-//! use strength_reduce::StrengthReducedU64;
-//!
-//! let mut my_array: Vec<u64> = (0..500).collect();
-//! let divisor = 3;
-//! let modulo = 14;
-//!
-//! // slow naive division and modulo
-//! for element in &mut my_array {
-//!     *element = (*element / divisor) % modulo;
-//! }
-//!
-//! // fast strength-reduced division and modulo
-//! let reduced_divisor = StrengthReducedU64::new(divisor);
-//! let reduced_modulo = StrengthReducedU64::new(modulo);
-//! for element in &mut my_array {
-//!     *element = (*element / reduced_divisor) % reduced_modulo;
-//! }
-//! ```
-//!
-//! This library is intended for hot loops like the example above, where a division is repeated many times in a loop with the divisor remaining unchanged.
+//! This library is intended for hot loops, where a division is repeated many times in a loop with the divisor remaining unchanged.
 //! There is a setup cost associated with creating stength-reduced division instances, so using strength-reduced division for 1-2 divisions is not worth the setup cost.
 //! The break-even point differs by use-case, but is typically low: Benchmarking has shown that takes 3 to 4 repeated divisions with the same StengthReduced## instance to be worth it.
 //!

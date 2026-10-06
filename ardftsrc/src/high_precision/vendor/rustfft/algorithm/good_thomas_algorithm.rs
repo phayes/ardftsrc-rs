@@ -17,26 +17,6 @@ use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum};
 /// Conceptually, this algorithm is very similar to the Mixed-Radix, except because GCD(n1, n2) == 1 we can do some
 /// number theory trickery to reduce the number of floating-point multiplications and additions. Additionally, It can
 /// be faster than Mixed-Radix at sizes below 10,000 or so.
-///
-/// ~~~
-/// // Computes a forward FFT of size 1200, using the Good-Thomas Algorithm
-/// use rustfft::algorithm::GoodThomasAlgorithm;
-/// use rustfft::{Fft, FftPlanner};
-/// use rustfft::num_complex::Complex;
-/// use rustfft::num_traits::Zero;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 1200];
-///
-/// // we need to find an n1 and n2 such that n1 * n2 == 1200 and GCD(n1, n2) == 1
-/// // n1 = 48 and n2 = 25 satisfies this
-/// let mut planner = FftPlanner::new();
-/// let inner_fft_n1 = planner.plan_fft_forward(48);
-/// let inner_fft_n2 = planner.plan_fft_forward(25);
-///
-/// // the good-thomas FFT length will be inner_fft_n1.len() * inner_fft_n2.len() = 1200
-/// let fft = GoodThomasAlgorithm::new(inner_fft_n1, inner_fft_n2);
-/// fft.process(&mut buffer);
-/// ~~~
 pub struct GoodThomasAlgorithm<T> {
     width: usize,
     width_size_fft: Arc<dyn Fft<T>>,
@@ -315,26 +295,6 @@ boilerplate_fft!(
 /// Conceptually, this algorithm is very similar to MixedRadix, except because GCD(n1, n2) == 1 we can do some
 /// number theory trickery to reduce the number of floating point operations. It typically performs
 /// better than MixedRadixSmall, especially at the smallest sizes.
-///
-/// ~~~
-/// // Computes a forward FFT of size 56 using GoodThomasAlgorithmSmall
-/// use std::sync::Arc;
-/// use rustfft::algorithm::GoodThomasAlgorithmSmall;
-/// use rustfft::algorithm::butterflies::{Butterfly7, Butterfly8};
-/// use rustfft::{Fft, FftDirection};
-/// use rustfft::num_complex::Complex;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 56];
-///
-/// // we need to find an n1 and n2 such that n1 * n2 == 56 and GCD(n1, n2) == 1
-/// // n1 = 7 and n2 = 8 satisfies this
-/// let inner_fft_n1 = Arc::new(Butterfly7::new(FftDirection::Forward));
-/// let inner_fft_n2 = Arc::new(Butterfly8::new(FftDirection::Forward));
-///
-/// // the good-thomas FFT length will be inner_fft_n1.len() * inner_fft_n2.len() = 56
-/// let fft = GoodThomasAlgorithmSmall::new(inner_fft_n1, inner_fft_n2);
-/// fft.process(&mut buffer);
-/// ~~~
 pub struct GoodThomasAlgorithmSmall<T> {
     width: usize,
     width_size_fft: Arc<dyn Fft<T>>,

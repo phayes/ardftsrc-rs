@@ -9,19 +9,6 @@ use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
 use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// FFT algorithm optimized for power-of-three sizes
-///
-/// ~~~
-/// // Computes a forward FFT of size 2187
-/// use rustfft::algorithm::Radix3;
-/// use rustfft::{Fft, FftDirection};
-/// use rustfft::num_complex::Complex;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 2187];
-///
-/// let fft = Radix3::new(2187, FftDirection::Forward);
-/// fft.process(&mut buffer);
-/// ~~~
-
 pub struct Radix3<T> {
     twiddles: Box<[Complex<T>]>,
     butterfly3: Butterfly3<T>,

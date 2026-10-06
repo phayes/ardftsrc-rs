@@ -296,28 +296,7 @@ fn transpose_recursive<T: Copy>(
 /// Transpose the input array into the output array.
 ///
 /// Given an input array of size input_width * input_height, representing flattened 2D data stored in row-major order,
-/// transpose the rows and columns of that input array into the output array
-/// ```
-/// // row-major order: the rows of our 2D array are contiguous,
-/// // and the columns are strided
-/// let input_array = vec![ 1, 2, 3,
-/// 						4, 5, 6];
-///
-/// // Treat our 6-element array as a 2D 3x2 array, and transpose it to a 2x3 array
-/// let mut output_array = vec![0; 6];
-/// transpose::transpose(&input_array, &mut output_array, 3, 2);
-///
-/// // The rows have become the columns, and the columns have become the rows
-/// let expected_array =  vec![ 1, 4,
-///								2, 5,
-///								3, 6];
-/// assert_eq!(output_array, expected_array);
-///
-/// // If we transpose it again, we should get our original data back.
-/// let mut final_array = vec![0; 6];
-/// transpose::transpose(&output_array, &mut final_array, 2, 3);
-/// assert_eq!(final_array, input_array);
-/// ```
+/// transpose the rows and columns of that input array into the output array.
 ///
 /// # Panics
 ///

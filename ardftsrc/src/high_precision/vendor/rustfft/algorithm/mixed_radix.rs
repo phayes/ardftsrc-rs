@@ -13,25 +13,6 @@ use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twidd
 ///
 /// This algorithm factors a size n FFT into n1 * n2, computes several inner FFTs of size n1 and n2, then combines the
 /// results to get the final answer
-///
-/// ~~~
-/// // Computes a forward FFT of size 1200, using the Mixed-Radix Algorithm
-/// use rustfft::algorithm::MixedRadix;
-/// use rustfft::{Fft, FftPlanner};
-/// use rustfft::num_complex::Complex;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 1200];
-///
-/// // we need to find an n1 and n2 such that n1 * n2 == 1200
-/// // n1 = 30 and n2 = 40 satisfies this
-/// let mut planner = FftPlanner::new();
-/// let inner_fft_n1 = planner.plan_fft_forward(30);
-/// let inner_fft_n2 = planner.plan_fft_forward(40);
-///
-/// // the mixed radix FFT length will be inner_fft_n1.len() * inner_fft_n2.len() = 1200
-/// let fft = MixedRadix::new(inner_fft_n1, inner_fft_n2);
-/// fft.process(&mut buffer);
-/// ~~~
 pub struct MixedRadix<T> {
     twiddles: Box<[Complex<T>]>,
 
@@ -234,28 +215,6 @@ boilerplate_fft!(
 ///
 /// This algorithm factors a size n FFT into n1 * n2, computes several inner FFTs of size n1 and n2, then combines the
 /// results to get the final answer
-///
-/// ~~~
-/// // Computes a forward FFT of size 40 using MixedRadixSmall
-/// use std::sync::Arc;
-/// use rustfft::algorithm::MixedRadixSmall;
-/// use rustfft::algorithm::butterflies::{Butterfly5, Butterfly8};
-/// use rustfft::{Fft, FftDirection};
-/// use rustfft::num_complex::Complex;
-///
-/// let len = 40;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; len];
-///
-/// // we need to find an n1 and n2 such that n1 * n2 == 40
-/// // n1 = 5 and n2 = 8 satisfies this
-/// let inner_fft_n1 = Arc::new(Butterfly5::new(FftDirection::Forward));
-/// let inner_fft_n2 = Arc::new(Butterfly8::new(FftDirection::Forward));
-///
-/// // the mixed radix FFT length will be inner_fft_n1.len() * inner_fft_n2.len() = 40
-/// let fft = MixedRadixSmall::new(inner_fft_n1, inner_fft_n2);
-/// fft.process(&mut buffer);
-/// ~~~
 pub struct MixedRadixSmall<T> {
     twiddles: Box<[Complex<T>]>,
 

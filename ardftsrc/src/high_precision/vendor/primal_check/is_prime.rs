@@ -42,20 +42,6 @@ fn mod_exp(mut x: u64, mut d: u64, n: u64) -> u64 {
 /// Doing a lot of primality tests with numbers strictly below some
 /// upper bound will be faster using the `is_prime` method of a
 /// `Sieve` instance.
-///
-/// # Examples
-///
-/// ```rust
-/// assert_eq!(primal::is_prime(1), false);
-/// assert_eq!(primal::is_prime(2), true);
-/// assert_eq!(primal::is_prime(3), true);
-/// assert_eq!(primal::is_prime(4), false);
-/// assert_eq!(primal::is_prime(5), true);
-///
-/// assert_eq!(primal::is_prime(22_801_763_487), false);
-/// assert_eq!(primal::is_prime(22_801_763_489), true);
-/// assert_eq!(primal::is_prime(22_801_763_491), false);
-/// ```
 pub fn miller_rabin(n: u64) -> bool {
     const HINT: &[u64] = &[2];
 

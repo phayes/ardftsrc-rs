@@ -11,19 +11,6 @@ use crate::high_precision::vendor::rustfft::{Direction, Fft, Length};
 use crate::high_precision::vendor::rustfft::{FftDirection, common::FftNum, twiddles};
 
 /// FFT algorithm optimized for power-of-two sizes
-///
-/// ~~~
-/// // Computes a forward FFT of size 4096
-/// use rustfft::algorithm::Radix4;
-/// use rustfft::{Fft, FftDirection};
-/// use rustfft::num_complex::Complex;
-///
-/// let mut buffer = vec![Complex{ re: 0.0f32, im: 0.0f32 }; 4096];
-///
-/// let fft = Radix4::new(4096, FftDirection::Forward);
-/// fft.process(&mut buffer);
-/// ~~~
-
 pub struct Radix4<T> {
     twiddles: Box<[Complex<T>]>,
 
