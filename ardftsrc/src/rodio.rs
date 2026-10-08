@@ -8,6 +8,10 @@ use realfft::FftNum;
 /// avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar,
 /// do not enable fast-start.
 ///
+/// Seeking discards all audio buffered from before the seek. With fast-start enabled, the resampler is re-primed inside
+/// `try_seek()` so post-seek audio plays immediately; this decodes and resamples two chunks on the audio thread, which takes
+/// noticeably longer at high quality settings. Without fast-start, output is silent until the resampler is primed again.
+///
 /// Be aware that because RodioResampler resamples on the audio thread, your cpal buffer size should be at least 2048 to 4096.
 /// If you experience crackling, try increasing the cpal buffer size. Marginal buffer capacity first shows up as small glitches on seek.
 ///
@@ -37,13 +41,15 @@ where
     resampler: RealtimeResampler<T>,
     config: Config,
     stream_input_ended: bool,
-    just_seeked: bool,
-    pending_span_transition: bool,
     samples_this_span: u64,
     output_samples_this_span: u64,
     span_ratio: f64,
-    inner_span_len: u64,
-    inner_channel_count: u64,
+    /// Length of the current inner span in samples, or `None` when the next pull starts a new inner span.
+    /// Sources without span boundaries are tracked as `u64::MAX`.
+    inner_span_len: Option<u64>,
+    inner_span_samples: u64,
+    /// Samples written to the resampler for the current, incomplete input frame.
+    input_frame_offset: usize,
     output_frame_samples_remaining: usize,
     output_frame_channels: usize,
     output_frame_is_startup_silence: bool,
@@ -72,13 +78,12 @@ where
             resampler,
             config,
             stream_input_ended: false,
-            just_seeked: false,
-            pending_span_transition: false,
             samples_this_span: 0,
             output_samples_this_span: 0,
             span_ratio,
-            inner_span_len: 0,      // Zero means uninitialized here
-            inner_channel_count: 0, // Zero means uninitialized here
+            inner_span_len: None,
+            inner_span_samples: 0,
+            input_frame_offset: 0,
             output_frame_samples_remaining: 0,
             output_frame_channels: 0,
             output_frame_is_startup_silence: false,
@@ -108,8 +113,7 @@ where
                 .unwrap_or_else(|err| panic_err("failed to create new input span", err));
             self.samples_this_span = 0;
             self.output_samples_this_span = 0;
-            self.inner_span_len = 0; // Zero means uninitialized here
-            self.inner_channel_count = 0; // Zero means uninitialized here
+            self.input_frame_offset = 0;
             self.set_span_ratio();
 
             #[cfg(feature = "tracing")]
@@ -135,68 +139,50 @@ where
         // Otherwise, calculate the number of input samples to pull to keep output production approximately aligned with input consumption given the current span ratio.
         self.output_samples_this_span = self.output_samples_this_span.saturating_add(1);
         let target_input_samples = (self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64;
-        let mut inner_pulls = target_input_samples.saturating_sub(self.samples_this_span);
-
-        // Make sure span boundaries get at least one pull
-        if self.pending_span_transition && inner_pulls == 0 {
-            inner_pulls = 1;
-        }
-
-        inner_pulls
+        target_input_samples.saturating_sub(self.samples_this_span)
     }
 
     // Pull a sample from the inner source and write it to the resampler.
     fn pull_inner_sample(&mut self, count_samples: bool) {
-        // Cache the inner span length for span boundary checking
-        if self.inner_span_len == 0 {
-            self.inner_span_len = self.inner.current_span_len().unwrap() as u64;
-            self.inner_channel_count = self.inner.channels().get() as u64;
-
-            // Debug assert that we are right on a frame boundary
-            debug_assert!(
-                self.inner_span_len % self.inner_channel_count == 0,
-                "ardftsrc: Error in inner source: current_span_len should be a multiple of channels on a frame boundary"
-            );
-        }
-
         // If input is none, end the stream, but keep reading until the resampler is drained.
-        match self.inner.next() {
-            Some(sample) => {
+        let Some(sample) = self.inner.next() else {
+            if !self.stream_input_ended {
+                self.stream_input_ended = true;
                 self.resampler
-                    .write_samples(&[num_traits::cast(sample).unwrap()])
-                    .unwrap_or_else(|err| panic_err("failed to write sample", err));
-                if count_samples {
-                    self.samples_this_span += 1;
-                }
+                    .finalize()
+                    .unwrap_or_else(|err| panic_err("failed to finalize resampler", err));
             }
-            None => {
-                if !self.stream_input_ended {
-                    self.stream_input_ended = true;
-                    self.resampler
-                        .finalize()
-                        .unwrap_or_else(|err| panic_err("failed to finalize resampler", err));
-                }
-            }
-        }
+            return;
+        };
 
-        if self.samples_this_span == self.inner_span_len {
-            // Debug assert that we are right on a frame boundary
+        // First sample of a new inner span. Sources may only expose the new span's format and length once
+        // its first sample has been pulled (rodio's decoders and source-chaining adapters advance inside
+        // `next()`), so read them now, before the sample is written into a resampler span.
+        if self.inner_span_len.is_none() {
+            self.maybe_new_input_span();
+            let span_len = self.inner.current_span_len().map_or(u64::MAX, |len| len as u64);
             debug_assert!(
-                self.samples_this_span % self.inner_channel_count == 0,
-                "samples_this_span should be a multiple of inner_channel_count on a frame boundary"
+                span_len == u64::MAX || span_len.is_multiple_of(u64::from(self.inner.channels().get())),
+                "ardftsrc: Error in inner source: current_span_len should be a multiple of channels"
             );
-
-            self.pending_span_transition = true;
+            self.inner_span_len = Some(span_len);
+            self.inner_span_samples = 0;
         }
 
-        // Some sources (for example source-chaining adapters) can switch to a new span one pull
-        // after reporting `current_span_len() == Some(1)`. Keep checking after each pull while a
-        // transition is pending so pacing can update as soon as the new format is visible.
-        if self.pending_span_transition {
-            let started_new_span = self.maybe_new_input_span(); // TODO THIS
-            if started_new_span || self.stream_input_ended {
-                self.pending_span_transition = false;
-            }
+        self.resampler
+            .write_samples(&[num_traits::cast(sample).unwrap()])
+            .unwrap_or_else(|err| panic_err("failed to write sample", err));
+        if count_samples {
+            self.samples_this_span += 1;
+        }
+        self.input_frame_offset = (self.input_frame_offset + 1) % self.resampler.input_channels();
+
+        self.inner_span_samples += 1;
+        if self
+            .inner_span_len
+            .is_some_and(|span_len| self.inner_span_samples >= span_len)
+        {
+            self.inner_span_len = None;
         }
     }
 
@@ -212,12 +198,6 @@ where
 
     #[inline]
     fn next_sample(&mut self) -> Option<T> {
-        // If we just seeked, we may already be in a new span.
-        if self.just_seeked {
-            self.maybe_new_input_span();
-            self.just_seeked = false;
-        }
-
         let starts_output_frame = self.output_frame_samples_remaining == 0;
         if starts_output_frame && self.resampler.is_done() {
             return None;
@@ -358,13 +338,29 @@ where
 
     fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {
         self.inner.try_seek(time)?;
+
+        // Discard everything buffered from before the seek. Otherwise up to two resampler chunks of stale
+        // audio would play first, which is several seconds at high quality settings.
+        self.resampler.reset();
         self.stream_input_ended = false;
-        self.just_seeked = true;
-        self.pending_span_transition = false;
-        self.output_frame_samples_remaining = 0;
-        self.output_frame_channels = 0;
-        self.output_frame_is_startup_silence = false;
-        self.maybe_new_input_span();
+        self.samples_this_span = 0;
+        self.output_samples_this_span = 0;
+        self.inner_span_len = None;
+
+        // Rodio sources resume a seek on the channel they were positioned at, so pad the discarded
+        // leading samples of a partial input frame to keep the channels aligned.
+        for _ in 0..self.input_frame_offset {
+            self.resampler
+                .write_samples(&[T::zero()])
+                .unwrap_or_else(|err| panic_err("failed to write sample", err));
+        }
+
+        // Finish an output frame that is already underway with silence so downstream channels stay aligned.
+        self.output_frame_is_startup_silence = self.output_frame_samples_remaining > 0;
+
+        if self.config.rodio_fast_start {
+            self.fast_start();
+        }
         Ok(())
     }
 }
@@ -704,5 +700,235 @@ mod tests {
             output_samples > 0,
             "resampler should produce output for finite two-span input"
         );
+    }
+
+    /// One run of fixed-size packets sharing a sample rate and channel count.
+    struct PacketSegment {
+        sample_rate: u32,
+        channels: u16,
+        packet_frames: usize,
+        packets: usize,
+    }
+
+    /// Mimics rodio's symphonia decoder: each decoded packet is its own span, the next packet is only
+    /// decoded inside `next()`, and `current_span_len()`/format describe the packet most recently
+    /// decoded. Channel `c` carries DC at `level * (1 - 2 * (c % 2))`, so swapped channels are visible.
+    /// Seeking flips the sign of `level` and forces a fresh packet decode.
+    struct PacketSource {
+        segments: Vec<PacketSegment>,
+        segment_index: usize,
+        packets_left: usize,
+        packet_len: usize,
+        packet_offset: usize,
+        packet_sample_rate: u32,
+        packet_channels: u16,
+        level: f32,
+        unbounded_span: bool,
+        samples_pulled: u64,
+    }
+
+    impl PacketSource {
+        fn new(segments: Vec<PacketSegment>) -> Self {
+            let mut source = Self {
+                segments,
+                segment_index: 0,
+                packets_left: 0,
+                packet_len: 0,
+                packet_offset: 0,
+                packet_sample_rate: 0,
+                packet_channels: 0,
+                level: 0.5,
+                unbounded_span: false,
+                samples_pulled: 0,
+            };
+            source.packets_left = source.segments[0].packets;
+            assert!(source.decode_packet(), "test source needs at least one packet");
+            source
+        }
+
+        fn decode_packet(&mut self) -> bool {
+            while self.packets_left == 0 {
+                self.segment_index += 1;
+                let Some(segment) = self.segments.get(self.segment_index) else {
+                    return false;
+                };
+                self.packets_left = segment.packets;
+            }
+            let segment = &self.segments[self.segment_index];
+            self.packets_left -= 1;
+            self.packet_sample_rate = segment.sample_rate;
+            self.packet_channels = segment.channels;
+            self.packet_len = segment.packet_frames * usize::from(segment.channels);
+            self.packet_offset = 0;
+            true
+        }
+    }
+
+    impl Iterator for PacketSource {
+        type Item = rodio::Sample;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.packet_offset >= self.packet_len && !self.decode_packet() {
+                return None;
+            }
+            let channel = self.packet_offset % usize::from(self.packet_channels);
+            self.packet_offset += 1;
+            self.samples_pulled += 1;
+            Some(if channel.is_multiple_of(2) {
+                self.level
+            } else {
+                -self.level
+            })
+        }
+    }
+
+    impl Source for PacketSource {
+        fn current_span_len(&self) -> Option<usize> {
+            (!self.unbounded_span).then_some(self.packet_len)
+        }
+
+        fn channels(&self) -> NonZero<u16> {
+            NonZero::new(self.packet_channels).expect("test packet channel count is non-zero")
+        }
+
+        fn sample_rate(&self) -> NonZero<u32> {
+            NonZero::new(self.packet_sample_rate).expect("test packet sample rate is non-zero")
+        }
+
+        fn total_duration(&self) -> Option<Duration> {
+            None
+        }
+
+        fn try_seek(&mut self, _: Duration) -> Result<(), rodio::source::SeekError> {
+            self.level = -self.level;
+            self.packet_offset = usize::MAX;
+            Ok(())
+        }
+    }
+
+    fn endless_stereo_packets(sample_rate: u32) -> PacketSource {
+        PacketSource::new(vec![PacketSegment {
+            sample_rate,
+            channels: 2,
+            packet_frames: 1152,
+            packets: usize::MAX,
+        }])
+    }
+
+    /// Plays `output_frames` frames and returns how many input frames were consumed beyond the ideal
+    /// `output_frames * input_rate / output_rate`.
+    fn excess_input_frames<T: Float + FftNum>(
+        resampler: &mut RodioResampler<PacketSource, T>,
+        output_frames: usize,
+    ) -> i64 {
+        consume_samples(resampler, output_frames * 2);
+        let ratio = resampler.span_ratio;
+        let input_frames = resampler.inner.samples_pulled as i64 / 2;
+        input_frames - (output_frames as f64 * ratio).round() as i64
+    }
+
+    #[test]
+    fn packetized_upsampling_consumes_input_at_the_resampling_ratio() {
+        let mut resampler = RodioResampler::new(endless_stereo_packets(44_100), test_config(44_100, 2))
+            .expect("resampler should construct");
+        let lead = resampler.resampler.estimate_priming_samples() as i64 / 2;
+
+        let excess = excess_input_frames(&mut resampler, 48_000 * 5);
+        assert!(
+            excess <= lead + 1152,
+            "consumed {excess} input frames beyond the resampling ratio; expected at most the priming lead ({lead}) plus one packet"
+        );
+    }
+
+    #[test]
+    fn source_without_span_len_is_supported() {
+        let mut source = endless_stereo_packets(44_100);
+        source.unbounded_span = true;
+        let mut resampler = RodioResampler::new(source, test_config(44_100, 2)).expect("resampler should construct");
+        let lead = resampler.resampler.estimate_priming_samples() as i64 / 2;
+
+        let excess = excess_input_frames(&mut resampler, 48_000);
+        assert!(
+            excess <= lead + 1,
+            "consumed {excess} input frames beyond the resampling ratio"
+        );
+    }
+
+    #[test]
+    fn lazily_decoded_format_change_keeps_frames_in_their_own_span() {
+        let segment = |sample_rate, channels| PacketSegment {
+            sample_rate,
+            channels,
+            packet_frames: 1152,
+            packets: 8,
+        };
+        let source = PacketSource::new(vec![segment(44_100, 2), segment(48_000, 1), segment(32_000, 2)]);
+        let mut resampler = RodioResampler::new(source, test_config(44_100, 2)).expect("resampler should construct");
+
+        let mut stereo_frames = 0usize;
+        let mut mono_frames = 0usize;
+        let mut misaligned_frames = 0usize;
+        while resampler.current_span_len().is_some_and(|len| len > 0) {
+            let channels = usize::from(resampler.channels().get());
+            let frame: Vec<f32> = (0..channels)
+                .map(|_| resampler.next().expect("output should not end mid-frame"))
+                .collect();
+            if frame.iter().all(|&sample| sample == 0.0) {
+                continue;
+            }
+            if channels == 2 {
+                stereo_frames += 1;
+                misaligned_frames += usize::from(frame[0] < -0.1 || frame[1] > 0.1);
+            } else {
+                mono_frames += 1;
+                misaligned_frames += usize::from(frame[0] < -0.1);
+            }
+        }
+
+        assert!(
+            stereo_frames > 0 && mono_frames > 0,
+            "test should observe both stereo and mono output"
+        );
+        assert_eq!(misaligned_frames, 0, "channels were misaligned across a span boundary");
+    }
+
+    fn assert_seek_discards_buffered_audio(fast_start: bool) {
+        let config = test_config(44_100, 2).with_rodio_fast_start(fast_start);
+        let mut resampler =
+            RodioResampler::new(endless_stereo_packets(44_100), config).expect("resampler should construct");
+        consume_samples(&mut resampler, 48_000 * 2);
+
+        resampler.try_seek(Duration::from_secs(1)).expect("test source seeks");
+
+        let mut first_new_frame = None;
+        for frame in 0..48_000 {
+            let left = resampler.next().expect("endless source");
+            let right = resampler.next().expect("endless source");
+            assert!(
+                left <= 0.1 && right >= -0.1,
+                "pre-seek audio played {frame} frames after the seek (fast_start: {fast_start})"
+            );
+            if first_new_frame.is_none() && left < -0.25 && right > 0.25 {
+                first_new_frame = Some(frame);
+            }
+        }
+
+        let first_new_frame = first_new_frame.expect("post-seek audio should play");
+        if fast_start {
+            assert!(
+                first_new_frame < 16,
+                "fast-start should re-prime on seek, but post-seek audio started at frame {first_new_frame}"
+            );
+        }
+    }
+
+    #[test]
+    fn seek_discards_buffered_audio() {
+        assert_seek_discards_buffered_audio(false);
+    }
+
+    #[test]
+    fn seek_with_fast_start_discards_buffered_audio_and_reprimes() {
+        assert_seek_discards_buffered_audio(true);
     }
 }

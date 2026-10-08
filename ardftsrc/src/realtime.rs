@@ -184,11 +184,10 @@ where
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
     ///
-    /// Note: this allocates
+    /// All buffered input and output is discarded, queued spans are returned to the span pool, and the
+    /// input-active span's format is kept. The resampler must be primed again before it produces output.
     pub fn reset(&mut self) {
-        let config = self.active_input_span().config().clone();
-        self.spans = SpanPool::new(config, DEFAULT_CONCURRENT_SPANS)
-            .unwrap_or_else(|err| panic_err("Existing stream config became invalid", err));
+        self.spans.reset();
         self.is_primed = false;
     }
 
@@ -211,6 +210,11 @@ where
         next_config.validate()?;
 
         let active_span = self.active_input_span_mut();
+        if active_span.is_untouched() {
+            // Nothing has been written to this span, so there is no tail to drain: replace it outright.
+            self.spans.replace_input_span(next_config);
+            return Ok(());
+        }
         if !active_span.samples_finalized {
             active_span.finalize_samples()?;
         }
@@ -604,6 +608,14 @@ where
         Ok(())
     }
 
+    /// Returns true when no input has been written since the span was created or reset.
+    fn is_untouched(&self) -> bool {
+        !self.samples_finalized
+            && self.chunks_processed == 0
+            && self.samples_pending_input.is_empty()
+            && self.samples_pending_output.is_empty()
+    }
+
     fn is_drained(&self) -> bool {
         self.samples_finalized && self.samples_pending_input.is_empty() && self.samples_pending_output.is_empty()
     }
@@ -711,6 +723,32 @@ where
             drained_span.reset();
             self.add_span_to_pool(drained_span);
         }
+    }
+
+    /// Returns every queued span except the input-active span to the pool, and resets the input-active span.
+    fn reset(&mut self) {
+        while self.spans.len() > 1 {
+            let mut span = self.spans.pop_front().unwrap();
+            span.reset();
+            self.add_span_to_pool(span);
+        }
+        self.spans
+            .front_mut()
+            .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"))
+            .reset();
+    }
+
+    /// Replaces the input-active span with a span for `config`, returning the old one to the pool.
+    ///
+    /// Note: this may allocate under the same conditions as [`new_span()`](Self::new_span).
+    fn replace_input_span(&mut self, config: Config) {
+        let mut span = self
+            .spans
+            .pop_back()
+            .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"));
+        span.reset();
+        self.add_span_to_pool(span);
+        self.new_span(config);
     }
 
     /// Adds a span back into the reuse pool, preferring to fill an empty slot before growing the pool.
@@ -899,6 +937,45 @@ mod tests {
                 samples: 1
             })
         ));
+    }
+
+    #[test]
+    fn new_span_replaces_untouched_input_span() {
+        let mut resampler = RealtimeResampler::<f64>::new(stereo_config(44_100, 48_000)).unwrap();
+
+        resampler.new_span(48_000, 1).unwrap();
+
+        assert_eq!(resampler.spans.spans.len(), 1);
+        assert_eq!(resampler.samples_left_in_span(), SamplesLeftInSpan::Unknown);
+        assert_eq!(resampler.input_sample_rate(), 48_000);
+        assert_eq!(resampler.output_channels(), 1);
+    }
+
+    #[test]
+    fn reset_discards_buffered_audio_and_queued_spans() {
+        let mut resampler = RealtimeResampler::<f64>::new(mono_config(44_100, 48_000)).unwrap();
+        let chunk = resampler.input_buffer_size();
+        resampler.write_samples(&vec![0.5; chunk * 3 + 7]).unwrap();
+        resampler.new_span(32_000, 2).unwrap();
+        resampler.write_samples(&[0.5; 9]).unwrap();
+        assert!(resampler.is_primed());
+
+        resampler.reset();
+
+        assert_eq!(resampler.spans.spans.len(), 1);
+        assert_eq!(resampler.samples_pending_in_output_span(), 0);
+        assert_eq!(resampler.input_sample_rate(), 32_000);
+        assert_eq!(resampler.input_channels(), 2);
+        assert!(!resampler.is_primed());
+        assert_eq!(resampler.read_sample(), Some(-0.0));
+
+        // The reset span is a fresh stream: it accepts input and finalizes cleanly.
+        resampler
+            .write_samples(&vec![0.25; resampler.input_buffer_size() * 2])
+            .unwrap();
+        resampler.finalize().unwrap();
+        assert!(resampler.is_primed());
+        assert!(resampler.read_sample().is_some_and(|sample| sample.is_finite()));
     }
 
     #[test]
