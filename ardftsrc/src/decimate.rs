@@ -155,10 +155,6 @@ impl<T: Float> FirDecimator<T> {
         let padding = vec![self.last_sample; self.taps.len()];
         self.process_into(&padding, out);
     }
-
-    fn group_delay(&self) -> usize {
-        (self.taps.len() - 1) / 2
-    }
 }
 
 /// A cascade of 2:1 decimation stages, each halving the sample rate.
@@ -241,18 +237,16 @@ impl<T: Float> DecimationChain<T> {
 
         *out = current;
     }
+}
 
-    /// Total algorithmic group delay of the cascade, expressed in samples at the pre-decimation
-    /// (raw) rate.
-    pub(crate) fn raw_group_delay(&self) -> usize {
-        let mut delay = 0usize;
-        let mut scale = 1usize;
-        for stage in &self.stages {
-            delay += stage.group_delay() * scale;
-            scale *= 2;
-        }
-        delay
+/// Total algorithmic group delay of a cascade of `num_stages` stages sharing `num_taps`-tap
+/// filters, expressed in samples at the pre-decimation (raw) rate. Stage `i` runs at
+/// `1 / 2^i` of the raw rate, so its delay counts `2^i` times.
+pub(crate) fn raw_group_delay(num_stages: usize, num_taps: usize) -> usize {
+    if num_stages == 0 {
+        return 0;
     }
+    (num_taps - 1) / 2 * ((1 << num_stages) - 1)
 }
 
 #[cfg(test)]
@@ -381,6 +375,14 @@ mod tests {
         let mut out = Vec::new();
         chain.process(&input, &mut out);
         assert_eq!(out, input);
+    }
+
+    #[test]
+    fn raw_group_delay_weights_later_stages_by_their_rate() {
+        assert_eq!(raw_group_delay(0, 0), 0);
+        assert_eq!(raw_group_delay(1, 133), 66);
+        // Stage 2 runs at half the raw rate, so its 66-sample delay counts twice.
+        assert_eq!(raw_group_delay(2, 133), 66 * 3);
     }
 
     #[test]

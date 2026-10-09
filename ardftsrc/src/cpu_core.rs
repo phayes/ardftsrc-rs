@@ -47,10 +47,6 @@ where
     /// (zero-cost passthrough) unless [`Config::decimate`](crate::Config::decimate) is enabled
     /// and the rate ratio warrants it.
     decimation: DecimationChain<T>,
-    /// The decimation cascade's own group delay, converted to output-domain samples. Added on
-    /// top of `output_offset` when trimming startup silence. Constant for the life of this
-    /// instance (derived purely from config).
-    decimator_output_delay: usize,
     /// Reused scratch buffer for the decimated chunk, to avoid reallocating every call.
     decimation_scratch: Vec<T>,
 }
@@ -115,15 +111,7 @@ where
         let output_block = vec![T::zero(); derived.output_chunk_frames];
         let prev_input_window = vec![T::zero(); derived.input_chunk_frames * 2];
         let decimation = DecimationChain::new(derived.decimation_stages, &derived.decimation_taps);
-        // Converts the decimation cascade's raw-domain group delay into an equivalent number of
-        // output-domain samples, using the true (pre-decimation) input rate -- this is the same
-        // rate ratio the whole stream is nominally converting at, so a delay at the front of the
-        // pipeline shows up scaled by that ratio at the output.
-        let decimator_output_delay = if derived.decimation_stages > 0 {
-            (decimation.raw_group_delay() * derived.output_sample_rate).div_ceil(derived.input_sample_rate)
-        } else {
-            0
-        };
+        let trim_remaining = output_offset + derived.decimator_output_delay;
 
         Self {
             derived,
@@ -135,14 +123,13 @@ where
             prev_input_window,
             final_input_seen: false,
             finalized: false,
-            trim_remaining: output_offset + decimator_output_delay,
+            trim_remaining,
             flush_remaining: output_offset,
             pre: None,
             post: None,
             input_sample_count: 0,
             output_sample_count: 0,
             decimation,
-            decimator_output_delay,
             decimation_scratch: Vec::new(),
         }
     }
@@ -286,7 +273,7 @@ where
         self.prev_input_window.fill(T::zero());
         self.final_input_seen = false;
         self.finalized = false;
-        self.trim_remaining = self.derived.output_offset + self.decimator_output_delay;
+        self.trim_remaining = self.derived.output_offset + self.derived.decimator_output_delay;
         self.flush_remaining = self.derived.output_offset;
         self.input_sample_count = 0;
         self.output_sample_count = 0;

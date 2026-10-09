@@ -1432,6 +1432,32 @@ mod tests {
     }
 
     #[test]
+    fn decimate_output_is_time_aligned_with_input() {
+        // PRESET_FAST's decimation stage delays by 16.5 output samples at 192kHz -> 48kHz, so
+        // the half sample has to be compensated rather than rounded away by startup trimming.
+        let config = crate::PRESET_FAST
+            .with_input_rate(192_000)
+            .with_output_rate(48_000)
+            .with_channels(1)
+            .with_decimate(true);
+        let mut resampler = InterleavedResampler::<f64>::new(config).unwrap();
+        assert!(
+            resampler.derived.spectral.phase_enabled,
+            "test needs a configuration with a fractional decimator delay"
+        );
+
+        let freq = 1_000.0;
+        let tone = |t: f64| (2.0 * std::f64::consts::PI * freq * t).sin();
+        let input: Vec<f64> = (0..192_000).map(|n| tone(n as f64 / 192_000.0)).collect();
+        let output = resampler.process_all(&input).unwrap().interleave();
+
+        let max_err = (output.len() / 4..output.len() * 3 / 4)
+            .map(|j| (output[j] - tone(j as f64 / 48_000.0)).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(max_err < 1e-5, "max_err={max_err}");
+    }
+
+    #[test]
     fn decimate_is_a_noop_below_4x_ratio() {
         // A 2:1 ratio should never engage decimation, so buffer sizes must match exactly.
         let without_decimation = InterleavedResampler::<f32>::new(Config {

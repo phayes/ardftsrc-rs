@@ -122,6 +122,11 @@ impl<T> SpectralPlan<T>
 where
     T: Float,
 {
+    /// `output_delay` delays the output by that many output samples (a linear phase ramp), for
+    /// compensating the fractional part of a pre-decimation stage's group delay. It must be
+    /// zero when upsampling, where output bins above the input Nyquist are images rather than
+    /// direct bins.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         input_chunk_frames: usize,
         output_chunk_frames: usize,
@@ -130,6 +135,7 @@ where
         phase: T,
         phase_intensity: T,
         alias_floor: f64,
+        output_delay: T,
     ) -> Self {
         let geometry = FilterGeometry::new(input_chunk_frames, output_chunk_frames, bandwidth, alias_floor);
         let direction = match input_chunk_frames.cmp(&output_chunk_frames) {
@@ -145,13 +151,20 @@ where
             direction == Direction::Equal,
         );
 
+        debug_assert!(
+            output_delay.is_zero() || direction != Direction::Up,
+            "output delay is only supported when the output spectrum is the lower one"
+        );
+        let mut phase_table = build_phase(geometry.lower_nyquist_bin + 1, phase, phase_intensity);
+        apply_delay_ramp(&mut phase_table, output_delay);
+
         Self {
             direction,
             geometry,
             reflect_start_bin: geometry.reflect_start_bin(),
             gain,
-            phase: build_phase(geometry.lower_nyquist_bin + 1, phase, phase_intensity),
-            phase_enabled: !phase.is_zero() && !phase_intensity.is_zero(),
+            phase: phase_table,
+            phase_enabled: (!phase.is_zero() && !phase_intensity.is_zero()) || !output_delay.is_zero(),
         }
     }
 
@@ -231,6 +244,22 @@ fn rotate<T: Float>(value: Complex<T>, phase: Option<&[Complex<T>]>, bin: usize)
     match phase {
         Some(phase) => value * phase[bin],
         None => value,
+    }
+}
+
+/// Multiplies `phase` (one entry per output bin, DC through Nyquist) by the linear phase ramp
+/// that delays the output by `delay` samples: `exp(-j pi k delay / N)` at bin `k`, with `N` the
+/// Nyquist bin. The Nyquist bin itself is left alone: it is real-valued, so it cannot carry a
+/// fractional delay, and the taper's gain there is effectively zero anyway.
+fn apply_delay_ramp<T: Float>(phase: &mut [Complex<T>], delay: T) {
+    if delay.is_zero() || phase.len() < 2 {
+        return;
+    }
+    let nyquist = phase.len() - 1;
+    let step = -T::from(std::f64::consts::PI).unwrap_or_else(T::zero) * delay / T::from(nyquist).unwrap_or_else(T::one);
+    for (k, value) in phase[..nyquist].iter_mut().enumerate() {
+        let angle = step * T::from(k).unwrap_or_else(T::zero);
+        *value = *value * Complex::new(angle.cos(), angle.sin());
     }
 }
 
@@ -404,7 +433,7 @@ mod tests {
                     );
                     previous_floor = floor;
 
-                    let plan = SpectralPlan::<f64>::new(4480, 2058, bandwidth, &taper, 0.0, 0.0, floor);
+                    let plan = SpectralPlan::<f64>::new(4480, 2058, bandwidth, &taper, 0.0, 0.0, floor, 0.0);
                     let target = 10f64.powf(f64::from(db) / 20.0);
                     // The level is located on a high-resolution sampling of the shape; short real
                     // transitions (and the Bessel taper's size-dependent normalization) shift it

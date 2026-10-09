@@ -720,6 +720,10 @@ pub struct DerivedConfig<T> {
     pub(crate) decimation_stages: usize,
     /// FIR coefficients shared by every decimation stage (empty when `decimation_stages == 0`).
     pub(crate) decimation_taps: Vec<T>,
+    /// The decimation cascade's group delay in whole output samples, rounded up; trimmed on top
+    /// of `output_offset` at stream start. The rounding remainder is compensated by a matching
+    /// fractional delay in `spectral`, so the two together are exact. Zero without decimation.
+    pub(crate) decimator_output_delay: usize,
     /// High-precision FFT backend selection; see [`Config::high_precision`].
     #[cfg(feature = "high_precision")]
     pub(crate) high_precision: Option<HighPrecision>,
@@ -781,16 +785,6 @@ where
         let output_fft_size = output_chunk_frames * 2;
         let input_offset = (input_fft_size - input_chunk_frames) / 2;
         let output_offset = (output_fft_size - output_chunk_frames) / 2;
-        let spectral = SpectralPlan::new(
-            input_chunk_frames,
-            output_chunk_frames,
-            config.bandwidth,
-            &config.taper_type,
-            T::from(config.phase).unwrap_or_else(T::zero),
-            T::from(config.phase_intensity).unwrap_or_else(T::zero),
-            crate::spectral::resolve_alias_floor(config.alias_floor, config.bandwidth, &config.taper_type),
-        );
-
         let decimation_taps = if decimation_stages > 0 {
             // Cap each stage's group delay to roughly the (decimated-domain) chunk size, so
             // flushing the cascade's trailing state at end-of-stream stays effectively lossless
@@ -799,6 +793,27 @@ where
         } else {
             Vec::new()
         };
+
+        // The decimation cascade's group delay, converted to output samples at the true
+        // (pre-decimation) rate ratio, is generally fractional. Startup trimming can only drop
+        // whole samples, so it rounds up and the FFT stage delays the output by the remainder.
+        let raw_decimator_delay = crate::decimate::raw_group_delay(decimation_stages, decimation_taps.len());
+        let scaled_decimator_delay = raw_decimator_delay * config.output_sample_rate;
+        let decimator_output_delay = scaled_decimator_delay.div_ceil(config.input_sample_rate);
+        let decimator_delay_remainder = (decimator_output_delay * config.input_sample_rate - scaled_decimator_delay)
+            as f64
+            / config.input_sample_rate as f64;
+
+        let spectral = SpectralPlan::new(
+            input_chunk_frames,
+            output_chunk_frames,
+            config.bandwidth,
+            &config.taper_type,
+            T::from(config.phase).unwrap_or_else(T::zero),
+            T::from(config.phase_intensity).unwrap_or_else(T::zero),
+            crate::spectral::resolve_alias_floor(config.alias_floor, config.bandwidth, &config.taper_type),
+            T::from(decimator_delay_remainder).unwrap_or_else(T::zero),
+        );
 
         Self {
             input_sample_rate: config.input_sample_rate,
@@ -812,6 +827,7 @@ where
             spectral,
             decimation_stages,
             decimation_taps,
+            decimator_output_delay,
             #[cfg(feature = "high_precision")]
             high_precision: config.high_precision,
             extrapolation: config.extrapolation,
