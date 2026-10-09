@@ -234,7 +234,7 @@ let config = ardftsrc::PRESET_GOOD
 | [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |  `73622` |   `0.987` | High quality for offline use.              | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)                                                                                                     |
 | [`PRESET_EXTREME`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_EXTREME.html) | `524514` |   `0.995` | Maximum quality, intended for offline use. | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)                                                                                                     |
 
-† You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast,  has very high quality metrics, and has lower pre-ringing artefact as compared PRESET_HIGH and PRESET_EXTREME.
+† You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast and has very high quality metrics.
 
 ## Taper profiles
 

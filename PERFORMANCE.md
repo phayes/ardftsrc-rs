@@ -9,9 +9,8 @@ We use the HydrogenAudio SRC Test Suite as our "quality" proxy.
 
 1. Rubato is faster than ardftsrc in all instances, even when rubato is running at "high quality sync"
 2. At higher quality levels (> fast) ardftsrc beats out rubato in quality
-3. Pre-ringing is an issue for ardftsrc. This can be ameliorated by introducing a "phase" param (not done yet)
-4. They both use about the same amount of memory. 
-5. Rubato `f64` performs significantly better than rubato `f32`. We should investigate using rubato with `f64` even in `f32` pipelines (`f32` -> `f64` -> rubato::<`f64`> -> `f64` -> `f32`). 
+3. They both use about the same amount of memory. 
+4. Rubato `f64` performs significantly better than rubato `f32`. We should investigate using rubato with `f64` even in `f32` pipelines (`f32` -> `f64` -> rubato::<`f64`> -> `f64` -> `f32`). 
 
 ## Conclusion
 
