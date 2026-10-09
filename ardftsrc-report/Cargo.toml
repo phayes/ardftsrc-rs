@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Combined THD+N and HydrogenAudio quality reporting for ardftsrc's f64 resamplers."
+description = "Combined THD+N, pre-ringing, and HydrogenAudio quality reporting for ardftsrc's f64 resamplers."
 publish = false
 
 [package.metadata.dist]

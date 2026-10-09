@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
-use ardftsrc_report::{hydrogen, preset::Preset, report, thdn};
+use ardftsrc_report::{hydrogen, preringing, preset::Preset, report, thdn};
 use clap::{Args, Parser, Subcommand};
 use mimalloc::MiMalloc;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-/// Combined THD+N and HydrogenAudio quality reporting for ardftsrc's `f64` resamplers.
+/// Combined THD+N, pre-ringing, and HydrogenAudio quality reporting for ardftsrc's `f64`
+/// resamplers.
 #[derive(Debug, Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -21,11 +22,12 @@ enum Command {
         #[command(subcommand)]
         target: RunTarget,
     },
-    /// Render report_<preset>.md from thdn_<preset>_report.json and
-    /// hydrogen_src_<preset>_report.json already present in --out-dir.
+    /// Render report_<preset>.md from thdn_<preset>_report.json,
+    /// preringing_<preset>_report.json, and hydrogen_src_<preset>_report.json already present
+    /// in --out-dir.
     Report(ReportArgs),
-    /// Run both analyses and render the combined reports: equivalent to
-    /// `run thdn`, then `run hydrogen-src`, then `report`.
+    /// Run every analysis and render the combined reports: equivalent to `run thdn`, then
+    /// `run preringing`, then `run hydrogen-src`, then `report`.
     All(AllArgs),
 }
 
@@ -33,6 +35,9 @@ enum Command {
 enum RunTarget {
     /// Run the THD+N sweep and write thdn_<preset>_report.json.
     Thdn(ThdnArgs),
+    /// Measure impulse pre-ringing and below-rolloff pre-echo, and write
+    /// preringing_<preset>_report.json.
+    Preringing(PreringingArgs),
     /// Run the HydrogenAudio Test Suite once per preset (f64, no high-precision backend) and
     /// write hydrogen_src_<preset>_report.json. Requires GNU Octave on PATH.
     HydrogenSrc(HydrogenSrcArgs),
@@ -46,6 +51,18 @@ struct ThdnArgs {
     out_dir: PathBuf,
 
     /// Suppress per-case progress output on stderr.
+    #[arg(long)]
+    quiet: bool,
+}
+
+#[derive(Debug, Args)]
+struct PreringingArgs {
+    /// Directory to write preringing_<preset>_report.json to. Relative paths resolve against
+    /// the current working directory. Created if missing.
+    #[arg(long, default_value = ".")]
+    out_dir: PathBuf,
+
+    /// Suppress per-configuration progress output on stderr.
     #[arg(long)]
     quiet: bool,
 }
@@ -70,8 +87,8 @@ struct HydrogenSrcArgs {
 
 #[derive(Debug, Args)]
 struct ReportArgs {
-    /// Directory to read thdn_*.json / hydrogen_src_*.json from and write report_*.md
-    /// to. Relative paths resolve against the current working directory.
+    /// Directory to read thdn_*.json / preringing_*.json / hydrogen_src_*.json from and
+    /// write report_*.md to. Relative paths resolve against the current working directory.
     #[arg(long, default_value = ".")]
     out_dir: PathBuf,
 
@@ -159,6 +176,62 @@ fn run_thdn(args: &ThdnArgs) {
     }
 }
 
+fn run_preringing(args: &PreringingArgs) {
+    std::fs::create_dir_all(&args.out_dir)
+        .unwrap_or_else(|e| panic!("failed to create {}: {e}", args.out_dir.display()));
+
+    let total = preringing::planned_config_count(thdn::report::DEFAULT_RATE_PAIRS, preringing::DEFAULT_PRESETS);
+    let mut done = 0usize;
+
+    if !args.quiet {
+        eprintln!(
+            "preringing: running {total} configurations ({} chunk positions x (1 impulse + {} transients) each)",
+            preringing::CHUNK_POSITIONS.len(),
+            preringing::TRANSIENT_CARRIERS.len(),
+        );
+    }
+
+    let result = preringing::run_default_sweep(|config| {
+        done += 1;
+        if !args.quiet {
+            let pre_ring_ms = config
+                .worst_impulse()
+                .and_then(|imp| imp.pre_ring_ms.last().copied())
+                .unwrap_or(0.0);
+            let pre_echo_db = config
+                .transients
+                .iter()
+                .map(|t| t.pre_echo_db)
+                .fold(f64::NEG_INFINITY, f64::max);
+            eprintln!(
+                "[{done}/{total}] {} -> {} decimate={} {}: pre-ring to {:.0}dB={:.2}ms below-rolloff pre-echo={:.1}dB",
+                config.input_rate,
+                config.output_rate,
+                config.decimate,
+                config.preset.label(),
+                preringing::THRESHOLDS_DB.last().copied().unwrap_or(0.0),
+                pre_ring_ms,
+                pre_echo_db,
+            );
+        }
+    });
+
+    for &preset in Preset::ALL.iter() {
+        let preset_result = result.for_preset(preset);
+        if preset_result.results.is_empty() {
+            continue;
+        }
+
+        let json_path = args.out_dir.join(format!("preringing_{}_report.json", preset.label()));
+        let json = serde_json::to_string_pretty(&preset_result).expect("Report serializes to JSON");
+        std::fs::write(&json_path, json).unwrap_or_else(|e| panic!("failed to write {}: {e}", json_path.display()));
+
+        if !args.quiet {
+            eprintln!("preringing: wrote {}", json_path.display());
+        }
+    }
+}
+
 fn run_hydrogen_src(args: &HydrogenSrcArgs) {
     std::fs::create_dir_all(&args.out_dir)
         .unwrap_or_else(|e| panic!("failed to create {}: {e}", args.out_dir.display()));
@@ -181,11 +254,18 @@ fn main() {
             target: RunTarget::Thdn(args),
         } => run_thdn(&args),
         Command::Run {
+            target: RunTarget::Preringing(args),
+        } => run_preringing(&args),
+        Command::Run {
             target: RunTarget::HydrogenSrc(args),
         } => run_hydrogen_src(&args),
         Command::Report(args) => run_report(&args),
         Command::All(args) => {
             run_thdn(&ThdnArgs {
+                out_dir: args.out_dir.clone(),
+                quiet: args.quiet,
+            });
+            run_preringing(&PreringingArgs {
                 out_dir: args.out_dir.clone(),
                 quiet: args.quiet,
             });

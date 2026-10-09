@@ -1,6 +1,6 @@
 # ardftsrc Quality Reports
 
-Revision: 90ba09d
+Revision: df1993b
 
 - [Fast](report_fast.md)
 - [Good](report_good.md)

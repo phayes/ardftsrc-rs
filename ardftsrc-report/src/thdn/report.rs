@@ -69,7 +69,7 @@ pub fn decimation_eligible(input_rate: usize, output_rate: usize) -> bool {
     input_rate > output_rate && input_rate >= output_rate * 4
 }
 
-fn decimate_variants(input_rate: usize, output_rate: usize) -> &'static [bool] {
+pub(crate) fn decimate_variants(input_rate: usize, output_rate: usize) -> &'static [bool] {
     if decimation_eligible(input_rate, output_rate) {
         &[false, true]
     } else {
@@ -233,8 +233,15 @@ pub fn run_sweep<F: FnMut(&CaseResult)>(
                 for &high_precision in HIGH_PRECISION_VARIANTS {
                     for &freq_hz in frequencies_hz {
                         for &amplitude_dbfs in amplitudes_dbfs {
-                            let case =
-                                run_case(input_rate, output_rate, preset, high_precision, decimate, freq_hz, amplitude_dbfs);
+                            let case = run_case(
+                                input_rate,
+                                output_rate,
+                                preset,
+                                high_precision,
+                                decimate,
+                                freq_hz,
+                                amplitude_dbfs,
+                            );
                             on_case(&case);
                             cases.push(case);
                         }

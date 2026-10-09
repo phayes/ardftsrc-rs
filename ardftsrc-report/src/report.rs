@@ -1,15 +1,16 @@
-//! Reads back `thdn_<preset>_report.json` (written by `run thdn`) and
+//! Reads back `thdn_<preset>_report.json` (written by `run thdn`),
+//! `preringing_<preset>_report.json` (written by `run preringing`), and
 //! `hydrogen_src_<preset>_report.json` (written by `run hydrogen-src`) from `--out-dir`
 //! and renders one combined `report_<preset>.md` per preset present, plus a
 //! `README.md` index linking those reports. A preset missing
-//! both files is skipped with a warning; a preset missing just one still gets a report,
-//! with a note in place of the missing section.
+//! all three files is skipped with a warning; a preset missing only some still gets a
+//! report, with a note in place of each missing section.
 //!
 //! Layout: an overall title, a transposed preset-configuration table, the HydrogenAudio
 //! Test Suite section (with titled whitelist figures copied alongside the report by
 //! `run hydrogen-src` embedded directly), then THD+N -- which omits its own
 //! preset-configuration table since it would just repeat the one already shown at the
-//! top.
+//! top -- then pre-ringing.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -18,6 +19,7 @@ use tabled::settings::Alignment;
 
 use crate::git::git_revision;
 use crate::hydrogen::{FIGURES, PresetResult};
+use crate::preringing::Report as PreringingReport;
 use crate::preset::Preset;
 use crate::thdn::report::{Report as ThdnReport, render_table};
 
@@ -77,27 +79,30 @@ fn hydrogen_src_table(case: &PresetResult) -> String {
     render_table(&[("Metric", Alignment::left()), ("Score", Alignment::right())], rows)
 }
 
-/// Reads `thdn_<preset>_report.json` and `hydrogen_src_<preset>_report.json` from
-/// `out_dir` for each preset in [`Preset::ALL`] and writes `report_<preset>.md`
-/// combining whichever of the two is present, plus a `README.md` index linking
-/// each generated report.
+/// Reads `thdn_<preset>_report.json`, `preringing_<preset>_report.json`, and
+/// `hydrogen_src_<preset>_report.json` from `out_dir` for each preset in [`Preset::ALL`]
+/// and writes `report_<preset>.md` combining whichever are present, plus a `README.md`
+/// index linking each generated report.
 pub fn write_all(out_dir: &Path, quiet: bool) {
     let revision = git_revision();
     let mut written = Vec::new();
 
     for &preset in Preset::ALL.iter() {
         let thdn_path = out_dir.join(format!("thdn_{}_report.json", preset.label()));
+        let preringing_path = out_dir.join(format!("preringing_{}_report.json", preset.label()));
         let hydrogen_src_path = out_dir.join(format!("hydrogen_src_{}_report.json", preset.label()));
 
         let thdn: Option<ThdnReport> = read_json(&thdn_path);
+        let preringing: Option<PreringingReport> = read_json(&preringing_path);
         let hydrogen: Option<PresetResult> = read_json(&hydrogen_src_path);
 
-        if thdn.is_none() && hydrogen.is_none() {
+        if thdn.is_none() && preringing.is_none() && hydrogen.is_none() {
             if !quiet {
                 eprintln!(
-                    "report: skipping {} (neither {} nor {} found)",
+                    "report: skipping {} (none of {}, {}, or {} found)",
                     preset.label(),
                     thdn_path.display(),
+                    preringing_path.display(),
                     hydrogen_src_path.display()
                 );
             }
@@ -165,6 +170,22 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
                     out,
                     "No `{}` found. Run `ardftsrc-report run thdn` first.",
                     thdn_path.display()
+                );
+            }
+        }
+        let _ = writeln!(out);
+
+        let _ = writeln!(out, "## Pre-ringing");
+        let _ = writeln!(out);
+        match &preringing {
+            Some(report) => {
+                let _ = write!(out, "{}", report.to_markdown());
+            }
+            None => {
+                let _ = writeln!(
+                    out,
+                    "No `{}` found. Run `ardftsrc-report run preringing` first.",
+                    preringing_path.display()
                 );
             }
         }
