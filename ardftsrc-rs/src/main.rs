@@ -44,11 +44,11 @@ const MAX_F32_QUALITY: usize = 8192;
 enum PresetArg {
     /// Fastest preset; lowest quality (quality = 512, bandwidth = 0.86, beta_cdf alpha = 17, beta = 17).
     Fast,
-    /// Balanced quality/speed preset (quality = 1920, bandwidth = 0.92, beta_cdf alpha = 18, beta = 18).
+    /// Balanced quality/speed preset (quality = 2304, bandwidth = 0.95, beta_cdf alpha = 18, beta = 18).
     Good,
     /// High quality preset for offline or quality-sensitive use (quality = 9216, bandwidth = 0.986, beta_cdf alpha = 19, beta = 19).
     High,
-    /// Maximum quality preset; slowest (quality = 259200, bandwidth = 0.9975, beta_cdf alpha = 12, beta = 12, alias floor = 0 dB).
+    /// Maximum quality preset; slowest (quality = 28224, bandwidth = 0.9975, beta_cdf alpha = 12, beta = 12, alias floor = 0 dB).
     Extreme,
 }
 

@@ -458,7 +458,8 @@ mod tone_tests {
     use crate::cpu_core::CpuCore;
 
     const AMP: f64 = 0.5;
-    const BW: f32 = 0.92;
+    /// Default bandwidth; `AliasFloor::Fraction(BW)` is the widest floor for `config()`.
+    const BW: f32 = Config::DEFAULT.bandwidth;
     /// Strict-mode suppression expected for content outside the passband/transition.
     const SUPPRESSED_DB: f64 = -100.0;
 
@@ -534,7 +535,7 @@ mod tone_tests {
 
     #[test]
     fn content_above_extended_stopband_stays_suppressed() {
-        // Widest floor at 96k -> 44.1k stops at ~24.0 kHz.
+        // Widest floor at 96k -> 44.1k stops at ~23.2 kHz.
         for hz in [24_500.0, 26_000.0, 30_000.0] {
             let output = resample(config(96_000, 44_100, AliasFloor::Fraction(BW)), &tone(96_000, hz, 0.3));
             let alias = level_db(&output, 44_100, 44_100.0 - hz);

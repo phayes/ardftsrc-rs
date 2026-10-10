@@ -6,6 +6,10 @@
 
 use ardftsrc::{Config, InterleavedResampler, PlanarResampler};
 
+/// Pinned rather than the default so the near-Nyquist tones fold/image inside the -3 dB floor's
+/// band; a narrower transition would move the floor above them.
+const BANDWIDTH: f32 = 0.92;
+
 /// Half a second of a 1 kHz tone plus a tone near the lower Nyquist (22.05 kHz).
 fn signal(rate: usize, channels: usize, near_nyquist_hz: f64) -> Vec<f64> {
     let frames = rate / 2;
@@ -108,7 +112,7 @@ fn assert_alias_floor_applied(strict: &[f64], aliased: &[f64]) {
 fn interleaved_and_planar_apply_alias_floor_in_both_directions() {
     // (input rate, output rate, near-Nyquist tone): folds when downsampling, images when upsampling.
     for (input_rate, output_rate, near_nyquist_hz) in [(96_000, 44_100, 22_300.0), (44_100, 96_000, 21_800.0)] {
-        let strict = Config::new(input_rate, output_rate, 2);
+        let strict = Config::new(input_rate, output_rate, 2).with_bandwidth(BANDWIDTH);
         let aliased = strict.clone().with_alias_floor_db(-3.0);
         let input = signal(input_rate, 2, near_nyquist_hz);
 
@@ -127,7 +131,7 @@ fn interleaved_and_planar_apply_alias_floor_in_both_directions() {
 
 #[test]
 fn decimation_keeps_length_with_alias_floor() {
-    let strict = Config::new(192_000, 44_100, 1).with_decimate(true);
+    let strict = Config::new(192_000, 44_100, 1).with_bandwidth(BANDWIDTH).with_decimate(true);
     let aliased = strict.clone().with_alias_floor_db(-3.0);
     let input = signal(192_000, 1, 22_300.0);
 
@@ -139,7 +143,7 @@ fn decimation_keeps_length_with_alias_floor() {
 
 #[test]
 fn gapless_context_keeps_length_with_alias_floor() {
-    let strict = Config::new(96_000, 44_100, 2);
+    let strict = Config::new(96_000, 44_100, 2).with_bandwidth(BANDWIDTH);
     let aliased = strict.clone().with_alias_floor_db(-3.0);
     let input = signal(96_000, 2, 22_300.0);
     let context_len = InterleavedResampler::<f64>::new(strict.clone())
@@ -159,7 +163,7 @@ fn high_precision_applies_alias_floor() {
     use ardftsrc::HighPrecision;
 
     for precision in [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256] {
-        let strict = Config::new(96_000, 44_100, 1).with_high_precision(Some(precision));
+        let strict = Config::new(96_000, 44_100, 1).with_bandwidth(BANDWIDTH).with_high_precision(Some(precision));
         let aliased = strict.clone().with_alias_floor_db(-3.0);
         let input = signal(96_000, 1, 22_300.0);
 

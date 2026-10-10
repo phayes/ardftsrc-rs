@@ -78,8 +78,8 @@ pub const PRESET_GOOD: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 1920,
-    bandwidth: 0.92,
+    quality: 2304,
+    bandwidth: 0.95,
     taper_type: TaperType::BetaCdf { alpha: 18.0, beta: 18.0 },
     ..Config::DEFAULT
 };
@@ -146,7 +146,7 @@ pub const PRESET_EXTREME: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 259200,
+    quality: 28224,
     bandwidth: 0.9975,
     taper_type: TaperType::BetaCdf { alpha: 12.0, beta: 12.0 },
     alias_floor: AliasFloor::Decibels(0.0),
@@ -198,20 +198,20 @@ pub struct Config {
     /// Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
     /// but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
     ///
-    /// Default value is 1920 (same quality as PRESET_GOOD).
+    /// Default value is 2304 (same quality as PRESET_GOOD).
     ///
     /// Value guide:
     ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    ///  - `1920` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
+    ///  - `2304` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
     ///  - `9216` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling.
-    ///  - `259200` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications. Alias floor is `0` dB.
+    ///  - `28224` (PRESET_EXTREME):  Extreme quality, good for offline resampling. Not recommended for realtime applications. Alias floor is `0` dB.
     pub quality: usize,
 
     /// Normalized filter bandwidth in the range `[0.0, 1.0]`.
     ///
     /// Higher values preserve more high-frequency content but shorten the transition band.
     ///
-    /// Default value is `0.92` (same bandwidth as [`PRESET_GOOD`]).
+    /// Default value is `0.95` (same bandwidth as [`PRESET_GOOD`]).
     ///
     /// Value guide:
     /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
@@ -360,8 +360,8 @@ impl Config {
         input_sample_rate: 0,
         output_sample_rate: 0,
         channels: 2,
-        quality: 1920,
-        bandwidth: 0.92,
+        quality: 2304,
+        bandwidth: 0.95,
         taper_type: TaperType::BetaCdf { alpha: 18.0, beta: 18.0 },
         phase: 0.0,
         phase_intensity: 50.0,
@@ -415,13 +415,13 @@ impl Config {
     /// Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
     /// but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
     ///
-    /// Default value is 1920 (same quality as PRESET_GOOD).
+    /// Default value is 2304 (same quality as PRESET_GOOD).
     ///
     /// Value guide:
     ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    ///  - `1920` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
+    ///  - `2304` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
     ///  - `9216` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling.
-    ///  - `259200` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications. Alias floor is `0` dB.
+    ///  - `28224` (PRESET_EXTREME):  Extreme quality, good for offline resampling. Not recommended for realtime applications. Alias floor is `0` dB.
     #[must_use]
     pub fn with_quality(mut self, quality: usize) -> Self {
         self.quality = quality;
@@ -432,7 +432,7 @@ impl Config {
     ///
     /// Higher values preserve more high-frequency content but shorten the transition band.
     ///
-    /// Default value is `0.92` (same bandwidth as [`PRESET_GOOD`]).
+    /// Default value is `0.95` (same bandwidth as [`PRESET_GOOD`]).
     ///
     /// Value guide:
     /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
@@ -860,14 +860,14 @@ mod tests {
 
         assert_eq!(derived.input_sample_rate, 44_100);
         assert_eq!(derived.output_sample_rate, 48_000);
-        assert_eq!(derived.input_chunk_frames, 2058);
-        assert_eq!(derived.output_chunk_frames, 2240);
-        assert_eq!(derived.input_fft_size, 4116);
-        assert_eq!(derived.output_fft_size, 4480);
-        assert_eq!(derived.input_offset, 1029);
-        assert_eq!(derived.output_offset, 1120);
-        assert_eq!(derived.spectral.geometry.stopband_end_bin, 2059);
-        assert_eq!(derived.spectral.geometry.transition_bins(), 165);
+        assert_eq!(derived.input_chunk_frames, 2352);
+        assert_eq!(derived.output_chunk_frames, 2560);
+        assert_eq!(derived.input_fft_size, 4704);
+        assert_eq!(derived.output_fft_size, 5120);
+        assert_eq!(derived.input_offset, 1176);
+        assert_eq!(derived.output_offset, 1280);
+        assert_eq!(derived.spectral.geometry.stopband_end_bin, 2353);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 118);
     }
 
     #[test]
@@ -877,14 +877,14 @@ mod tests {
 
         assert_eq!(derived.input_sample_rate, 44_100);
         assert_eq!(derived.output_sample_rate, 96_000);
-        assert_eq!(derived.input_chunk_frames, 2058);
-        assert_eq!(derived.output_chunk_frames, 4480);
-        assert_eq!(derived.input_fft_size, 4116);
-        assert_eq!(derived.output_fft_size, 8960);
-        assert_eq!(derived.input_offset, 1029);
-        assert_eq!(derived.output_offset, 2240);
-        assert_eq!(derived.spectral.geometry.stopband_end_bin, 2059);
-        assert_eq!(derived.spectral.geometry.transition_bins(), 165);
+        assert_eq!(derived.input_chunk_frames, 2352);
+        assert_eq!(derived.output_chunk_frames, 5120);
+        assert_eq!(derived.input_fft_size, 4704);
+        assert_eq!(derived.output_fft_size, 10240);
+        assert_eq!(derived.input_offset, 1176);
+        assert_eq!(derived.output_offset, 2560);
+        assert_eq!(derived.spectral.geometry.stopband_end_bin, 2353);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 118);
     }
 
     #[test]
