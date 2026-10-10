@@ -5,11 +5,14 @@
 //!
 //! Run it with:
 //!
-//! cargo test -p ardftsrc --release --features=rayon golden_hashes -- --nocapture
+//! cargo test -p ardftsrc --release --no-default-features --features rayon --test golden_hashes -- --nocapture
 //!
 //! To regenerate ../test_wavs/golden_hashes.<arch>.json:
 //!
-//! rust-script scripts/generate_golden_hashes.rs
+//! rust-script --force scripts/generate_golden_hashes.rs
+//!
+//! `--force` is required: rust-script caches the compiled script by its source alone,
+//! so without it a stale build of `ardftsrc` can silently rewrite the old hashes.
 //!
 //! Updates to ../test_wavs/golden_hashes.<arch>.json are allowed, but only when accompanied
 //! by verifiable quality improvements demonstrated with the HydrogenAudio SRC
