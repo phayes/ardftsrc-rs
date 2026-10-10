@@ -1,4 +1,4 @@
-use ardftsrc::{Config, InterleavedResampler};
+use ardftsrc::{Config, InterleavedResampler, TaperType};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -53,6 +53,7 @@ fn resample_all(input: &[f32], input_rate: usize, output_rate: usize, channels: 
         channels,
         quality: 2048,
         bandwidth: 0.95,
+        taper_type: TaperType::Cosine(3.4375),
         ..Config::default()
     };
     let mut resampler = InterleavedResampler::<f32>::new(config).unwrap_or_else(|err| {
@@ -191,6 +192,7 @@ fn test_wavs_f32_2048_bw095_outputs_are_finite() {
             channels,
             quality: 2048,
             bandwidth: 0.95,
+            taper_type: TaperType::Cosine(3.4375),
             ..Config::default()
         };
         let mut resampler = InterleavedResampler::<f32>::new(config).unwrap_or_else(|err| {

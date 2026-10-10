@@ -50,7 +50,7 @@ pub enum TaperType {
 
 impl Default for TaperType {
     fn default() -> Self {
-        Self::Cosine(3.4375)
+        Self::BetaCdf { alpha: 18.0, beta: 18.0 }
     }
 }
 

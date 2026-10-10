@@ -458,7 +458,7 @@ mod tone_tests {
     use crate::cpu_core::CpuCore;
 
     const AMP: f64 = 0.5;
-    const BW: f32 = 0.9114534;
+    const BW: f32 = 0.92;
     /// Strict-mode suppression expected for content outside the passband/transition.
     const SUPPRESSED_DB: f64 = -100.0;
 

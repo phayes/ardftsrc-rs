@@ -46,8 +46,8 @@ pub const PRESET_FAST: Config = Config {
     output_sample_rate: 0,
     channels: 0,
     quality: 512,
-    bandwidth: 0.8323,
-    taper_type: TaperType::Cosine(3.4375),
+    bandwidth: 0.86,
+    taper_type: TaperType::BetaCdf { alpha: 17.0, beta: 17.0 },
     ..Config::DEFAULT
 };
 
@@ -78,13 +78,13 @@ pub const PRESET_GOOD: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 1878,
-    bandwidth: 0.9114534,
-    taper_type: TaperType::Cosine(3.4375),
+    quality: 1920,
+    bandwidth: 0.92,
+    taper_type: TaperType::BetaCdf { alpha: 18.0, beta: 18.0 },
     ..Config::DEFAULT
 };
 
-/// High quality preset suitable for offline processing or realtime applications where quality is critical.
+/// High quality preset suitable for realtime applications where quality is critical, or for offline processing.
 ///
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md),
 /// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0).
@@ -111,13 +111,15 @@ pub const PRESET_HIGH: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 73622,
-    bandwidth: 0.9873534,
-    taper_type: TaperType::Cosine(3.4375),
+    quality: 9216,
+    bandwidth: 0.986,
+    taper_type: TaperType::BetaCdf { alpha: 19.0, beta: 19.0 },
     ..Config::DEFAULT
 };
 
 /// Maximum quality preset, optimized for offline processing. Not recommended for realtime applications.
+///
+/// The alias floor is `0` dB, so the transition extends to the passband edge.
 ///
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md),
 /// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0).
@@ -144,9 +146,10 @@ pub const PRESET_EXTREME: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 524514,
-    bandwidth: 0.9952346,
-    taper_type: TaperType::Cosine(3.4375),
+    quality: 259200,
+    bandwidth: 0.9975,
+    taper_type: TaperType::BetaCdf { alpha: 12.0, beta: 12.0 },
+    alias_floor: AliasFloor::Decibels(0.0),
     ..Config::DEFAULT
 };
 
@@ -195,18 +198,20 @@ pub struct Config {
     /// Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
     /// but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
     ///
-    /// Default value is 1878 (same quality as PRESET_GOOD).
+    /// Default value is 1920 (same quality as PRESET_GOOD).
     ///
     /// Value guide:
     ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    ///  - `1878` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
-    ///  - `73622` (PRESET_HIGH):     High quality, good for offline resampling, also marginally appropriate for realtime applications where quality is critical.
-    ///  - `524514` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications.
+    ///  - `1920` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
+    ///  - `9216` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling.
+    ///  - `259200` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications. Alias floor is `0` dB.
     pub quality: usize,
 
     /// Normalized filter bandwidth in the range `[0.0, 1.0]`.
     ///
     /// Higher values preserve more high-frequency content but shorten the transition band.
+    ///
+    /// Default value is `0.92` (same bandwidth as [`PRESET_GOOD`]).
     ///
     /// Value guide:
     /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
@@ -225,8 +230,7 @@ pub struct Config {
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
-    /// Default value is `Cosine(3.4375)`, which was arrived at through testing
-    /// various values on the HydrogenAudio SRC test suite.
+    /// Default value is `BetaCdf { alpha: 18.0, beta: 18.0 }` (same taper as [`PRESET_GOOD`]).
     ///
     /// Lower `alpha` values result in a smoother transition, while higher values
     /// produce a sharper transition.
@@ -356,9 +360,9 @@ impl Config {
         input_sample_rate: 0,
         output_sample_rate: 0,
         channels: 2,
-        quality: 1878,
-        bandwidth: 0.9114534,
-        taper_type: TaperType::Cosine(3.4375),
+        quality: 1920,
+        bandwidth: 0.92,
+        taper_type: TaperType::BetaCdf { alpha: 18.0, beta: 18.0 },
         phase: 0.0,
         phase_intensity: 50.0,
         alias_floor: AliasFloor::Fraction(1.0),
@@ -411,13 +415,13 @@ impl Config {
     /// Quality roughly sets the spectral resolution scale (and therefore FFT bin count),
     /// but this mapping is not exactly 1:1 (exact bin count depends on rate ratio and quantization).
     ///
-    /// Default value is 1878 (same quality as PRESET_GOOD).
+    /// Default value is 1920 (same quality as PRESET_GOOD).
     ///
     /// Value guide:
     ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    ///  - `1878` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
-    ///  - `73622` (PRESET_HIGH):     High quality, good for offline resampling, also marginally appropriate for realtime applications where quality is critical.
-    ///  - `524514` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications.
+    ///  - `1920` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
+    ///  - `9216` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling.
+    ///  - `259200` (PRESET_EXTREME): Extreme quality, good for offline resampling, very high quality but also very slow. Not recommended for realtime applications. Alias floor is `0` dB.
     #[must_use]
     pub fn with_quality(mut self, quality: usize) -> Self {
         self.quality = quality;
@@ -427,6 +431,8 @@ impl Config {
     /// Normalized filter bandwidth in the range `[0.0, 1.0]`.
     ///
     /// Higher values preserve more high-frequency content but shorten the transition band.
+    ///
+    /// Default value is `0.92` (same bandwidth as [`PRESET_GOOD`]).
     ///
     /// Value guide:
     /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
@@ -449,8 +455,7 @@ impl Config {
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
-    /// Default value is `Cosine(3.4375)`, which was arrived at through testing
-    /// various values on the HydrogenAudio SRC test suite.
+    /// Default value is `BetaCdf { alpha: 18.0, beta: 18.0 }` (same taper as [`PRESET_GOOD`]).
     ///
     /// Lower `alpha` values result in a smoother transition, while higher values
     /// produce a sharper transition.
@@ -862,7 +867,7 @@ mod tests {
         assert_eq!(derived.input_offset, 1029);
         assert_eq!(derived.output_offset, 1120);
         assert_eq!(derived.spectral.geometry.stopband_end_bin, 2059);
-        assert_eq!(derived.spectral.geometry.transition_bins(), 183);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 165);
     }
 
     #[test]
@@ -879,7 +884,7 @@ mod tests {
         assert_eq!(derived.input_offset, 1029);
         assert_eq!(derived.output_offset, 2240);
         assert_eq!(derived.spectral.geometry.stopband_end_bin, 2059);
-        assert_eq!(derived.spectral.geometry.transition_bins(), 183);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 165);
     }
 
     #[test]

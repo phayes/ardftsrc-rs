@@ -141,13 +141,37 @@ let config = ardftsrc::PRESET_GOOD.with_extrapolation(ardftsrc::Extrapolation::M
 
 ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration via [`RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) (`rodio` feature) and the ability to build your own custom realtime audio resampling pipeline via [`RealtimeResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RealtimeResampler.html). 
 
+Realtime resampling (including rodio integration) is very sensitive to the rust compiler's optimization settings. As an example, in release mode, the `GOOD` preset is able to operate with a buffer of only 64 frames and is suitable for realtime use, but in an unoptimized debug (dev) mode, requires a buffer of 2048 frames to operate smoothly. 
+
+There are two strategries to deal with this:
+
+**Option 1: optimize debug builds**
+
+In your `cargo.toml` set:
+
+```toml
+[profile.dev]
+opt-level = 3
+```
+
+**Option 2: Swap quality and buffer size in debug build**
+
+Set your buffer size and quality depending on debug or release:
+
+```rust
+let (buffer_frames, preset) = if cfg!(debug_assertions) {
+    (2048, ardftsrc::PRESET_FAST) // unoptimized builds need a big buffer
+} else {
+    (128, ardftsrc::PRESET_GOOD) // Optimized builds can use a small buffer and a high quality preset
+};
+```
+
 ## Rodio integration
 
 Enable the `rodio` feature to use [`RodioResampler`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.RodioResampler.html) to wrap a [`rodio::Source`](https://docs.rs/rodio/latest/rodio/source/trait.Source.html) and resample it in realtime in your rodio pipeline.
 
 When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use [`config.with_rodio_fast_start(true)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_rodio_fast_start), which will 
-avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, 
-do not enable fast-start.
+avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, do not enable fast-start.
 
 ```rust
 #[cfg(feature = "rodio")]
@@ -229,10 +253,10 @@ let config = ardftsrc::PRESET_GOOD
 
 | Preset                                                                                    |  Quality | Bandwidth | Recommended use                            | Quality metrics                                                                                                                                                                                        |
 | ----------------------------------------------------------------------------------------- | -------: | --------: | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.832` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0) |
-| [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `1878` |   `0.911` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0)                                                                                                     |
-| [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |  `73622` |   `0.987` | High quality for offline use.              | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)                                                                                                     |
-| [`PRESET_EXTREME`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_EXTREME.html) | `524514` |   `0.995` | Maximum quality, intended for offline use. | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)                                                                                                     |
+| [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.860` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0) |
+| [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `1920` |   `0.920` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0)                                                                                                     |
+| [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |   `9216` |   `0.986` | High quality for realtime or offline use.  | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)                                                                                                     |
+| [`PRESET_EXTREME`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_EXTREME.html) | `259200` |  `0.9975` | Maximum quality, intended for offline use. | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)                                                                                                     |
 
 † You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast and has very high quality metrics.
 
@@ -280,14 +304,14 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 
 ### Taper profiles
 
-`--taper-type` selects the cutoff transition. Omitting it keeps the preset default, `cosine`.
+`--taper-type` selects the cutoff transition. Omitting it keeps the selected preset's taper. `PRESET_GOOD`, which is also the `Config` default, uses `beta_cdf` with alpha `18` and beta `18`. `PRESET_FAST` uses `beta_cdf` with alpha `17` and beta `17`. `PRESET_HIGH` uses `beta_cdf` with alpha `19` and beta `19`. `PRESET_EXTREME` uses `beta_cdf` with alpha `12` and beta `12`, and an alias floor of `0` dB.
 
 | Taper | Parameters | Description |
 | --- | --- | --- |
-| `cosine` | `--alpha` (default `3.4375`) | Sigmoid-warped cosine. Default taper. |
+| `cosine` | `--alpha` (default `3.4375`) | Sigmoid-warped cosine. |
 | `planck` | — | Planck taper. |
 | `tanh` | `--alpha` (default `3`) | Endpoint-normalized hyperbolic tangent. |
-| `beta_cdf` (`beta-cdf`) | `--alpha` (default `10`), `--beta` (default `10`) | Beta cumulative distribution. Equal `alpha` and `beta` are symmetric. |
+| `beta_cdf` (`beta-cdf`) | `--alpha` (default `10`), `--beta` (default `10`) | Beta cumulative distribution. `PRESET_GOOD` uses alpha `18` and beta `18`. `PRESET_FAST` uses alpha `17` and beta `17`. `PRESET_HIGH` uses alpha `19` and beta `19`. `PRESET_EXTREME` uses alpha `12` and beta `12`. Passing `--taper-type beta_cdf` without `--alpha` or `--beta` uses `10` and `10`. Equal `alpha` and `beta` are symmetric. |
 | `bessel` | `--alpha` (default `6`) | Cumulative Bessel-I0. |
 | `kbd` | `--alpha` (default `6`) | Descending half of a Kaiser–Bessel-derived window. Kaiser beta = π × alpha. |
 | `half_kaiser` (`half-kaiser`) | `--alpha` (default `6`) | Descending half-Kaiser, shifted and scaled to reach zero at the stopband. Kaiser beta = π × alpha. |
