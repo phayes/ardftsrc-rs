@@ -1096,7 +1096,8 @@ mod tests {
             without_max_abs_error_idx as f64 / output_sample_rate as f64
         );
 
-        let min_ratio = 100.0f32;
+        // Stop extrapolation alone recovers most of the split error; real context should still beat it.
+        let min_ratio = 2.0f32;
         let ratio = without_max_abs_error / with_max_abs_error;
         assert!(
             ratio >= min_ratio,
@@ -1433,7 +1434,7 @@ mod tests {
 
     #[test]
     fn decimate_output_is_time_aligned_with_input() {
-        // PRESET_FAST's decimation stage delays by 16.5 output samples at 192kHz -> 48kHz, so
+        // PRESET_FAST's decimation stage delays by 19.75 output samples at 192kHz -> 48kHz, so
         // the half sample has to be compensated rather than rounded away by startup trimming.
         let config = crate::PRESET_FAST
             .with_input_rate(192_000)

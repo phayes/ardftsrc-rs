@@ -1136,7 +1136,8 @@ mod tests {
             without_max_abs_error_idx as f64 / output_sample_rate as f64
         );
 
-        let min_ratio = 100.0f32;
+        // Stop extrapolation alone recovers most of the split error; real context should still beat it.
+        let min_ratio = 2.0f32;
         let ratio = without_max_abs_error / with_max_abs_error;
         assert!(
             ratio >= min_ratio,

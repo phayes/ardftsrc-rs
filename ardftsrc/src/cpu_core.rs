@@ -470,11 +470,12 @@ where
             self.synthesize_final_block_missing_samples(&input[..input_samples]);
         }
 
-        self.transform_chunk(TransformMode::Normal)?;
-
+        // Save before transforming: the forward FFT may use `rdft_in` as scratch.
         if !is_short_final {
             self.save_current_window();
         }
+
+        self.transform_chunk(TransformMode::Normal)?;
 
         self.input_sample_count += raw_input_len;
 
@@ -725,6 +726,46 @@ mod backend_wiring_tests {
     fn f256_core_resamples_a_sine_correctly() {
         let config = Config::new(44_100, 48_000, 1).with_high_precision(Some(crate::HighPrecision::F256));
         assert_f64_core_resamples_a_sine_correctly(config);
+    }
+
+    /// The plain `realfft` engine uses its input buffer as scratch, while the high-precision
+    /// wrapper leaves it untouched. Any state read back from `rdft_in` after a forward
+    /// transform (e.g. the history used for stop extrapolation) would make the two diverge at
+    /// the end of the stream, so require them to agree to near `f64` precision everywhere,
+    /// for both a full and a short final chunk.
+    #[cfg(feature = "high_precision")]
+    #[test]
+    fn plain_f64_matches_high_precision_through_end_of_stream() {
+        let config = Config::new(44_100, 48_000, 1);
+        let chunk_frames = config.derive_config::<f64>().unwrap().input_chunk_frames;
+
+        for input_len in [chunk_frames * 4, chunk_frames * 4 + chunk_frames / 3] {
+            let input: Vec<f64> = (0..input_len)
+                .map(|i| {
+                    let t = i as f64 / 44_100.0;
+                    let noise = ((i as f64 * 12.9898).sin() * 43_758.545_3).fract() - 0.5;
+                    0.6 * (2.0 * std::f64::consts::PI * 1_000.0 * t).sin() + 1e-3 * noise
+                })
+                .collect();
+
+            let resample = |config: &Config| {
+                let derived = config.derive_config::<f64>().unwrap();
+                CpuCore::<f64>::new(derived).process_all(&input).unwrap()
+            };
+            let plain = resample(&config);
+            let precise = resample(&config.clone().with_high_precision(Some(crate::HighPrecision::DoubleDouble)));
+
+            assert_eq!(plain.len(), precise.len());
+            let max_diff = plain
+                .iter()
+                .zip(&precise)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f64, f64::max);
+            assert!(
+                max_diff < 1e-12,
+                "input_len={input_len}: plain f64 and high-precision outputs differ by {max_diff:e}"
+            );
+        }
     }
 
     fn assert_f64_core_resamples_a_sine_correctly(config: Config) {
