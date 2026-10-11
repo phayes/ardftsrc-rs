@@ -58,7 +58,7 @@ sse = ["realfft/sse"]
 wasm_simd = ["realfft/wasm_simd"]
 
 # Optional features (disabled by default)
-bessel = ["dep:pxfm"]
+kaiser = ["dep:pxfm"]
 rodio = ["dep:rodio"]
 rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]

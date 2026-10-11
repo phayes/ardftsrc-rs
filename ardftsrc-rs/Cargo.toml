@@ -23,8 +23,8 @@ symphonia.workspace = true
 wavers.workspace = true
 
 [features]
-default = ["avx", "neon", "sse", "wasm_simd", "rayon", "high_precision", "bessel"]
-bessel = ["ardftsrc/bessel"]
+default = ["avx", "neon", "sse", "wasm_simd", "rayon", "high_precision", "kaiser"]
+kaiser = ["ardftsrc/kaiser"]
 rayon = ["dep:rayon", "ardftsrc/rayon"]
 avx = ["ardftsrc/avx"]
 neon = ["ardftsrc/neon"]

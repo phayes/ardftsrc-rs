@@ -4,8 +4,8 @@
 
 # ARDFTSRC
 
-[![Crates.io](https://img.shields.io/crates/v/ardftsrc.svg)](https://crates.io/crates/ardftsrc)
-[![Docs.rs](https://docs.rs/ardftsrc/badge.svg)](https://docs.rs/ardftsrc)
+[![Crates.io](https://img.shields.io/crates/v/ardftsrc?logo=rust)](https://crates.io/crates/ardftsrc)
+[![Docs.rs](https://img.shields.io/docsrs/ardftsrc?logo=docsdotrs)](https://docs.rs/ardftsrc)
 [![Tests](https://github.com/phayes/ardftsrc-rs/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/phayes/ardftsrc-rs/actions/workflows/rust.yml?query=branch%3Amaster)
 
 A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Rate Converter (ARDFTSRC) algorithm.
@@ -312,9 +312,8 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 | `planck` | — | Planck taper. |
 | `tanh` | `--alpha` (default `3`) | Endpoint-normalized hyperbolic tangent. |
 | `beta_cdf` (`beta-cdf`) | `--alpha` (default `10`), `--beta` (default `10`) | Beta cumulative distribution. `PRESET_GOOD` uses alpha `18` and beta `18`. `PRESET_FAST` uses alpha `17` and beta `17`. `PRESET_HIGH` uses alpha `19` and beta `19`. `PRESET_EXTREME` uses alpha `12` and beta `12`. Passing `--taper-type beta_cdf` without `--alpha` or `--beta` uses `10` and `10`. Equal `alpha` and `beta` are symmetric. |
-| `bessel` | `--alpha` (default `6`) | Cumulative Bessel-I0. |
-| `kbd` | `--alpha` (default `6`) | Descending half of a Kaiser–Bessel-derived window. Kaiser beta = π × alpha. |
-| `half_kaiser` (`half-kaiser`) | `--alpha` (default `6`) | Descending half-Kaiser, shifted and scaled to reach zero at the stopband. Kaiser beta = π × alpha. |
+| `kaiser_cdf` (`kaiser-cdf`, `bessel`) | `--alpha` (default `6`) | Cumulative distribution of a Kaiser window. Amplitude-complementary (−6 dB at the transition midpoint); the square of `kbd`. Kaiser beta = π × alpha. |
+| `kbd` (`kaiser_bessel_derived`, `kaiser-bessel-derived`) | `--alpha` (default `6`) | Descending half of a Kaiser–Bessel-derived window. Power-complementary (−3 dB at the transition midpoint); the square root of `kaiser_cdf`. Kaiser beta = π × alpha. |
 
 Higher `alpha` makes the transition steeper. `alpha` and `beta` must be finite and greater than zero.
 

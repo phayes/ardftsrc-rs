@@ -214,9 +214,8 @@ pub struct Config {
     /// Frequency taper profile used around the cutoff region.
     ///
     /// - `Planck`: Uses a Planck taper transition.
-    /// - `Bessel(alpha)`: Uses a cumulative Bessel-I0 taper transition. Requires the `bessel` feature.
-    /// - `Kbd(alpha)`: Descending half of a KBD window (Kaiser beta = pi * alpha). Requires `bessel`.
-    /// - `HalfKaiser(alpha)`: Endpoint-normalized half-Kaiser (beta = pi * alpha). Requires `bessel`.
+    /// - `KaiserCdf(alpha)`: Kaiser-window CDF; -6 dB at the midpoint (beta = pi * alpha). Requires the `kaiser` feature.
+    /// - `KaiserBesselDerived(alpha)`: Descending half of a KBD window; -3 dB at the midpoint (beta = pi * alpha). Requires `kaiser`.
     /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
@@ -439,9 +438,8 @@ impl Config {
     /// Frequency taper profile used around the cutoff region.
     ///
     /// - `Planck`: Uses a Planck taper transition.
-    /// - `Bessel(alpha)`: Uses a cumulative Bessel-I0 taper transition. Requires the `bessel` feature.
-    /// - `Kbd(alpha)`: Descending half of a KBD window (Kaiser beta = pi * alpha). Requires `bessel`.
-    /// - `HalfKaiser(alpha)`: Endpoint-normalized half-Kaiser (beta = pi * alpha). Requires `bessel`.
+    /// - `KaiserCdf(alpha)`: Kaiser-window CDF; -6 dB at the midpoint (beta = pi * alpha). Requires the `kaiser` feature.
+    /// - `KaiserBesselDerived(alpha)`: Descending half of a KBD window; -3 dB at the midpoint (beta = pi * alpha). Requires `kaiser`.
     /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.

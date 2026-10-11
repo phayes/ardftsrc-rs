@@ -340,12 +340,10 @@ mod tests {
                 alpha: 10.0,
                 beta: 10.0,
             },
-            #[cfg(feature = "bessel")]
-            TaperType::Bessel(6.0),
-            #[cfg(feature = "bessel")]
-            TaperType::Kbd(6.0),
-            #[cfg(feature = "bessel")]
-            TaperType::HalfKaiser(6.0),
+            #[cfg(feature = "kaiser")]
+            TaperType::KaiserCdf(6.0),
+            #[cfg(feature = "kaiser")]
+            TaperType::KaiserBesselDerived(6.0),
         ]
     }
 
@@ -436,7 +434,7 @@ mod tests {
                     let plan = SpectralPlan::<f64>::new(4480, 2058, bandwidth, &taper, 0.0, 0.0, floor, 0.0);
                     let target = 10f64.powf(f64::from(db) / 20.0);
                     // The level is located on a high-resolution sampling of the shape; short real
-                    // transitions (and the Bessel taper's size-dependent normalization) shift it
+                    // transitions (and the Kaiser-CDF taper's size-dependent normalization) shift it
                     // by a few bins.
                     let bin = plan.geometry.floor_bin;
                     assert!(
@@ -636,8 +634,8 @@ mod tone_tests {
                 beta: 10.0,
             },
         ];
-        #[cfg(feature = "bessel")]
-        tapers.extend([TaperType::Bessel(6.0), TaperType::Kbd(6.0), TaperType::HalfKaiser(6.0)]);
+        #[cfg(feature = "kaiser")]
+        tapers.extend([TaperType::KaiserCdf(6.0), TaperType::KaiserBesselDerived(6.0)]);
 
         let input = tone(96_000, 22_300.0, 0.3);
         for taper_type in tapers {

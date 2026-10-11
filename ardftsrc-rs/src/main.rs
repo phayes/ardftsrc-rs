@@ -32,8 +32,8 @@ use rayon::prelude::*;
 static GLOBAL: MiMalloc = MiMalloc;
 
 const DEFAULT_ALPHA: f32 = 3.4375;
-#[cfg(feature = "bessel")]
-const DEFAULT_BESSEL_ALPHA: f32 = 6.0;
+#[cfg(feature = "kaiser")]
+const DEFAULT_KAISER_ALPHA: f32 = 6.0;
 const DEFAULT_BETA_CDF_ALPHA: f32 = 10.0;
 const DEFAULT_BETA_CDF_BETA: f32 = 10.0;
 const DEFAULT_ALLOW_ALIASING_DB: f32 = -3.0;
@@ -56,16 +56,14 @@ enum PresetArg {
 enum TaperTypeArg {
     /// Planck taper transition.
     Planck,
-    /// Cumulative Bessel-I0 taper transition.
-    #[cfg(feature = "bessel")]
-    Bessel,
-    /// Descending Kaiser-Bessel-derived transition.
-    #[cfg(feature = "bessel")]
-    Kbd,
-    /// Endpoint-normalized descending half-Kaiser transition.
-    #[cfg(feature = "bessel")]
-    #[value(name = "half_kaiser", alias = "half-kaiser")]
-    HalfKaiser,
+    /// Kaiser-window CDF transition (amplitude-complementary).
+    #[cfg(feature = "kaiser")]
+    #[value(name = "kaiser_cdf", aliases = ["kaiser-cdf", "bessel"])]
+    KaiserCdf,
+    /// Descending Kaiser-Bessel-derived transition (power-complementary).
+    #[cfg(feature = "kaiser")]
+    #[value(name = "kbd", aliases = ["kaiser_bessel_derived", "kaiser-bessel-derived"])]
+    KaiserBesselDerived,
     /// Endpoint-normalized hyperbolic tangent transition.
     Tanh,
     /// Sigmoid-warped cosine taper transition.
@@ -79,12 +77,10 @@ impl TaperTypeArg {
     fn cli_name(self) -> &'static str {
         match self {
             Self::Planck => "planck",
-            #[cfg(feature = "bessel")]
-            Self::Bessel => "bessel",
-            #[cfg(feature = "bessel")]
-            Self::Kbd => "kbd",
-            #[cfg(feature = "bessel")]
-            Self::HalfKaiser => "half_kaiser",
+            #[cfg(feature = "kaiser")]
+            Self::KaiserCdf => "kaiser_cdf",
+            #[cfg(feature = "kaiser")]
+            Self::KaiserBesselDerived => "kbd",
             Self::Tanh => "tanh",
             Self::Cosine => "cosine",
             Self::BetaCdf => "beta_cdf",
@@ -95,17 +91,17 @@ impl TaperTypeArg {
         match self {
             Self::Cosine | Self::BetaCdf | Self::Tanh => true,
             Self::Planck => false,
-            #[cfg(feature = "bessel")]
-            Self::Bessel | Self::Kbd | Self::HalfKaiser => true,
+            #[cfg(feature = "kaiser")]
+            Self::KaiserCdf | Self::KaiserBesselDerived => true,
         }
     }
 
     fn compatible_alpha_types() -> &'static str {
-        #[cfg(feature = "bessel")]
+        #[cfg(feature = "kaiser")]
         {
-            "cosine, beta_cdf, tanh, bessel, kbd, half_kaiser"
+            "cosine, beta_cdf, tanh, kaiser_cdf, kbd"
         }
-        #[cfg(not(feature = "bessel"))]
+        #[cfg(not(feature = "kaiser"))]
         {
             "cosine, beta_cdf, tanh"
         }
@@ -168,10 +164,10 @@ struct Args {
     #[arg(long)]
     bandwidth: Option<f32>,
 
-    /// Taper alpha. Requires a compatible --taper-type (cosine, beta_cdf, tanh, or a Bessel-family taper).
+    /// Taper alpha. Requires a compatible --taper-type (cosine, beta_cdf, tanh, or a Kaiser-family taper).
     ///
     /// For cosine, higher values are sharper cutoff; lower values are smoother.
-    /// Defaults: cosine 3.4375, beta_cdf 10.0, tanh 3.0, bessel/kbd/half_kaiser 6.0.
+    /// Defaults: cosine 3.4375, beta_cdf 10.0, tanh 3.0, kaiser_cdf/kbd 6.0.
     #[arg(long)]
     alpha: Option<f32>,
 
@@ -738,15 +734,15 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if let Some(taper_type) = args.taper_type {
         config.taper_type = match taper_type {
             TaperTypeArg::Planck => TaperType::Planck,
-            #[cfg(feature = "bessel")]
-            TaperTypeArg::Bessel => {
-                let alpha = args.alpha.unwrap_or(DEFAULT_BESSEL_ALPHA);
-                TaperType::Bessel(alpha)
+            #[cfg(feature = "kaiser")]
+            TaperTypeArg::KaiserCdf => {
+                let alpha = args.alpha.unwrap_or(DEFAULT_KAISER_ALPHA);
+                TaperType::KaiserCdf(alpha)
             }
-            #[cfg(feature = "bessel")]
-            TaperTypeArg::Kbd => TaperType::Kbd(args.alpha.unwrap_or(DEFAULT_BESSEL_ALPHA)),
-            #[cfg(feature = "bessel")]
-            TaperTypeArg::HalfKaiser => TaperType::HalfKaiser(args.alpha.unwrap_or(DEFAULT_BESSEL_ALPHA)),
+            #[cfg(feature = "kaiser")]
+            TaperTypeArg::KaiserBesselDerived => {
+                TaperType::KaiserBesselDerived(args.alpha.unwrap_or(DEFAULT_KAISER_ALPHA))
+            }
             TaperTypeArg::Tanh => TaperType::Tanh(args.alpha.unwrap_or(3.0)),
             TaperTypeArg::Cosine => {
                 let alpha = args.alpha.unwrap_or(DEFAULT_ALPHA);
@@ -1241,12 +1237,22 @@ mod tests {
     fn new_taper_cli_options_apply_defaults_and_alpha() {
         let cases = [
             ("tanh", TaperType::Tanh(3.0), TaperType::Tanh(2.0)),
-            #[cfg(feature = "bessel")]
-            ("kbd", TaperType::Kbd(6.0), TaperType::Kbd(2.0)),
-            #[cfg(feature = "bessel")]
-            ("half_kaiser", TaperType::HalfKaiser(6.0), TaperType::HalfKaiser(2.0)),
-            #[cfg(feature = "bessel")]
-            ("half-kaiser", TaperType::HalfKaiser(6.0), TaperType::HalfKaiser(2.0)),
+            #[cfg(feature = "kaiser")]
+            ("kaiser_cdf", TaperType::KaiserCdf(6.0), TaperType::KaiserCdf(2.0)),
+            #[cfg(feature = "kaiser")]
+            ("bessel", TaperType::KaiserCdf(6.0), TaperType::KaiserCdf(2.0)),
+            #[cfg(feature = "kaiser")]
+            (
+                "kbd",
+                TaperType::KaiserBesselDerived(6.0),
+                TaperType::KaiserBesselDerived(2.0),
+            ),
+            #[cfg(feature = "kaiser")]
+            (
+                "kaiser_bessel_derived",
+                TaperType::KaiserBesselDerived(6.0),
+                TaperType::KaiserBesselDerived(2.0),
+            ),
         ];
         for (name, default, overridden) in cases {
             let mut argv = vec![

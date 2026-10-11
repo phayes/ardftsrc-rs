@@ -4,8 +4,8 @@
 
 # ARDFTSRC
 
-[![Crates.io](https://img.shields.io/crates/v/ardftsrc.svg)](https://crates.io/crates/ardftsrc)
-[![Docs.rs](https://docs.rs/ardftsrc/badge.svg)](https://docs.rs/ardftsrc)
+[![Crates.io](https://img.shields.io/crates/v/ardftsrc?logo=rust)](https://crates.io/crates/ardftsrc)
+[![Docs.rs](https://img.shields.io/docsrs/ardftsrc?logo=docsdotrs)](https://docs.rs/ardftsrc)
 [![Tests](https://github.com/phayes/ardftsrc-rs/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/phayes/ardftsrc-rs/actions/workflows/rust.yml?query=branch%3Amaster)
 
 A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Rate Converter (ARDFTSRC) algorithm.
@@ -271,9 +271,8 @@ The cutoff transition is [`TaperType`](https://docs.rs/ardftsrc/latest/ardftsrc/
 | `TaperType::Planck` | Planck taper. |
 | `TaperType::Tanh(alpha)` | Endpoint-normalized hyperbolic tangent. |
 | `TaperType::BetaCdf { alpha, beta }` | Beta cumulative distribution. `PRESET_GOOD` (the default) uses `BetaCdf { alpha: 18.0, beta: 18.0 }`. `PRESET_FAST` uses `BetaCdf { alpha: 17.0, beta: 17.0 }`. `PRESET_HIGH` uses `BetaCdf { alpha: 19.0, beta: 19.0 }`. `PRESET_EXTREME` uses `BetaCdf { alpha: 12.0, beta: 12.0 }` and an alias floor of `0` dB. Equal `alpha` and `beta` are symmetric. |
-| `TaperType::Bessel(alpha)` | Cumulative Bessel-I0. Requires the `bessel` feature. |
-| `TaperType::Kbd(alpha)` | Descending half of a Kaiser–Bessel-derived window. Kaiser beta = π × `alpha`. Requires the `bessel` feature. |
-| `TaperType::HalfKaiser(alpha)` | Descending half-Kaiser, shifted and scaled to reach zero at the stopband. Kaiser beta = π × `alpha`. Requires the `bessel` feature. |
+| `TaperType::KaiserCdf(alpha)` | Cumulative distribution of a Kaiser window. Amplitude-complementary (−6 dB at the transition midpoint); the square of `KaiserBesselDerived`. Kaiser beta = π × `alpha`. Requires the `kaiser` feature. |
+| `TaperType::KaiserBesselDerived(alpha)` | Descending half of a Kaiser–Bessel-derived window. Power-complementary (−3 dB at the transition midpoint); the square root of `KaiserCdf`. Kaiser beta = π × `alpha`. Requires the `kaiser` feature. |
 
 Higher `alpha` makes the transition steeper. `alpha` and `beta` are `f32` and must be finite and greater than zero. For `Cosine`, `1.5` is very smooth and can raise near-Nyquist artifacts, `3.5` balances smoothness and selectivity, and `4.0` is sharper.
 
