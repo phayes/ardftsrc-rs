@@ -119,16 +119,16 @@ struct RoundtripBaseline {
 fn roundtrip_baseline_for_fixture(file_name: &str) -> RoundtripBaseline {
     match file_name {
         "example-pcm16-44k1-stereo.wav" => RoundtripBaseline {
-            up_down_mean_abs: 1.6740085e-5,
-            up_down_peak_abs: 8.653873e-5,
-            down_up_mean_abs: 5.05882e-5,
-            down_up_peak_abs: 0.0019121403,
+            up_down_mean_abs: 1.7815584e-5,
+            up_down_peak_abs: 9.2968345e-5,
+            down_up_mean_abs: 5.059576e-5,
+            down_up_peak_abs: 0.0019234093,
         },
         "gaplesstest_m-f32-96k.wav" => RoundtripBaseline {
             up_down_mean_abs: 5.985025e-5,
             up_down_peak_abs: 0.0006804466,
-            down_up_mean_abs: 2.2124574e-7,
-            down_up_peak_abs: 4.6640635e-6,
+            down_up_mean_abs: 2.2280476e-7,
+            down_up_peak_abs: 5.4240227e-6,
         },
         "gaplesstest_s-f32-96k.wav" => RoundtripBaseline {
             up_down_mean_abs: 0.011628367,
@@ -139,20 +139,20 @@ fn roundtrip_baseline_for_fixture(file_name: &str) -> RoundtripBaseline {
         "intermodulation_sine-32bitfloat.wav" => RoundtripBaseline {
             up_down_mean_abs: 6.9167115e-8,
             up_down_peak_abs: 4.172325e-7,
-            down_up_mean_abs: 7.005609e-8,
+            down_up_mean_abs: 7.0535535e-8,
             down_up_peak_abs: 4.7683716e-7,
         },
         "sweep-f32-96k.wav" => RoundtripBaseline {
-            up_down_mean_abs: 1.2541253e-6,
+            up_down_mean_abs: 1.3423833e-6,
             up_down_peak_abs: 1.013279e-5,
-            down_up_mean_abs: 0.1313251,
+            down_up_mean_abs: 0.131896,
             down_up_peak_abs: 0.5000018,
         },
         "sweep-pcm16-22k05.wav" => RoundtripBaseline {
-            up_down_mean_abs: 1.0688594e-6,
-            up_down_peak_abs: 5.3048134e-6,
-            down_up_mean_abs: 0.03661642,
-            down_up_peak_abs: 0.7577832,
+            up_down_mean_abs: 1.1384875e-6,
+            up_down_peak_abs: 6.2584877e-6,
+            down_up_mean_abs: 0.03681695,
+            down_up_peak_abs: 0.7685637,
         },
         other => panic!("no roundtrip baseline configured for fixture '{other}'"),
     }

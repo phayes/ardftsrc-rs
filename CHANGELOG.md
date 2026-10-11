@@ -14,12 +14,16 @@
   | `PRESET_EXTREME` | `28224` | `0.9975` | `BetaCdf { alpha: 12.0, beta: 12.0 }`, alias floor `0` dB |
 
 - `TaperType::default()` is now `BetaCdf { alpha: 18.0, beta: 18.0 }` (was `Cosine(3.4375)`).
-- The `bessel` feature is renamed to `kaiser`.
-- `TaperType::Bessel` is renamed to `TaperType::KaiserCdf`, and `TaperType::Kbd` to `TaperType::KaiserBesselDerived`. `TaperType::HalfKaiser` is removed.
-- `ardftsrc-rs`: `--taper-type bessel` is now `kaiser_cdf` (`bessel` remains an alias), `kbd` also accepts `kaiser_bessel_derived`, and `half_kaiser` is removed.
+- The `bessel` feature is removed. The Kaiser tapers no longer depend on `pxfm` and are always available.
+- `TaperType::Bessel(alpha)` is replaced by `TaperType::Kaiser(beta)`, which takes the Kaiser window's `beta` as MATLAB and SciPy do: `Bessel(alpha)` corresponds to `Kaiser(PI * alpha)`. It integrates the window exactly and samples it at bin centres, so it is exactly amplitude-complementary and centred on its transition. When the transition straddles Nyquist it samples from unity to zero inclusive, putting −6 dB on Nyquist.
+- `TaperType::Kbd(alpha)` is renamed to `TaperType::KaiserBesselDerived(beta)` and also takes `beta` (`Kbd(alpha)` corresponds to `KaiserBesselDerived(PI * alpha)`; AAC's alpha 4 and 6 are beta 4π and 6π). It is now the square root of `Kaiser`, exactly power-complementary.
+- Both Kaiser tapers accept `beta` in `(0, 300]` and otherwise fail validation with the new `Error::InvalidKaiserBeta`. `TaperType::HalfKaiser` is removed.
+- `ardftsrc-rs`: `--taper-type bessel` is now `kaiser`, `kbd` also accepts `kaiser_bessel_derived`, and both take `--beta` (default 6π ≈ 18.85) instead of `--alpha`. `half_kaiser` is removed.
 
 ### Fixed
 
+- With a lowered alias floor, the transition is now centred on the lower Nyquist, so every pair of bins mirrored about it sums to unity gain and Nyquist sits at −6 dB. Taper samples that had underflowed to zero were trimmed, which pushed the transition above Nyquist: with the default taper and the widest floor at 44.1 kHz → 96 kHz, −6 dB sat 9 bins high and Nyquist was at −3.4 dB. This changes `PRESET_EXTREME` output. Without aliasing the layout is unchanged.
+- Taper profiles are now computed in `f64` for every sample type. In `f32`, `Cosine` and `Planck` tails underflowed earlier and shifted the transition toward Nyquist (by up to 280 bins for `Cosine(3.4375)` over 5000 transition bins).
 - End-of-stream stop extrapolation no longer reads its input history from a buffer the forward FFT had already used as scratch. With the default FFT backend, the synthesized tail was built from corrupted samples, degrading the final chunk; outputs now match the high-precision backends.
 - With `decimate` enabled, output is now exactly time-aligned with the input. The decimation cascade's group delay was rounded to whole output samples, leaving a fractional-sample offset; the remainder is now compensated in the spectral stage.
 

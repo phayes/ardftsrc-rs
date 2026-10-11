@@ -18,7 +18,6 @@ audio-core = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
 rodio = { version = "0.22", default-features = false, optional = true }
 tracing = { version = "0.1", optional = true }
-pxfm = { version = "0.1.29", optional = true }
 num-complex = { workspace = true, optional = true }
 num-integer = { workspace = true, optional = true }
 twofloat = { workspace = true, optional = true }
@@ -58,7 +57,6 @@ sse = ["realfft/sse"]
 wasm_simd = ["realfft/wasm_simd"]
 
 # Optional features (disabled by default)
-kaiser = ["dep:pxfm"]
 rodio = ["dep:rodio"]
 rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]

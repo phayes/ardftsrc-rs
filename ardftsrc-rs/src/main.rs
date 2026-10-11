@@ -32,10 +32,9 @@ use rayon::prelude::*;
 static GLOBAL: MiMalloc = MiMalloc;
 
 const DEFAULT_ALPHA: f32 = 3.4375;
-#[cfg(feature = "kaiser")]
-const DEFAULT_KAISER_ALPHA: f32 = 6.0;
 const DEFAULT_BETA_CDF_ALPHA: f32 = 10.0;
 const DEFAULT_BETA_CDF_BETA: f32 = 10.0;
+const DEFAULT_KAISER_BETA: f32 = 6.0 * std::f32::consts::PI;
 const DEFAULT_ALLOW_ALIASING_DB: f32 = -3.0;
 const FLAC_WRITE_CHUNK_FRAMES: usize = 32768;
 const MAX_F32_QUALITY: usize = 8192;
@@ -56,12 +55,10 @@ enum PresetArg {
 enum TaperTypeArg {
     /// Planck taper transition.
     Planck,
-    /// Kaiser-window CDF transition (amplitude-complementary).
-    #[cfg(feature = "kaiser")]
-    #[value(name = "kaiser_cdf", aliases = ["kaiser-cdf", "bessel"])]
-    KaiserCdf,
-    /// Descending Kaiser-Bessel-derived transition (power-complementary).
-    #[cfg(feature = "kaiser")]
+    /// Kaiser-window CDF transition (amplitude-complementary); --beta is the Kaiser beta.
+    #[value(name = "kaiser")]
+    Kaiser,
+    /// Descending Kaiser-Bessel-derived transition (power-complementary); --beta is the Kaiser beta.
     #[value(name = "kbd", aliases = ["kaiser_bessel_derived", "kaiser-bessel-derived"])]
     KaiserBesselDerived,
     /// Endpoint-normalized hyperbolic tangent transition.
@@ -77,9 +74,7 @@ impl TaperTypeArg {
     fn cli_name(self) -> &'static str {
         match self {
             Self::Planck => "planck",
-            #[cfg(feature = "kaiser")]
-            Self::KaiserCdf => "kaiser_cdf",
-            #[cfg(feature = "kaiser")]
+            Self::Kaiser => "kaiser",
             Self::KaiserBesselDerived => "kbd",
             Self::Tanh => "tanh",
             Self::Cosine => "cosine",
@@ -90,25 +85,20 @@ impl TaperTypeArg {
     fn accepts_alpha(self) -> bool {
         match self {
             Self::Cosine | Self::BetaCdf | Self::Tanh => true,
-            Self::Planck => false,
-            #[cfg(feature = "kaiser")]
-            Self::KaiserCdf | Self::KaiserBesselDerived => true,
+            Self::Planck | Self::Kaiser | Self::KaiserBesselDerived => false,
         }
     }
 
     fn compatible_alpha_types() -> &'static str {
-        #[cfg(feature = "kaiser")]
-        {
-            "cosine, beta_cdf, tanh, kaiser_cdf, kbd"
-        }
-        #[cfg(not(feature = "kaiser"))]
-        {
-            "cosine, beta_cdf, tanh"
-        }
+        "cosine, beta_cdf, tanh"
+    }
+
+    fn accepts_beta(self) -> bool {
+        matches!(self, Self::BetaCdf | Self::Kaiser | Self::KaiserBesselDerived)
     }
 
     fn compatible_beta_types() -> &'static str {
-        "beta_cdf"
+        "beta_cdf, kaiser, kbd"
     }
 }
 
@@ -164,14 +154,17 @@ struct Args {
     #[arg(long)]
     bandwidth: Option<f32>,
 
-    /// Taper alpha. Requires a compatible --taper-type (cosine, beta_cdf, tanh, or a Kaiser-family taper).
+    /// Taper alpha. Requires a compatible --taper-type (cosine, beta_cdf, or tanh).
     ///
     /// For cosine, higher values are sharper cutoff; lower values are smoother.
-    /// Defaults: cosine 3.4375, beta_cdf 10.0, tanh 3.0, kaiser_cdf/kbd 6.0.
+    /// Defaults: cosine 3.4375, beta_cdf 10.0, tanh 3.0.
     #[arg(long)]
     alpha: Option<f32>,
 
-    /// Beta-CDF taper beta. Used by --taper-type beta_cdf. Default is 10.0.
+    /// Taper beta. Requires a compatible --taper-type (beta_cdf, kaiser, or kbd).
+    ///
+    /// For beta_cdf it is the second Beta shape parameter (default 10.0). For kaiser and kbd it is
+    /// the Kaiser window beta, at most 300 (default 6 * pi, about 18.85).
     #[arg(long)]
     beta: Option<f32>,
 
@@ -623,7 +616,7 @@ fn validate_args(args: &Args) -> Result<(), Box<dyn Error>> {
     }
     if args.beta.is_some() {
         match args.taper_type {
-            Some(TaperTypeArg::BetaCdf) => {}
+            Some(taper) if taper.accepts_beta() => {}
             Some(taper) => {
                 return Err(format!(
                     "--beta is not compatible with --taper-type={} (compatible: {})",
@@ -734,14 +727,9 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if let Some(taper_type) = args.taper_type {
         config.taper_type = match taper_type {
             TaperTypeArg::Planck => TaperType::Planck,
-            #[cfg(feature = "kaiser")]
-            TaperTypeArg::KaiserCdf => {
-                let alpha = args.alpha.unwrap_or(DEFAULT_KAISER_ALPHA);
-                TaperType::KaiserCdf(alpha)
-            }
-            #[cfg(feature = "kaiser")]
+            TaperTypeArg::Kaiser => TaperType::Kaiser(args.beta.unwrap_or(DEFAULT_KAISER_BETA)),
             TaperTypeArg::KaiserBesselDerived => {
-                TaperType::KaiserBesselDerived(args.alpha.unwrap_or(DEFAULT_KAISER_ALPHA))
+                TaperType::KaiserBesselDerived(args.beta.unwrap_or(DEFAULT_KAISER_BETA))
             }
             TaperTypeArg::Tanh => TaperType::Tanh(args.alpha.unwrap_or(3.0)),
             TaperTypeArg::Cosine => {
@@ -1237,22 +1225,6 @@ mod tests {
     fn new_taper_cli_options_apply_defaults_and_alpha() {
         let cases = [
             ("tanh", TaperType::Tanh(3.0), TaperType::Tanh(2.0)),
-            #[cfg(feature = "kaiser")]
-            ("kaiser_cdf", TaperType::KaiserCdf(6.0), TaperType::KaiserCdf(2.0)),
-            #[cfg(feature = "kaiser")]
-            ("bessel", TaperType::KaiserCdf(6.0), TaperType::KaiserCdf(2.0)),
-            #[cfg(feature = "kaiser")]
-            (
-                "kbd",
-                TaperType::KaiserBesselDerived(6.0),
-                TaperType::KaiserBesselDerived(2.0),
-            ),
-            #[cfg(feature = "kaiser")]
-            (
-                "kaiser_bessel_derived",
-                TaperType::KaiserBesselDerived(6.0),
-                TaperType::KaiserBesselDerived(2.0),
-            ),
         ];
         for (name, default, overridden) in cases {
             let mut argv = vec![
@@ -1272,6 +1244,43 @@ mod tests {
             argv.extend(["--alpha", "2"]);
             let args = Args::try_parse_from(&argv).unwrap();
             assert_eq!(build_config(&args, 44_100, 2).unwrap().taper_type, overridden);
+        }
+    }
+
+    #[test]
+    fn kaiser_cli_options_use_beta() {
+        let base = [
+            "ardftsrc-rs",
+            "--input",
+            "in.wav",
+            "--output",
+            "out.wav",
+            "--output-rate",
+            "48000",
+        ];
+        let cases: [(&str, fn(f32) -> TaperType); 4] = [
+            ("kaiser", TaperType::Kaiser),
+            ("kbd", TaperType::KaiserBesselDerived),
+            ("kaiser_bessel_derived", TaperType::KaiserBesselDerived),
+            ("kaiser-bessel-derived", TaperType::KaiserBesselDerived),
+        ];
+        for (name, taper) in cases {
+            let mut argv = base.to_vec();
+            argv.extend(["--taper-type", name]);
+            let args = Args::try_parse_from(&argv).unwrap();
+            assert_eq!(
+                build_config(&args, 44_100, 2).unwrap().taper_type,
+                taper(DEFAULT_KAISER_BETA)
+            );
+
+            argv.extend(["--beta", "12"]);
+            let args = Args::try_parse_from(&argv).unwrap();
+            assert!(validate_args(&args).is_ok());
+            assert_eq!(build_config(&args, 44_100, 2).unwrap().taper_type, taper(12.0));
+
+            let mut argv = base.to_vec();
+            argv.extend(["--taper-type", name, "--alpha", "2"]);
+            assert!(validate_args(&Args::try_parse_from(&argv).unwrap()).is_err());
         }
     }
 

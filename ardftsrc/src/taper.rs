@@ -8,18 +8,27 @@ pub enum TaperType {
     /// Uses a Planck-taper transition
     Planck,
 
-    /// Cumulative distribution of a Kaiser window, with beta = pi * alpha.
+    /// Cumulative distribution of a Kaiser window with shape parameter `beta` in `(0, 300]`.
     ///
-    /// Amplitude-complementary: the gain is -6 dB at the transition midpoint. It is the
-    /// square of [`TaperType::KaiserBesselDerived`] with the same `alpha`, offset by one bin.
-    #[cfg(feature = "kaiser")]
-    KaiserCdf(f32),
+    /// `beta` follows the usual Kaiser window convention (MATLAB `kaiser`, SciPy
+    /// `scipy.signal.windows.kaiser`); texts that use `alpha` have `beta = pi * alpha`.
+    ///
+    /// The window is integrated exactly (the power series of I0 combined with the integral of
+    /// `(1 - v^2)^k`) and sampled at bin centres, so the profile is exactly
+    /// amplitude-complementary with -6 dB at the transition midpoint. When the transition
+    /// straddles the lower Nyquist (see [`Config::alias_floor`](crate::Config::alias_floor)),
+    /// the samples instead run from unity to zero inclusive, which puts the -6 dB sample on
+    /// Nyquist when the transition is mirrored about it. It is the square of
+    /// [`TaperType::KaiserBesselDerived`] with the same `beta`.
+    Kaiser(f32),
 
-    /// Descending half of a Kaiser–Bessel-derived window, with beta = pi * alpha.
+    /// Descending half of a Kaiser–Bessel-derived window with shape parameter `beta` in
+    /// `(0, 300]`.
     ///
-    /// Power-complementary: the gain is -3 dB at the transition midpoint. It is the square
-    /// root of [`TaperType::KaiserCdf`] with the same `alpha`.
-    #[cfg(feature = "kaiser")]
+    /// The square root of [`TaperType::Kaiser`] with the same `beta`, sampled the same way, so
+    /// it is exactly power-complementary with -3 dB at the transition midpoint. `beta` matches
+    /// SciPy's `kaiser_bessel_derived`; the AAC windows with alpha 4 and 6 are `beta = 4 * pi`
+    /// and `beta = 6 * pi`.
     KaiserBesselDerived(f32),
 
     /// Endpoint-normalized hyperbolic tangent transition. Alpha controls steepness.
@@ -56,31 +65,50 @@ impl Default for TaperType {
 
 impl TaperType {
     /// Builds a full frequency mask of `spectrum_fft_size / 2 + 1` bins: unity passband, a
-    /// descending transition ending just before `cutoff_bin`, and zero stopband.
+    /// descending transition over the `taper_bins` bins before `cutoff_bin`, and zero stopband.
+    ///
+    /// With `straddle_nyquist` (the transition extends past the lower Nyquist and is mirrored
+    /// about it), the transition is laid out exactly as sampled, so a symmetric profile stays
+    /// centred on its span and mirrored bin pairs stay complementary. Otherwise leading unity
+    /// and trailing zero samples are trimmed and the rest ends just before `cutoff_bin`, so
+    /// every transition bin carries a non-zero gain. The Kaiser tapers sample fixed bin positions
+    /// and are never trimmed.
+    ///
+    /// Profiles are computed and trimmed in `f64` and converted last, so the layout is the same
+    /// for every `T`.
     pub(crate) fn build_taper<T: Float>(
         &self,
         spectrum_fft_size: usize,
         cutoff_bin: usize,
         taper_bins: usize,
         is_passthrough: bool,
+        straddle_nyquist: bool,
     ) -> Vec<T> {
         let len = spectrum_fft_size / 2 + 1;
         if is_passthrough {
             return vec![T::one(); len];
         }
-        let transition = self.build_transition::<T>(taper_bins);
+        let raw = self.build_transition(taper_bins, straddle_nyquist);
+        let fixed_positions = matches!(self, TaperType::Kaiser(_) | TaperType::KaiserBesselDerived(_));
+        let transition = if straddle_nyquist || fixed_positions {
+            &raw[..]
+        } else {
+            trim_transition(&raw)
+        };
+        let transition: Vec<T> = transition
+            .iter()
+            .map(|value| T::from(*value).expect("T should be f64 or f32 and be able to convert from f64"))
+            .collect();
         place_transition(len, cutoff_bin, &transition)
     }
 
-    /// Builds only the normalized descending transition shape sampled over `taper_bins` bins,
-    /// with leading unity and trailing zero samples trimmed.
-    pub(crate) fn build_transition<T: Float>(&self, taper_bins: usize) -> Vec<T> {
+    /// Builds the normalized descending transition shape sampled over `taper_bins` bins,
+    /// untrimmed. `straddle_nyquist` only changes the sampling of the Kaiser tapers.
+    pub(crate) fn build_transition(&self, taper_bins: usize, straddle_nyquist: bool) -> Vec<f64> {
         match self {
             TaperType::Planck => planck_transition(taper_bins),
-            #[cfg(feature = "kaiser")]
-            TaperType::KaiserCdf(alpha) => kaiser_cdf_transition(taper_bins, *alpha),
-            #[cfg(feature = "kaiser")]
-            TaperType::KaiserBesselDerived(alpha) => kbd_transition(taper_bins, *alpha),
+            TaperType::Kaiser(beta) => kaiser_transition(taper_bins, *beta, straddle_nyquist),
+            TaperType::KaiserBesselDerived(beta) => kbd_transition(taper_bins, *beta, straddle_nyquist),
             TaperType::Tanh(alpha) => tanh_transition(taper_bins, *alpha),
             TaperType::Cosine(alpha) => cosine_transition(taper_bins, *alpha),
             TaperType::BetaCdf { alpha, beta } => beta_cdf_transition(taper_bins, *alpha, *beta),
@@ -90,8 +118,9 @@ impl TaperType {
     /// Returns the normalized position in `[0.0, 1.0]` across the transition (`0.0` = passband
     /// edge, `1.0` = stopband edge) where the descending gain first falls to `gain`.
     ///
-    /// The shape is sampled at high resolution with the same builder (and trimming/placement)
-    /// used for real masks, so the result is independent of FFT size.
+    /// Used to place lowered alias floors, so the shape is sampled at high resolution with the
+    /// same builder and the straddling layout used for those masks. The result is independent
+    /// of FFT size.
     pub(crate) fn transition_position_at_gain(&self, gain: f64) -> f64 {
         const RESOLUTION: usize = 65_536;
 
@@ -102,9 +131,7 @@ impl TaperType {
             return 1.0;
         }
 
-        let transition = self.build_transition::<f64>(RESOLUTION);
-        // Trimmed transitions are placed so they end at the stopband edge.
-        let offset = (RESOLUTION - transition.len()) as f64;
+        let transition = self.build_transition(RESOLUTION, true);
 
         // Monotone non-increasing: find the first sample at or below `gain` and interpolate.
         let idx = transition.partition_point(|value| *value > gain);
@@ -117,36 +144,26 @@ impl TaperType {
             (idx - 1) as f64 + (above - gain) / (above - below)
         };
 
-        ((offset + position) / RESOLUTION as f64).clamp(0.0, 1.0)
+        (position / RESOLUTION as f64).clamp(0.0, 1.0)
     }
 
     /// Validates taper parameters and returns an error for invalid values.
     pub fn validate(&self) -> Result<(), Error> {
+        let check = |value: f32, max: f32, error: fn(f32) -> Error| {
+            if value > 0.0 && value.is_finite() && value <= max {
+                Ok(())
+            } else {
+                Err(error(value))
+            }
+        };
         match self {
             TaperType::Planck => Ok(()),
-            #[cfg(feature = "kaiser")]
-            TaperType::KaiserCdf(alpha) | TaperType::KaiserBesselDerived(alpha) => {
-                if *alpha <= 0.0 || !alpha.is_finite() {
-                    return Err(Error::InvalidAlpha(*alpha));
-                } else {
-                    Ok(())
-                }
+            TaperType::Kaiser(beta) | TaperType::KaiserBesselDerived(beta) => {
+                check(*beta, MAX_KAISER_BETA, Error::InvalidKaiserBeta)
             }
-            TaperType::Cosine(alpha) | TaperType::Tanh(alpha) => {
-                if *alpha <= 0.0 || !alpha.is_finite() {
-                    return Err(Error::InvalidAlpha(*alpha));
-                } else {
-                    Ok(())
-                }
-            }
+            TaperType::Tanh(alpha) | TaperType::Cosine(alpha) => check(*alpha, f32::MAX, Error::InvalidAlpha),
             TaperType::BetaCdf { alpha, beta } => {
-                if *alpha <= 0.0 || !alpha.is_finite() {
-                    return Err(Error::InvalidAlpha(*alpha));
-                } else if *beta <= 0.0 || !beta.is_finite() {
-                    return Err(Error::InvalidBeta(*beta));
-                } else {
-                    Ok(())
-                }
+                check(*alpha, f32::MAX, Error::InvalidAlpha).and(check(*beta, f32::MAX, Error::InvalidBeta))
             }
         }
     }
@@ -171,100 +188,118 @@ fn place_transition<T: Float>(len: usize, cutoff_bin: usize, transition: &[T]) -
 }
 
 /// Trims leading unity and trailing zero samples from a raw descending transition.
-fn trim_transition<T: Float>(raw: &[T]) -> &[T] {
-    let trim_start = raw.iter().position(|value| *value < T::one()).unwrap_or(raw.len());
+fn trim_transition(raw: &[f64]) -> &[f64] {
+    let trim_start = raw.iter().position(|value| *value < 1.0).unwrap_or(raw.len());
     let trim_stop = raw
         .iter()
-        .rposition(|value| *value > T::zero())
+        .rposition(|value| *value > 0.0)
         .map_or(0, |idx| raw.len() - idx - 1);
     let active_end = raw.len().saturating_sub(trim_stop);
 
     &raw[trim_start..active_end]
 }
 
-/// Builds the descending cumulative distribution of a Kaiser window.
-#[cfg(feature = "kaiser")]
-fn kaiser_cdf_transition<T: Float>(taper_bins: usize, alpha: f32) -> Vec<T> {
-    if taper_bins == 0 {
-        return Vec::new();
+/// Largest `beta` accepted by the Kaiser tapers.
+pub(crate) const MAX_KAISER_BETA: f32 = 300.0;
+
+/// Power series of the Kaiser window's I0 for one `beta`:
+/// `I0(beta * sqrt(w)) = sum_k c_k w^k` with `c_k = (beta/2)^(2k) / (k!)^2`.
+///
+/// With `beta` at most [`MAX_KAISER_BETA`] the largest coefficient is below 1e129, so the
+/// series is summed directly in `f64`.
+struct KaiserSeries {
+    coef: Vec<f64>,
+}
+
+impl KaiserSeries {
+    fn new(beta: f64) -> Self {
+        let q = beta * beta / 4.0;
+        let tiny = f64::EPSILON * 1.0e-4;
+        let mut coef = Vec::new();
+        let (mut c, mut cmax) = (1.0f64, 1.0f64);
+        for k in 1..100_000 {
+            coef.push(c);
+            cmax = cmax.max(c);
+            c *= q / (k as f64 * k as f64);
+            if k > 8 && c < cmax * tiny {
+                break;
+            }
+        }
+        Self { coef }
     }
 
-    let alpha = f64::from(alpha);
-    let n = taper_bins as f64;
-    let alpha2 = 4.0 * (alpha * std::f64::consts::PI / n).powi(2);
-    let mut raw = vec![0.0; taper_bins];
-    let mut scale = 0.0;
+    /// Integral of `I0(beta * sqrt(1 - v^2))` over `[0, u]` for `u` in `[0, 1]`, term by term
+    /// with `J_k` = integral of `(1 - v^2)^k`, from `(2k + 1) J_k = 2k J_(k-1) + u (1 - u^2)^k`.
+    fn half_integral(&self, u: f64) -> f64 {
+        let w = 1.0 - u * u;
+        let (mut jk, mut wk) = (u, 1.0);
+        let mut sum = self.coef[0] * jk;
+        for (k, c) in self.coef.iter().enumerate().skip(1) {
+            wk *= w;
+            jk = (2.0 * k as f64 * jk + u * wk) / (2 * k + 1) as f64;
+            sum += c * jk;
+        }
+        sum
+    }
+}
 
-    for idx in (0..taper_bins).rev() {
-        let idx_f = idx as f64;
-        let tmp = idx_f * (n - idx_f) * alpha2;
-        raw[idx] = pxfm::f_i0(tmp.sqrt());
-        scale += raw[idx];
+/// Kaiser-window CDF from the exact integral of the window, sampled at the `taper_bins` bin
+/// centres, or at `taper_bins` points running from unity to zero inclusive when the transition
+/// straddles Nyquist.
+fn kaiser_transition(taper_bins: usize, beta: f32, straddle_nyquist: bool) -> Vec<f64> {
+    let npts = taper_bins;
+    let m = if straddle_nyquist { npts.saturating_sub(1) } else { npts };
+    let mut taper = vec![0.0; npts];
+    if m == 0 {
+        return taper;
     }
 
-    let scale = 1.0 / (scale + 1.0);
-    let mut sum = 0.0;
-    for idx in (0..taper_bins).rev() {
-        sum += raw[idx];
-        raw[idx] = sum * scale;
+    let series = KaiserSeries::new(f64::from(beta));
+    let half_area = series.half_integral(1.0);
+
+    // Evaluate the passband half and mirror it, so the profile is exactly complementary.
+    let half = npts / 2;
+    for i in 0..half {
+        let x = if straddle_nyquist {
+            i as f64 / m as f64
+        } else {
+            (i as f64 + 0.5) / m as f64
+        };
+        let u = 1.0 - 2.0 * x;
+        let lo = (0.5 * (1.0 - series.half_integral(u) / half_area)).clamp(0.0, 0.5);
+        taper[i] = 1.0 - lo;
+        taper[npts - 1 - i] = lo;
+    }
+    if npts % 2 == 1 {
+        taper[half] = 0.5;
     }
 
-    trim_transition(&raw)
-        .iter()
-        .map(|value| T::from(*value).expect("T should be f64 or f32 and be able to convert from f64"))
+    // Monotonicity repair for rounding noise.
+    for i in 1..npts {
+        if taper[i] > taper[i - 1] {
+            taper[i] = taper[i - 1];
+        }
+    }
+    taper
+}
+
+/// Kaiser–Bessel-derived transition: the square root of [`kaiser_transition`].
+fn kbd_transition(taper_bins: usize, beta: f32, straddle_nyquist: bool) -> Vec<f64> {
+    kaiser_transition(taper_bins, beta, straddle_nyquist)
+        .into_iter()
+        .map(f64::sqrt)
         .collect()
 }
 
-// Logarithmic evaluation keeps the KBD profile finite for large alpha.
-// Above 500, use I0(x) ~ exp(x)/sqrt(2*pi*x) times its four-term correction.
-#[cfg(feature = "kaiser")]
-fn log_i0(x: f64) -> f64 {
-    if x < 500.0 {
-        pxfm::f_i0(x).ln()
-    } else {
-        let inv = 1.0 / x;
-        let correction = inv * (1.0 / 8.0 + inv * (9.0 / 128.0 + inv * (225.0 / 3072.0 + inv * 11025.0 / 98304.0)));
-        x - 0.5 * (2.0 * std::f64::consts::PI * x).ln() + correction.ln_1p()
-    }
-}
-
-/// Standard KBD cumulative normalization, returning only its descending half.
-#[cfg(feature = "kaiser")]
-fn kbd_transition<T: Float>(n: usize, alpha: f32) -> Vec<T> {
-    if n == 0 {
-        return Vec::new();
-    }
-    let beta = std::f64::consts::PI * f64::from(alpha);
-    let logs: Vec<_> = (0..=n)
-        .map(|i| {
-            let x = 2.0 * i as f64 / n as f64 - 1.0;
-            log_i0(beta * (1.0 - x * x).max(0.0).sqrt())
-        })
-        .collect();
-    let peak = logs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let weights: Vec<_> = logs.iter().map(|v| (v - peak).exp()).collect();
-    let total: f64 = weights.iter().sum();
-    let mut sum = 0.0;
-    let mut raw: Vec<f64> = weights[..n]
-        .iter()
-        .map(|w| {
-            sum += w;
-            (sum / total).clamp(0.0, 1.0).sqrt()
-        })
-        .collect();
-    raw.reverse();
-    trim_transition(&raw).iter().map(|v| T::from(*v).unwrap()).collect()
-}
-
 /// (1 - tanh(alpha * (2*x-1)) / tanh(alpha)) / 2.
-fn tanh_transition<T: Float>(n: usize, alpha: f32) -> Vec<T> {
+fn tanh_transition(n: usize, alpha: f32) -> Vec<f64> {
     let alpha = f64::from(alpha);
     sampled_transition(n, |x| 0.5 * (1.0 - (alpha * (2.0 * x - 1.0)).tanh() / alpha.tanh()))
 }
 
 /// Sample an endpoint-normalized profile; a single transition bin uses its midpoint.
-fn sampled_transition<T: Float>(n: usize, profile: impl Fn(f64) -> f64) -> Vec<T> {
-    let raw: Vec<f64> = (0..n)
+fn sampled_transition(n: usize, profile: impl Fn(f64) -> f64) -> Vec<f64> {
+    (0..n)
         .map(|i| {
             if n == 1 {
                 profile(0.5)
@@ -276,69 +311,65 @@ fn sampled_transition<T: Float>(n: usize, profile: impl Fn(f64) -> f64) -> Vec<T
                 profile(i as f64 / (n - 1) as f64).clamp(0.0, 1.0)
             }
         })
-        .collect();
-    trim_transition(&raw).iter().map(|v| T::from(*v).unwrap()).collect()
+        .collect()
 }
 
 /// Builds a Planck-taper transition.
-fn planck_transition<T: Float>(taper_bins: usize) -> Vec<T> {
+fn planck_transition(taper_bins: usize) -> Vec<f64> {
     if taper_bins == 0 {
         return Vec::new();
     }
     if taper_bins == 1 {
-        return vec![T::one()];
+        return vec![1.0];
     }
 
-    let denom = T::from(taper_bins).unwrap() - T::one();
+    let denom = taper_bins as f64 - 1.0;
 
-    let raw: Vec<T> = (0..taper_bins)
+    (0..taper_bins)
         .map(|idx| {
             if idx == 0 {
-                return T::one();
+                return 1.0;
             }
 
             if idx == taper_bins - 1 {
-                return T::zero();
+                return 0.0;
             }
 
-            let x = T::from(idx).unwrap_or_else(T::zero) / denom;
+            let x = idx as f64 / denom;
 
             // Descending Planck taper
-            let z = T::one() / x - T::one() / (T::one() - x);
-            let rising = T::one() / (z.exp() + T::one());
+            let z = 1.0 / x - 1.0 / (1.0 - x);
+            let rising = 1.0 / (z.exp() + 1.0);
 
-            let value = T::one() - rising;
+            let value = 1.0 - rising;
 
             if value.is_normal() {
                 value
-            } else if value >= T::one() {
-                T::one()
+            } else if value >= 1.0 {
+                1.0
             } else {
-                T::zero()
+                0.0
             }
         })
-        .collect();
-
-    trim_transition(&raw).to_vec()
+        .collect()
 }
 
 /// Builds a sigmoid-warped cosine transition.
-fn cosine_transition<T: Float>(taper_bins: usize, alpha: f32) -> Vec<T> {
+fn cosine_transition(taper_bins: usize, alpha: f32) -> Vec<f64> {
     if taper_bins == 0 {
         return Vec::new();
     }
     if taper_bins == 1 {
-        return vec![T::one()];
+        return vec![1.0];
     }
 
-    let pi = T::from(std::f64::consts::PI).unwrap_or_else(T::zero);
-    let two = T::one() + T::one();
-    let alpha = T::from(alpha).unwrap_or_else(T::one);
-    let denom = T::from(taper_bins).unwrap() - T::one();
+    let pi = std::f64::consts::PI;
+    let alpha = f64::from(alpha);
+    let denom = taper_bins as f64 - 1.0;
 
-    let raw: Vec<T> = (0..taper_bins)
+    (0..taper_bins)
         .map(|idx| {
-            let x = T::from(idx).unwrap_or_else(T::zero) / denom;
+            let x = idx as f64 / denom;
 
             // Powered sigmoid warp:
             //
@@ -348,70 +379,64 @@ fn cosine_transition<T: Float>(taper_bins: usize, alpha: f32) -> Vec<T> {
             // around the middle, making the cosine behave more like the
             // trimmed logistic taper.
             let a = x.powf(alpha);
-            let b = (T::one() - x).powf(alpha);
+            let b = (1.0 - x).powf(alpha);
             let warped = a / (a + b);
 
-            let value = (T::one() + (pi * warped).cos()) / two;
+            let value = (1.0 + (pi * warped).cos()) / 2.0;
 
             if value.is_normal() {
                 value
-            } else if value == T::one() {
-                T::one()
+            } else if value == 1.0 {
+                1.0
             } else {
-                T::zero()
+                0.0
             }
         })
-        .collect();
-
-    trim_transition(&raw).to_vec()
+        .collect()
 }
 
 /// Builds a Beta-CDF transition from the regularized lower incomplete beta function.
-fn beta_cdf_transition<T: Float>(taper_bins: usize, alpha: f32, beta: f32) -> Vec<T> {
+fn beta_cdf_transition(taper_bins: usize, alpha: f32, beta: f32) -> Vec<f64> {
     if taper_bins == 0 {
         return Vec::new();
     }
     if taper_bins == 1 {
-        return vec![T::one()];
+        return vec![1.0];
     }
 
-    let denom = T::from(taper_bins).unwrap() - T::one();
+    let denom = taper_bins as f64 - 1.0;
 
-    let raw: Vec<T> = (0..taper_bins)
+    (0..taper_bins)
         .map(|idx| {
             if idx == 0 {
-                return T::one();
+                return 1.0;
             }
 
             if idx == taper_bins - 1 {
-                return T::zero();
+                return 0.0;
             }
 
-            let x_t = T::from(idx).unwrap_or_else(T::zero) / denom;
-            let x = x_t.to_f64().unwrap_or(0.0).clamp(0.0, 1.0);
-            let cdf = beta_reg(alpha as f64, beta as f64, x);
-            let value = T::from(1.0 - cdf).expect("T should be f64 or f32 and be able to convert from f64");
+            let x = (idx as f64 / denom).clamp(0.0, 1.0);
+            let value = 1.0 - beta_reg(alpha as f64, beta as f64, x);
 
             if value.is_normal() {
                 value
-            } else if value >= T::one() {
-                T::one()
+            } else if value >= 1.0 {
+                1.0
             } else {
-                T::zero()
+                0.0
             }
         })
-        .collect();
-
-    trim_transition(&raw).to_vec()
+        .collect()
 }
 
-#[cfg(all(test, feature = "kaiser"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn kaiser_cdf_taper_is_descending_and_bounded() {
-        let taper = TaperType::KaiserCdf(6.0).build_taper::<f64>(64, 24, 16, false);
+    fn kaiser_taper_is_descending_and_bounded() {
+        let taper = TaperType::Kaiser(18.0).build_taper::<f64>(64, 24, 16, false, false);
         let transition_start = taper
             .iter()
             .position(|value| *value < 1.0)
@@ -433,18 +458,21 @@ mod tests {
     }
 
     #[test]
-    fn kaiser_cdf_passthrough_is_all_ones() {
-        let taper = TaperType::KaiserCdf(6.0).build_taper::<f32>(16, 8, 4, true);
+    fn kaiser_passthrough_is_all_ones() {
+        let taper = TaperType::Kaiser(18.0).build_taper::<f32>(16, 8, 4, true, false);
 
         assert_eq!(taper.len(), 9);
         assert!(taper.iter().all(|value| *value == 1.0));
     }
 
     #[test]
-    fn bessel_i0_matches_known_values() {
-        assert!((pxfm::f_i0(0.0) - 1.0).abs() < 1e-15);
-        assert!((pxfm::f_i0(1.0) - 1.266_065_877_752_008_2).abs() < 1e-15);
-        assert!((pxfm::f_i0(2.0) - 2.279_585_302_336_067_3).abs() < 1e-15);
+    fn kaiser_series_integrates_the_window() {
+        // The integral of I0(beta * sqrt(1 - v^2)) over [0, 1] is sinh(beta) / beta.
+        for beta in [1.0e-3, 1.0, 2.0, 10.0, 50.0, 100.0, f64::from(MAX_KAISER_BETA)] {
+            let exact = beta.sinh() / beta;
+            let error = (KaiserSeries::new(beta).half_integral(1.0) - exact).abs() / exact;
+            assert!(error < 1e-13, "beta={beta}: relative error {error}");
+        }
     }
 }
 
@@ -454,54 +482,163 @@ mod new_taper_tests {
 
     #[test]
     fn new_profiles_are_finite_monotone_and_validated() {
-        for alpha in [f32::MIN_POSITIVE, 0.1, 3.0, 6.0, 200.0, f32::MAX] {
-            let tapers = [
-                TaperType::Tanh(alpha),
-                #[cfg(feature = "kaiser")]
-                TaperType::KaiserBesselDerived(alpha),
-            ];
-            for taper in tapers {
-                assert!(taper.validate().is_ok());
-                for n in [0, 1, 2, 3, 16, 63] {
-                    let mask = taper.build_taper::<f64>(256, 100, n, false);
+        let kaiser_betas = [f32::MIN_POSITIVE, 0.1, 3.0, 18.0, MAX_KAISER_BETA];
+        let tapers = [f32::MIN_POSITIVE, 0.1, 3.0, 6.0, 200.0, f32::MAX]
+            .map(TaperType::Tanh)
+            .into_iter()
+            .chain(kaiser_betas.map(TaperType::Kaiser))
+            .chain(kaiser_betas.map(TaperType::KaiserBesselDerived));
+        for taper in tapers {
+            assert!(taper.validate().is_ok(), "{taper:?}");
+            for n in [0, 1, 2, 3, 16, 63] {
+                for straddle in [false, true] {
+                    let mask = taper.build_taper::<f64>(256, 100, n, false, straddle);
                     assert!(
                         mask.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
-                        "{taper:?}, n={n}"
+                        "{taper:?}, n={n}, straddle={straddle}"
                     );
-                    assert!(mask.windows(2).all(|v| v[0] >= v[1]), "{taper:?}, n={n}");
+                    assert!(
+                        mask.windows(2).all(|v| v[0] >= v[1]),
+                        "{taper:?}, n={n}, straddle={straddle}"
+                    );
                     assert_eq!(mask[0], 1.0);
                     assert_eq!(mask[100], 0.0);
-                    assert!(taper.build_taper::<f32>(256, 100, n, true).iter().all(|v| *v == 1.0));
+                    assert!(
+                        taper
+                            .build_taper::<f32>(256, 100, n, true, straddle)
+                            .iter()
+                            .all(|v| *v == 1.0)
+                    );
                 }
             }
         }
         for alpha in [0.0, -1.0, f32::NAN, f32::INFINITY] {
-            assert!(TaperType::Tanh(alpha).validate().is_err());
-            #[cfg(feature = "kaiser")]
-            assert!(TaperType::KaiserBesselDerived(alpha).validate().is_err());
+            assert!(matches!(TaperType::Tanh(alpha).validate(), Err(Error::InvalidAlpha(_))));
+        }
+        for beta in [0.0, -1.0, f32::NAN, f32::INFINITY, MAX_KAISER_BETA * 1.01] {
+            for taper in [TaperType::Kaiser(beta), TaperType::KaiserBesselDerived(beta)] {
+                assert!(
+                    matches!(taper.validate(), Err(Error::InvalidKaiserBeta(_))),
+                    "{taper:?}"
+                );
+            }
         }
     }
 
     #[test]
     fn tanh_has_midpoint_and_complementary_symmetry() {
-        let shape = tanh_transition::<f64>(9, 3.0);
+        let shape = tanh_transition(9, 3.0);
         assert_eq!(shape[shape.len() / 2], 0.5);
         for (a, b) in shape.iter().zip(shape.iter().rev()) {
             assert!((a + b - 1.0).abs() < 1e-14);
         }
     }
 
-    #[cfg(feature = "kaiser")]
     #[test]
-    fn kbd_matches_four_point_reference_and_power_complementarity() {
-        let beta = std::f64::consts::PI * 2.0;
-        let center = pxfm::f_i0(beta);
-        let shape = kbd_transition::<f64>(2, 2.0);
-        assert!((shape[0] - ((1.0 + center) / (2.0 + center)).sqrt()).abs() < 1e-14);
-        assert!((shape[1] - (1.0 / (2.0 + center)).sqrt()).abs() < 1e-14);
-        let shape = kbd_transition::<f64>(32, 2.0);
-        for (a, b) in shape.iter().zip(shape.iter().rev()) {
-            assert!((a * a + b * b - 1.0).abs() < 1e-14);
+    fn kbd_is_root_of_kaiser_and_power_complementary() {
+        for straddle in [false, true] {
+            for n in [2, 9, 32, 101] {
+                let kaiser = kaiser_transition(n, 12.0, straddle);
+                let kbd = kbd_transition(n, 12.0, straddle);
+                for (k, d) in kaiser.iter().zip(&kbd) {
+                    assert!((k - d * d).abs() < 1e-15, "n={n}, straddle={straddle}");
+                }
+                for (a, b) in kbd.iter().zip(kbd.iter().rev()) {
+                    assert!((a * a + b * b - 1.0).abs() < 1e-15, "n={n}, straddle={straddle}");
+                }
+            }
+        }
+        assert_eq!(kbd_transition(9, 12.0, false)[4], 0.5f64.sqrt());
+    }
+
+    /// Modified Bessel function I0 by its power series.
+    fn i0_series(x: f64) -> f64 {
+        let (mut sum, mut term) = (1.0, 1.0);
+        for k in 1..500 {
+            term *= (0.5 * x / k as f64).powi(2);
+            sum += term;
+            if term < sum * 1e-18 {
+                break;
+            }
+        }
+        sum
+    }
+
+    /// Kaiser CDF at normalized position `x` across the transition, by composite Simpson
+    /// integration of the window: the descending reference for `Kaiser`.
+    fn kaiser_cdf_reference(beta: f64, x: f64) -> f64 {
+        let window = |t: f64| i0_series(beta * (1.0 - (2.0 * t - 1.0).powi(2)).max(0.0).sqrt());
+        let simpson = |a: f64, b: f64| {
+            let steps = 20_000;
+            let h = (b - a) / steps as f64;
+            let inner: f64 = (1..steps)
+                .map(|i| window(a + i as f64 * h) * if i % 2 == 1 { 4.0 } else { 2.0 })
+                .sum();
+            (window(a) + window(b) + inner) * h / 3.0
+        };
+        simpson(x, 1.0) / simpson(0.0, 1.0)
+    }
+
+    #[test]
+    fn kaiser_matches_integrated_window() {
+        for beta in [2.0f32, 12.0, 25.0] {
+            for n in [5, 8, 33] {
+                let centres = kaiser_transition(n, beta, false);
+                let edges = kaiser_transition(n, beta, true);
+                for i in 0..n {
+                    let at_centre = kaiser_cdf_reference(f64::from(beta), (i as f64 + 0.5) / n as f64);
+                    let at_edge = kaiser_cdf_reference(f64::from(beta), i as f64 / (n - 1) as f64);
+                    assert!((centres[i] - at_centre).abs() < 1e-10, "beta={beta} n={n} i={i}");
+                    assert!((edges[i] - at_edge).abs() < 1e-10, "beta={beta} n={n} i={i}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn kaiser_is_exactly_complementary() {
+        for straddle in [false, true] {
+            for n in [1, 2, 7, 8, 101] {
+                if straddle && n == 1 {
+                    continue;
+                }
+                let shape = kaiser_transition(n, 18.0, straddle);
+                assert_eq!(shape.len(), n);
+                for (a, b) in shape.iter().zip(shape.iter().rev()) {
+                    assert_eq!(a + b, 1.0, "n={n}, straddle={straddle}");
+                }
+                if n % 2 == 1 {
+                    assert_eq!(shape[n / 2], 0.5);
+                }
+            }
+        }
+        // A single straddling sample spans no transition, leaving a hard cutoff.
+        assert_eq!(kaiser_transition(1, 18.0, true), vec![0.0]);
+        let edges = kaiser_transition(9, 18.0, true);
+        assert_eq!((edges[0], edges[8]), (1.0, 0.0));
+    }
+
+    #[test]
+    fn layout_does_not_depend_on_sample_type() {
+        let tapers = [
+            TaperType::Planck,
+            TaperType::Cosine(3.4375),
+            TaperType::Tanh(3.0),
+            TaperType::BetaCdf {
+                alpha: 18.0,
+                beta: 18.0,
+            },
+            TaperType::Kaiser(18.0),
+            TaperType::KaiserBesselDerived(18.0),
+        ];
+        for taper in tapers {
+            for straddle in [false, true] {
+                let wide = taper.build_taper::<f64>(12_000, 5_500, 5_000, false, straddle);
+                let narrow = taper.build_taper::<f32>(12_000, 5_500, 5_000, false, straddle);
+                for (bin, (w, n)) in wide.iter().zip(&narrow).enumerate() {
+                    assert_eq!(*w as f32, *n, "{taper:?}, straddle={straddle}, bin {bin}");
+                }
+            }
         }
     }
 }

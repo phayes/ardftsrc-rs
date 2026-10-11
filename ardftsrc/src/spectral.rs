@@ -79,6 +79,13 @@ impl FilterGeometry {
         self.stopband_end_bin - self.passband_end_bin
     }
 
+    /// Whether the transition extends past the lower Nyquist, so energy beyond it folds or
+    /// images back.
+    #[inline]
+    pub(crate) fn straddles_nyquist(&self) -> bool {
+        self.stopband_end_bin > self.lower_nyquist_bin + 1
+    }
+
     /// First lower-spectrum bin `k` whose mirror `2N - k` has non-zero gain. Bins in
     /// `reflect_start_bin()..lower_nyquist_bin` take part in folding/imaging; the range is empty
     /// when aliasing is disabled.
@@ -149,6 +156,7 @@ where
             geometry.stopband_end_bin,
             geometry.transition_bins(),
             direction == Direction::Equal,
+            geometry.straddles_nyquist(),
         );
 
         debug_assert!(
@@ -340,10 +348,8 @@ mod tests {
                 alpha: 10.0,
                 beta: 10.0,
             },
-            #[cfg(feature = "kaiser")]
-            TaperType::KaiserCdf(6.0),
-            #[cfg(feature = "kaiser")]
-            TaperType::KaiserBesselDerived(6.0),
+            TaperType::Kaiser(18.0),
+            TaperType::KaiserBesselDerived(18.0),
         ]
     }
 
@@ -381,6 +387,63 @@ mod tests {
         assert!(geometry.floor_bin.abs_diff(geometry.passband_end_bin) <= 2);
         assert_eq!(geometry.stopband_end_bin, 2 * n + 1 - geometry.floor_bin);
         assert_eq!(geometry.reflect_start_bin(), geometry.floor_bin);
+    }
+
+    #[test]
+    fn widest_floor_centres_transition_on_nyquist() {
+        // Amplitude-complementary profiles, plus whether the profile is power-complementary.
+        let tapers = [
+            (TaperType::Cosine(3.4375), false),
+            (TaperType::Planck, false),
+            (TaperType::Tanh(3.0), false),
+            (
+                TaperType::BetaCdf {
+                    alpha: 12.0,
+                    beta: 12.0,
+                },
+                false,
+            ),
+            (
+                TaperType::BetaCdf {
+                    alpha: 18.0,
+                    beta: 18.0,
+                },
+                false,
+            ),
+            (TaperType::Kaiser(18.0), false),
+            (TaperType::KaiserBesselDerived(18.0), true),
+        ];
+
+        for (input, output) in [(4480, 2058), (2058, 4480)] {
+            for (taper, power) in tapers.iter().copied() {
+                let plan = SpectralPlan::<f64>::new(input, output, BW, &taper, 0.0, 0.0, f64::from(BW), 0.0);
+                let geometry = plan.geometry;
+                let n = geometry.lower_nyquist_bin;
+                assert!(geometry.straddles_nyquist());
+                assert_eq!(geometry.floor_bin, geometry.passband_end_bin);
+
+                // Every bin pair mirrored about Nyquist is complementary, including Nyquist itself.
+                for d in 0..=n - geometry.passband_end_bin + 1 {
+                    let (below, above) = (plan.gain[n - d], plan.gain[n + d]);
+                    let sum = if power {
+                        below * below + above * above
+                    } else {
+                        below + above
+                    };
+                    assert!(
+                        (sum - 1.0).abs() < 1e-9,
+                        "{taper:?} {input}->{output}: d={d}, sum {sum}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn strict_floor_does_not_straddle_nyquist() {
+        for (input, output) in [(4480, 2058), (2240, 2058), (2058, 4480)] {
+            assert!(!FilterGeometry::new(input, output, BW, 1.0).straddles_nyquist());
+        }
     }
 
     #[test]
@@ -591,10 +654,18 @@ mod tone_tests {
             };
             let input = tone(44_100, 21_800.0, 0.3);
             let strict = level_db(&resample(make(AliasFloor::Fraction(1.0)), &input), 96_000, 22_300.0);
-            let widest = level_db(&resample(make(AliasFloor::Fraction(BW)), &input), 96_000, 22_300.0);
+            let widest_config = make(AliasFloor::Fraction(BW));
+            let spectral = widest_config.derive_config::<f64>().unwrap().spectral;
+            let image_bin = (22_300.0 * spectral.geometry.lower_nyquist_bin as f64 / 22_050.0).round() as usize;
+            let expected = 20.0 * spectral.gain[image_bin].log10();
+            let widest = level_db(&resample(widest_config, &input), 96_000, 22_300.0);
 
             assert!(strict < SUPPRESSED_DB, "phase {phase}: strict image level {strict} dB");
-            assert!(widest > -20.0, "phase {phase}: widest image level {widest} dB");
+            assert!(expected > -40.0, "phase {phase}: image gain {expected} dB");
+            assert!(
+                (widest - expected).abs() < 0.5,
+                "phase {phase}: widest image level {widest} dB, expected {expected} dB"
+            );
         }
     }
 
@@ -625,7 +696,7 @@ mod tone_tests {
 
     #[test]
     fn alias_level_is_phase_independent_across_tapers() {
-        let mut tapers = vec![
+        let tapers = [
             TaperType::Cosine(3.4375),
             TaperType::Planck,
             TaperType::Tanh(3.0),
@@ -633,9 +704,9 @@ mod tone_tests {
                 alpha: 10.0,
                 beta: 10.0,
             },
+            TaperType::Kaiser(18.0),
+            TaperType::KaiserBesselDerived(18.0),
         ];
-        #[cfg(feature = "kaiser")]
-        tapers.extend([TaperType::KaiserCdf(6.0), TaperType::KaiserBesselDerived(6.0)]);
 
         let input = tone(96_000, 22_300.0, 0.3);
         for taper_type in tapers {

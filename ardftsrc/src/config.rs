@@ -8,7 +8,9 @@ use num_traits::Float;
 /// You may prefer using a sinc resampler (eg. rubato) instead.
 ///
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md),
-/// [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md).
+/// [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=5ac42856-5fbc-423c-88d6-3ca851e9e4f9&id2=0),
+/// [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=b0ef91cd-fbd7-4ee5-bbf3-f930b6b2f8f9&id2=0).
 ///
 /// **HydrogenAudio Test Suite (f32)**
 /// - Overall Score: 70.54%
@@ -19,6 +21,7 @@ use num_traits::Float;
 /// - Impulse Frequency Score: 50.75%
 /// - Pre-ringing Score: 25.87%
 /// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=b0ef91cd-fbd7-4ee5-bbf3-f930b6b2f8f9&id2=0>
 ///
 /// **HydrogenAudio Test Suite (f64)**
 /// - Overall Score: 96.12%
@@ -29,6 +32,7 @@ use num_traits::Float;
 /// - Impulse Frequency Score: 99.44%
 /// - Pre-ringing Score: 25.87%
 /// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=5ac42856-5fbc-423c-88d6-3ca851e9e4f9&id2=0>
 ///
 /// # Example
 ///
@@ -50,7 +54,8 @@ pub const PRESET_FAST: Config = Config {
 
 /// Balanced preset for good realtime quality. ***You should probably use this one.***
 ///
-/// Quality report: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md).
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e782e63-56c1-4895-ab6b-67f97a4b31d0&id2=0).
 ///
 /// **HydrogenAudio Test Suite (f64)**
 /// - Overall Score: 98.67%
@@ -61,6 +66,7 @@ pub const PRESET_FAST: Config = Config {
 /// - Impulse Frequency Score: 99.56%
 /// - Pre-ringing Score: 19.16%
 /// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=8e782e63-56c1-4895-ab6b-67f97a4b31d0&id2=0>
 ///
 /// # Example
 /// ```rust
@@ -81,7 +87,8 @@ pub const PRESET_GOOD: Config = Config {
 
 /// High quality preset suitable for realtime applications where quality is critical, or for offline processing.
 ///
-/// Quality report: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md).
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0).
 ///
 /// **HydrogenAudio Test Suite (f64)**
 /// - Overall Score: 99.58%
@@ -92,6 +99,7 @@ pub const PRESET_GOOD: Config = Config {
 /// - Impulse Frequency Score: 99.48%
 /// - Pre-ringing Score: 17.89%
 /// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0>
 ///
 /// # Example
 /// ```rust
@@ -114,7 +122,8 @@ pub const PRESET_HIGH: Config = Config {
 ///
 /// The alias floor is `0` dB, so the transition extends to the passband edge.
 ///
-/// Quality report: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md).
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md),
+/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=40dfe66d-0af8-4597-9462-59093561184a&id2=0).
 ///
 /// **HydrogenAudio Test Suite (f64)**
 /// - Overall Score: 99.84%
@@ -125,6 +134,7 @@ pub const PRESET_HIGH: Config = Config {
 /// - Impulse Frequency Score: 99.41%
 /// - Pre-ringing Score: 17.73%
 /// - Gapless Sine Score: 100%
+/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=40dfe66d-0af8-4597-9462-59093561184a&id2=0>
 ///
 /// # Example
 /// ```rust
@@ -214,8 +224,8 @@ pub struct Config {
     /// Frequency taper profile used around the cutoff region.
     ///
     /// - `Planck`: Uses a Planck taper transition.
-    /// - `KaiserCdf(alpha)`: Kaiser-window CDF; -6 dB at the midpoint (beta = pi * alpha). Requires the `kaiser` feature.
-    /// - `KaiserBesselDerived(alpha)`: Descending half of a KBD window; -3 dB at the midpoint (beta = pi * alpha). Requires `kaiser`.
+    /// - `Kaiser(beta)`: Exactly integrated Kaiser-window CDF; -6 dB at the midpoint (Kaiser `beta` at most 300).
+    /// - `KaiserBesselDerived(beta)`: Descending half of a KBD window, the square root of `Kaiser`; -3 dB at the midpoint.
     /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
@@ -260,7 +270,8 @@ pub struct Config {
     ///
     /// - `AliasFloor::Fraction(1.0)`: no aliasing (default).
     /// - `AliasFloor::Decibels(-3.0)`: similar to SoX `rate -a`.
-    /// - `AliasFloor::Fraction(bandwidth)`: widest transition.
+    /// - `AliasFloor::Fraction(bandwidth)`: widest transition, centred on the lower Nyquist so
+    ///   each pair of bins mirrored about it is complementary.
     ///
     /// Pre-decimation stages (see [`decimate`](Config::decimate)) always stay strict.
     pub alias_floor: AliasFloor,
@@ -438,8 +449,8 @@ impl Config {
     /// Frequency taper profile used around the cutoff region.
     ///
     /// - `Planck`: Uses a Planck taper transition.
-    /// - `KaiserCdf(alpha)`: Kaiser-window CDF; -6 dB at the midpoint (beta = pi * alpha). Requires the `kaiser` feature.
-    /// - `KaiserBesselDerived(alpha)`: Descending half of a KBD window; -3 dB at the midpoint (beta = pi * alpha). Requires `kaiser`.
+    /// - `Kaiser(beta)`: Exactly integrated Kaiser-window CDF; -6 dB at the midpoint (Kaiser `beta` at most 300).
+    /// - `KaiserBesselDerived(beta)`: Descending half of a KBD window, the square root of `Kaiser`; -3 dB at the midpoint.
     /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
@@ -1160,7 +1171,7 @@ mod tests {
     #[test]
     fn taper_is_all_ones_when_passthrough() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper: Vec<f32> = taper_type.build_taper(16, 8, 4, true);
+            let taper: Vec<f32> = taper_type.build_taper(16, 8, 4, true, false);
             assert_no_nans(&taper, "config::taper_is_all_ones_when_passthrough taper");
 
             assert_eq!(taper.len(), 9);
@@ -1171,7 +1182,7 @@ mod tests {
     #[test]
     fn taper_has_expected_passband_transition_and_stopband() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper: Vec<f32> = taper_type.build_taper(16, 6, 4, false);
+            let taper: Vec<f32> = taper_type.build_taper(16, 6, 4, false, false);
             assert_no_nans(
                 &taper,
                 "config::taper_has_expected_passband_transition_and_stopband taper",
@@ -1203,7 +1214,7 @@ mod tests {
     fn transition_is_descending_and_bounded() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
             let cutoff_bin = 24;
-            let taper: Vec<f32> = taper_type.build_taper(64, cutoff_bin, 16, false);
+            let taper: Vec<f32> = taper_type.build_taper(64, cutoff_bin, 16, false, false);
             assert_no_nans(&taper, "config::transition_is_descending_and_bounded taper");
             let transition_start = taper
                 .iter()
@@ -1230,7 +1241,7 @@ mod tests {
     #[test]
     fn zero_taper_bins_produces_hard_cutoff() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper: Vec<f32> = taper_type.build_taper(16, 6, 0, false);
+            let taper: Vec<f32> = taper_type.build_taper(16, 6, 0, false, false);
             assert_no_nans(&taper, "config::zero_taper_bins_produces_hard_cutoff taper");
 
             assert_eq!(taper.len(), 9);
@@ -1248,7 +1259,7 @@ mod tests {
     #[test]
     fn one_taper_bin_keeps_single_unity_transition_bin() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper: Vec<f32> = taper_type.build_taper(16, 6, 1, false);
+            let taper: Vec<f32> = taper_type.build_taper(16, 6, 1, false, false);
             assert_no_nans(&taper, "config::one_taper_bin_keeps_single_unity_transition_bin taper");
 
             assert_eq!(taper[5], 1.0);
@@ -1259,7 +1270,7 @@ mod tests {
     #[test]
     fn taper_handles_cutoff_smaller_than_transition_width() {
         for taper_type in [TaperType::Cosine(3.5), TaperType::Planck] {
-            let taper: Vec<f32> = taper_type.build_taper(16, 2, 8, false);
+            let taper: Vec<f32> = taper_type.build_taper(16, 2, 8, false, false);
 
             assert_eq!(taper.len(), 9);
 
