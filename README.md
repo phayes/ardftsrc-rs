@@ -143,7 +143,7 @@ ardftsrc-rs provides both [rodio](https://crates.io/crates/rodio) integration vi
 
 Realtime resampling (including rodio integration) is very sensitive to the rust compiler's optimization settings. As an example, in release mode, the `GOOD` preset is able to operate with a buffer of only 64 frames and is suitable for realtime use, but in an unoptimized debug (dev) mode, requires a buffer of 2048 frames to operate smoothly. 
 
-There are two strategries to deal with this:
+There are two strategies to deal with this:
 
 **Option 1: optimize debug builds**
 
@@ -253,10 +253,10 @@ let config = ardftsrc::PRESET_GOOD
 
 | Preset                                                                                    |  Quality | Bandwidth | Recommended use                            | Quality metrics                                                                                                                                                                                        |
 | ----------------------------------------------------------------------------------------- | -------: | --------: | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.860` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=c527356d-3566-46f8-8dea-dc2065b11e46&id2=0), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e59a5bd-8147-470c-9501-44ab81718b8f&id2=0) |
-| [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `2304` |   `0.950` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=e12d7fe0-dfa2-4c49-bbdd-51c16a931cb5&id2=0)                                                                                                     |
-| [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |   `9216` |   `0.986` | High quality for realtime or offline use.  | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=43a72723-7f35-4318-bbd1-44cdfaa6df88&id2=0)                                                                                                     |
-| [`PRESET_EXTREME`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_EXTREME.html) |  `28224` |  `0.9975` | Maximum quality, intended for offline use. | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=dbdbdd66-d8b8-4b8b-b217-b71162cb1f2f&id2=0)                                                                                                     |
+| [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.860` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md) |
+| [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `2304` |   `0.950` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md)                                                                                                     |
+| [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |   `9216` |   `0.986` | High quality for realtime or offline use.  | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md)                                                                                                     |
+| [`PRESET_EXTREME`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_EXTREME.html) |  `28224` |  `0.9975` | Maximum quality, intended for offline use. | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md)                                                                                                     |
 
 † You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast and has very high quality metrics.
 
