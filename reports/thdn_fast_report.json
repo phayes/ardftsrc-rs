@@ -13,11 +13,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -236.62478267040535,
-      "thdn_audio_band_db": -239.28691523559368,
-      "gain_error_db": -2.7772631036735113e-13,
+      "thdn_broadband_db": -236.62475807795443,
+      "thdn_audio_band_db": -239.2868587975319,
+      "gain_error_db": -2.815836202335644e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -241.69267977863709
+      "max_spur_db": -241.69266899332823
     },
     {
       "input_rate": 44100,
@@ -27,11 +27,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -236.62571882036417,
-      "thdn_audio_band_db": -239.28866757373615,
+      "thdn_broadband_db": -236.625728612467,
+      "thdn_audio_band_db": -239.2886839138994,
       "gain_error_db": -1.2536257065192825e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -241.69275081016832
+      "max_spur_db": -241.69277789525952
     },
     {
       "input_rate": 44100,
@@ -41,11 +41,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -236.62479224324684,
-      "thdn_audio_band_db": -239.28693340783002,
-      "gain_error_db": -2.7869063783390446e-13,
+      "thdn_broadband_db": -236.6247677107636,
+      "thdn_audio_band_db": -239.28686408755127,
+      "gain_error_db": -2.8254794770011773e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -241.69276771188174
+      "max_spur_db": -241.69276326125038
     },
     {
       "input_rate": 44100,
@@ -55,11 +55,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -231.3052176687552,
-      "thdn_audio_band_db": -231.30535966114314,
-      "gain_error_db": -1.88043855977893e-13,
+      "thdn_broadband_db": -231.30523659912797,
+      "thdn_audio_band_db": -231.30537698882796,
+      "gain_error_db": -1.8515087357823309e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -236.4563690049447
+      "max_spur_db": -236.45635066882068
     },
     {
       "input_rate": 44100,
@@ -69,11 +69,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -231.30446401071268,
-      "thdn_audio_band_db": -231.30460598914453,
-      "gain_error_db": 3.162994090294724e-13,
+      "thdn_broadband_db": -231.3044549571281,
+      "thdn_audio_band_db": -231.304595338875,
+      "gain_error_db": 3.1822806396257896e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -236.45635324799113
+      "max_spur_db": -236.4563554398312
     },
     {
       "input_rate": 44100,
@@ -83,11 +83,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -231.29869264065104,
-      "thdn_audio_band_db": -231.2988344022276,
-      "gain_error_db": -9.643274665533406e-13,
+      "thdn_broadband_db": -231.29860928831488,
+      "thdn_audio_band_db": -231.29874947440072,
+      "gain_error_db": -9.70113431352661e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -236.45634470596542
+      "max_spur_db": -236.45633074751726
     },
     {
       "input_rate": 44100,
@@ -97,11 +97,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -229.35767051360756,
-      "thdn_audio_band_db": -229.38056636083945,
+      "thdn_broadband_db": -229.357675807136,
+      "thdn_audio_band_db": -229.38057086121995,
       "gain_error_db": -8.775379945635355e-13,
       "max_spur_freq_hz": 999.5,
-      "max_spur_db": -234.5649845656173
+      "max_spur_db": -234.56498477495762
     },
     {
       "input_rate": 44100,
@@ -111,11 +111,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -229.32647357682117,
-      "thdn_audio_band_db": -229.34920504419608,
-      "gain_error_db": 2.649971878088029e-12,
+      "thdn_broadband_db": -229.32656244544773,
+      "thdn_audio_band_db": -229.3492934572842,
+      "gain_error_db": 2.646114568221817e-12,
       "max_spur_freq_hz": 999.5,
-      "max_spur_db": -234.56503959207362
+      "max_spur_db": -234.56502566457368
     },
     {
       "input_rate": 44100,
@@ -125,11 +125,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -229.35065969883107,
-      "thdn_audio_band_db": -229.37351838223913,
-      "gain_error_db": 1.4638490942277666e-12,
+      "thdn_broadband_db": -229.35062965604283,
+      "thdn_audio_band_db": -229.373487353226,
+      "gain_error_db": 1.4657777491608729e-12,
       "max_spur_freq_hz": 999.5,
-      "max_spur_db": -234.56494933979064
+      "max_spur_db": -234.56494787545424
     },
     {
       "input_rate": 44100,
@@ -139,11 +139,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -236.07742269128204,
-      "thdn_audio_band_db": -236.75651669149215,
+      "thdn_broadband_db": -236.07745072825918,
+      "thdn_audio_band_db": -236.75653316410768,
       "gain_error_db": -2.3722455677211185e-13,
       "max_spur_freq_hz": 3954.0,
-      "max_spur_db": -245.39341375300836
+      "max_spur_db": -245.3934333412131
     },
     {
       "input_rate": 44100,
@@ -153,11 +153,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -236.02932683293068,
-      "thdn_audio_band_db": -236.7003307385596,
-      "gain_error_db": -1.457098801962139e-12,
+      "thdn_broadband_db": -236.02925327021268,
+      "thdn_audio_band_db": -236.70023481638123,
+      "gain_error_db": -1.4580631294286924e-12,
       "max_spur_freq_hz": 3954.0,
-      "max_spur_db": -245.39341766456604
+      "max_spur_db": -245.39341638068925
     },
     {
       "input_rate": 44100,
@@ -167,11 +167,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -236.07870476123986,
-      "thdn_audio_band_db": -236.75801762597487,
-      "gain_error_db": -4.532339092800461e-14,
+      "thdn_broadband_db": -236.0787214344809,
+      "thdn_audio_band_db": -236.75801972796398,
+      "gain_error_db": -4.918070079421778e-14,
       "max_spur_freq_hz": 3954.0,
-      "max_spur_db": -245.39342104591313
+      "max_spur_db": -245.39344122986336
     },
     {
       "input_rate": 44100,
@@ -181,11 +181,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -230.05700368547892,
-      "thdn_audio_band_db": -230.75961599105696,
-      "gain_error_db": -4.3780466981520333e-13,
+      "thdn_broadband_db": -230.0570392887238,
+      "thdn_audio_band_db": -230.75964815721602,
+      "gain_error_db": -4.358760148820967e-13,
       "max_spur_freq_hz": 1046.0,
-      "max_spur_db": -239.37276613542758
+      "max_spur_db": -239.37276343634946
     },
     {
       "input_rate": 44100,
@@ -195,11 +195,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -230.05606035966562,
-      "thdn_audio_band_db": -230.75850497782505,
-      "gain_error_db": -5.949900468633985e-13,
+      "thdn_broadband_db": -230.0561156676207,
+      "thdn_audio_band_db": -230.75856042812805,
+      "gain_error_db": -5.901684095306317e-13,
       "max_spur_freq_hz": 1046.0,
-      "max_spur_db": -239.37276421811688
+      "max_spur_db": -239.372769695882
     },
     {
       "input_rate": 44100,
@@ -209,11 +209,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -230.05602914209436,
-      "thdn_audio_band_db": -230.7584705746089,
-      "gain_error_db": -5.988473567296119e-13,
+      "thdn_broadband_db": -230.056070070607,
+      "thdn_audio_band_db": -230.7585077385768,
+      "gain_error_db": -5.969187017965052e-13,
       "max_spur_freq_hz": 1046.0,
-      "max_spur_db": -239.37276186823925
+      "max_spur_db": -239.37276485923434
     },
     {
       "input_rate": 44100,
@@ -223,11 +223,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.28868652709065,
-      "thdn_audio_band_db": -224.912633800298,
-      "gain_error_db": -7.74354955642324e-13,
+      "thdn_broadband_db": -224.28868966220023,
+      "thdn_audio_band_db": -224.91263769625445,
+      "gain_error_db": -7.733906281757707e-13,
       "max_spur_freq_hz": 15000.5,
-      "max_spur_db": -235.7532148012923
+      "max_spur_db": -235.75321992738657
     },
     {
       "input_rate": 44100,
@@ -237,11 +237,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.28922572602335,
-      "thdn_audio_band_db": -224.91325649305693,
-      "gain_error_db": 5.245941418049723e-13,
+      "thdn_broadband_db": -224.28922267454053,
+      "thdn_audio_band_db": -224.91325271779303,
+      "gain_error_db": 5.284514516711852e-13,
       "max_spur_freq_hz": 15000.5,
-      "max_spur_db": -235.75326067128745
+      "max_spur_db": -235.75327041897992
     },
     {
       "input_rate": 44100,
@@ -251,11 +251,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.28866880491944,
-      "thdn_audio_band_db": -224.91261311211932,
+      "thdn_broadband_db": -224.28866886121932,
+      "thdn_audio_band_db": -224.91261334551584,
       "gain_error_db": -7.820695753747511e-13,
       "max_spur_freq_hz": 15000.5,
-      "max_spur_db": -235.75322400771967
+      "max_spur_db": -235.75322228144998
     },
     {
       "input_rate": 44100,
@@ -265,11 +265,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -222.88092996496889,
-      "thdn_audio_band_db": -223.8622443192426,
-      "gain_error_db": -1.1147625513356716e-12,
+      "thdn_broadband_db": -222.880930743233,
+      "thdn_audio_band_db": -223.86224555202085,
+      "gain_error_db": -1.113798223869118e-12,
       "max_spur_freq_hz": 18000.5,
-      "max_spur_db": -233.13984963718892
+      "max_spur_db": -233.1398477568443
     },
     {
       "input_rate": 44100,
@@ -279,11 +279,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -222.88201672992182,
-      "thdn_audio_band_db": -223.86360727999303,
-      "gain_error_db": -5.24594141805004e-13,
+      "thdn_broadband_db": -222.88201505146873,
+      "thdn_audio_band_db": -223.8636051256536,
+      "gain_error_db": -5.255584692715574e-13,
       "max_spur_freq_hz": 18000.5,
-      "max_spur_db": -233.13990212755056
+      "max_spur_db": -233.1399015813384
     },
     {
       "input_rate": 44100,
@@ -293,11 +293,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -222.87822319338727,
-      "thdn_audio_band_db": -223.85885188904405,
-      "gain_error_db": -1.9112970387088256e-12,
+      "thdn_broadband_db": -222.8782155989634,
+      "thdn_audio_band_db": -223.85884246789766,
+      "gain_error_db": -1.9132256936419322e-12,
       "max_spur_freq_hz": 18000.5,
-      "max_spur_db": -233.13988131518784
+      "max_spur_db": -233.1398783070358
     },
     {
       "input_rate": 44100,
@@ -307,11 +307,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -222.86001632026887,
-      "thdn_audio_band_db": -223.566753691514,
-      "gain_error_db": -1.7458098925378274,
+      "thdn_broadband_db": -222.8625096138253,
+      "thdn_audio_band_db": -223.5696561722214,
+      "gain_error_db": -0.06051148561244859,
       "max_spur_freq_hz": 19046.0,
-      "max_spur_db": -233.3530449940941
+      "max_spur_db": -233.35304352367856
     },
     {
       "input_rate": 44100,
@@ -321,11 +321,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -222.86430429126705,
-      "thdn_audio_band_db": -223.57180335155167,
-      "gain_error_db": -1.74580989253527,
+      "thdn_broadband_db": -222.86121390944263,
+      "thdn_audio_band_db": -223.5681365740831,
+      "gain_error_db": -0.060511485612079585,
       "max_spur_freq_hz": 19046.0,
-      "max_spur_db": -233.35304124284812
+      "max_spur_db": -233.35304143075317
     },
     {
       "input_rate": 44100,
@@ -335,11 +335,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -222.86391266639808,
-      "thdn_audio_band_db": -223.57134044527695,
-      "gain_error_db": -1.7458098925365881,
+      "thdn_broadband_db": -222.8587591195294,
+      "thdn_audio_band_db": -223.56524776257302,
+      "gain_error_db": -0.06051148561614642,
       "max_spur_freq_hz": 19046.0,
-      "max_spur_db": -233.35304205588184
+      "max_spur_db": -233.35304216912516
     },
     {
       "input_rate": 48000,
@@ -349,11 +349,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -229.36895879724045,
-      "thdn_audio_band_db": -232.03253244791125,
-      "gain_error_db": 3.6258712742402843e-13,
+      "thdn_broadband_db": -229.36896399080422,
+      "thdn_audio_band_db": -232.03254116729744,
+      "gain_error_db": 3.587298175578154e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -234.43521696108303
+      "max_spur_db": -234.43520594708974
     },
     {
       "input_rate": 48000,
@@ -363,11 +363,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -229.36905823526087,
-      "thdn_audio_band_db": -232.03268961725655,
-      "gain_error_db": 2.8736958503287483e-13,
+      "thdn_broadband_db": -229.3690499441769,
+      "thdn_audio_band_db": -232.03265701546866,
+      "gain_error_db": 2.9122689489908785e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -234.43516619227157
+      "max_spur_db": -234.4351390075553
     },
     {
       "input_rate": 48000,
@@ -377,11 +377,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -229.36883771155726,
-      "thdn_audio_band_db": -232.03228779365242,
-      "gain_error_db": -3.568011626247169e-14,
+      "thdn_broadband_db": -229.36882728698666,
+      "thdn_audio_band_db": -232.0322776599775,
+      "gain_error_db": -3.760877119557828e-14,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -234.43514028623443
+      "max_spur_db": -234.43513182387832
     },
     {
       "input_rate": 48000,
@@ -391,11 +391,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -239.71797086869785,
-      "thdn_audio_band_db": -239.7181526604333,
-      "gain_error_db": -5.737748425992248e-13,
+      "thdn_broadband_db": -239.71795369909182,
+      "thdn_audio_band_db": -239.71813257594454,
+      "gain_error_db": -5.747391700657781e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -244.89271189347278
+      "max_spur_db": -244.89265516580866
     },
     {
       "input_rate": 48000,
@@ -405,11 +405,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -239.73366628748948,
-      "thdn_audio_band_db": -239.73384871729502,
-      "gain_error_db": -2.2083098984070557e-13,
+      "thdn_broadband_db": -239.73367584569763,
+      "thdn_audio_band_db": -239.73385528497715,
+      "gain_error_db": -2.2179531730725885e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -244.8925757159925
+      "max_spur_db": -244.89265236033745
     },
     {
       "input_rate": 48000,
@@ -419,11 +419,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -239.7216330628737,
-      "thdn_audio_band_db": -239.72181506537436,
+      "thdn_broadband_db": -239.72167971999966,
+      "thdn_audio_band_db": -239.7218586763353,
       "gain_error_db": -5.120578847398105e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -244.89264428755422
+      "max_spur_db": -244.89261805444627
     },
     {
       "input_rate": 48000,
@@ -433,11 +433,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -230.57370755296705,
-      "thdn_audio_band_db": -230.58896227047586,
-      "gain_error_db": -2.3722455677211185e-13,
+      "thdn_broadband_db": -230.57372870883626,
+      "thdn_audio_band_db": -230.58898299034442,
+      "gain_error_db": -2.381888842386652e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -235.80476311735976
+      "max_spur_db": -235.80474469606577
     },
     {
       "input_rate": 48000,
@@ -447,11 +447,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -230.57243645079006,
-      "thdn_audio_band_db": -230.5876866570603,
+      "thdn_broadband_db": -230.5724371851332,
+      "thdn_audio_band_db": -230.5876868769937,
       "gain_error_db": -5.024146100742771e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -235.80471451587619
+      "max_spur_db": -235.80472462810644
     },
     {
       "input_rate": 48000,
@@ -461,11 +461,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -230.5736357940783,
-      "thdn_audio_band_db": -230.58889024295712,
-      "gain_error_db": -2.632613983690514e-13,
+      "thdn_broadband_db": -230.57361473554175,
+      "thdn_audio_band_db": -230.58886858565955,
+      "gain_error_db": -2.65190053302158e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -235.80472378988955
+      "max_spur_db": -235.80467341785362
     },
     {
       "input_rate": 48000,
@@ -475,11 +475,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -235.83776054488766,
-      "thdn_audio_band_db": -237.14792265307744,
-      "gain_error_db": -1.0029005652154243e-13,
+      "thdn_broadband_db": -235.8377620284498,
+      "thdn_audio_band_db": -237.14792536568496,
+      "gain_error_db": -9.836140158843585e-14,
       "max_spur_freq_hz": 13554.0,
-      "max_spur_db": -245.76406060403357
+      "max_spur_db": -245.76405592969127
     },
     {
       "input_rate": 48000,
@@ -489,11 +489,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -235.83788845084345,
-      "thdn_audio_band_db": -237.14809419542732,
+      "thdn_broadband_db": -235.83787649499703,
+      "thdn_audio_band_db": -237.148081527933,
       "gain_error_db": 6.171695785941015e-14,
       "max_spur_freq_hz": 13554.0,
-      "max_spur_db": -245.76407576614204
+      "max_spur_db": -245.76405554349708
     },
     {
       "input_rate": 48000,
@@ -503,11 +503,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -235.83714707518695,
-      "thdn_audio_band_db": -237.14708867812612,
-      "gain_error_db": -1.9575847571031948e-13,
+      "thdn_broadband_db": -235.8371539213905,
+      "thdn_audio_band_db": -237.14710288284746,
+      "gain_error_db": -1.9382982077721288e-13,
       "max_spur_freq_hz": 13554.0,
-      "max_spur_db": -245.7640592923791
+      "max_spur_db": -245.7640578646653
     },
     {
       "input_rate": 48000,
@@ -517,11 +517,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -223.83173153419452,
-      "thdn_audio_band_db": -223.89926656896225,
-      "gain_error_db": -3.365502858271037e-13,
+      "thdn_broadband_db": -223.83173088840653,
+      "thdn_audio_band_db": -223.89926681553357,
+      "gain_error_db": -3.3751461329365706e-13,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -230.1720161222694
+      "max_spur_db": -230.17202833805612
     },
     {
       "input_rate": 48000,
@@ -531,11 +531,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -223.8318651071441,
-      "thdn_audio_band_db": -223.89940225382017,
-      "gain_error_db": -1.3211286291780135e-13,
+      "thdn_broadband_db": -223.83186385430676,
+      "thdn_audio_band_db": -223.89940189672723,
+      "gain_error_db": -1.3597017278401454e-13,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -230.1719908180057
+      "max_spur_db": -230.17199129790154
     },
     {
       "input_rate": 48000,
@@ -545,11 +545,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -223.8316614935857,
-      "thdn_audio_band_db": -223.89919528472294,
-      "gain_error_db": -3.9730291621996334e-13,
+      "thdn_broadband_db": -223.83165526372943,
+      "thdn_audio_band_db": -223.89919002161025,
+      "gain_error_db": -4.011602260861767e-13,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -230.17202805150774
+      "max_spur_db": -230.1720245426829
     },
     {
       "input_rate": 48000,
@@ -559,8 +559,8 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -221.5559961583908,
-      "thdn_audio_band_db": -221.5771575188242,
+      "thdn_broadband_db": -221.55599621350768,
+      "thdn_audio_band_db": -221.57715760453985,
       "gain_error_db": -2.401175391717718e-13,
       "max_spur_freq_hz": 14999.5,
       "max_spur_db": -229.00394948360656
@@ -573,8 +573,8 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -221.556018390051,
-      "thdn_audio_band_db": -221.5771799522446,
+      "thdn_broadband_db": -221.55601832774195,
+      "thdn_audio_band_db": -221.5771798805889,
       "gain_error_db": -1.832222186451265e-13,
       "max_spur_freq_hz": 14999.5,
       "max_spur_db": -229.00394899004283
@@ -587,8 +587,8 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -221.5559846474829,
-      "thdn_audio_band_db": -221.57714598618693,
+      "thdn_broadband_db": -221.55598461098734,
+      "thdn_audio_band_db": -221.57714598043654,
       "gain_error_db": 3.1437075409636594e-13,
       "max_spur_freq_hz": 14999.5,
       "max_spur_db": -229.0039491596605
@@ -601,8 +601,8 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.38788183221777,
-      "thdn_audio_band_db": -224.7643742548573,
+      "thdn_broadband_db": -224.38788145472583,
+      "thdn_audio_band_db": -224.76437376662835,
       "gain_error_db": 5.573812756677821e-13,
       "max_spur_freq_hz": 17058.5,
       "max_spur_db": -234.29124770549876
@@ -615,8 +615,8 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.3883318906615,
-      "thdn_audio_band_db": -224.7648650573545,
+      "thdn_broadband_db": -224.3883322670459,
+      "thdn_audio_band_db": -224.7648656343635,
       "gain_error_db": 1.5236373971541801e-13,
       "max_spur_freq_hz": 17058.5,
       "max_spur_db": -234.29124855218842
@@ -629,8 +629,8 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.38685361700917,
-      "thdn_audio_band_db": -224.76325300579185,
+      "thdn_broadband_db": -224.3868530043436,
+      "thdn_audio_band_db": -224.76325234620955,
       "gain_error_db": -9.778280510850883e-13,
       "max_spur_freq_hz": 17058.5,
       "max_spur_db": -234.29124768527683
@@ -643,11 +643,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -216.04877163709105,
-      "thdn_audio_band_db": -218.4344335682373,
-      "gain_error_db": -1.7458098925360364,
+      "thdn_broadband_db": -216.0487780461723,
+      "thdn_audio_band_db": -218.4344301124941,
+      "gain_error_db": -0.060511485614183895,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -221.96278869027228
+      "max_spur_db": -221.96277901759584
     },
     {
       "input_rate": 48000,
@@ -657,11 +657,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -216.04878610300557,
-      "thdn_audio_band_db": -218.43444827650572,
-      "gain_error_db": -1.7458098925357854,
+      "thdn_broadband_db": -216.04880123672763,
+      "thdn_audio_band_db": -218.4344659538056,
+      "gain_error_db": -0.06051148561396346,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -221.9627742207931
+      "max_spur_db": -221.96277437085877
     },
     {
       "input_rate": 48000,
@@ -671,11 +671,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -216.0487831486452,
-      "thdn_audio_band_db": -218.43445509792846,
-      "gain_error_db": -1.7458098925358585,
+      "thdn_broadband_db": -216.04878170620808,
+      "thdn_audio_band_db": -218.43443328586807,
+      "gain_error_db": -0.06051148561416836,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -221.9627840389614
+      "max_spur_db": -221.96278297456206
     },
     {
       "input_rate": 44100,
@@ -685,11 +685,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -236.6256211957991,
-      "thdn_audio_band_db": -239.2886319435131,
+      "thdn_broadband_db": -236.62563764858265,
+      "thdn_audio_band_db": -239.28866037536528,
       "gain_error_db": -2.50725141303855e-14,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -241.6926624383697
+      "max_spur_db": -241.692675503059
     },
     {
       "input_rate": 44100,
@@ -699,11 +699,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -236.61260702354002,
-      "thdn_audio_band_db": -239.26461974750578,
-      "gain_error_db": 6.171695785940818e-13,
+      "thdn_broadband_db": -236.61249282202522,
+      "thdn_audio_band_db": -239.26441995201688,
+      "gain_error_db": 6.210268884602947e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -241.69276176427957
+      "max_spur_db": -241.6927502314453
     },
     {
       "input_rate": 44100,
@@ -713,11 +713,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -236.62301291926332,
-      "thdn_audio_band_db": -239.28384583937554,
-      "gain_error_db": -4.0887484581860334e-13,
+      "thdn_broadband_db": -236.62305250032284,
+      "thdn_audio_band_db": -239.28390088937178,
+      "gain_error_db": -4.069461908854967e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -241.69273971044422
+      "max_spur_db": -241.69272022539644
     },
     {
       "input_rate": 44100,
@@ -727,11 +727,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -231.30464660377146,
-      "thdn_audio_band_db": -231.30488885630177,
-      "gain_error_db": -3.5101519782540357e-13,
+      "thdn_broadband_db": -231.30465255446484,
+      "thdn_audio_band_db": -231.30489329269892,
+      "gain_error_db": -3.490865428922969e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -236.45639900572684
+      "max_spur_db": -236.4563772914437
     },
     {
       "input_rate": 44100,
@@ -741,11 +741,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -231.30542863066356,
-      "thdn_audio_band_db": -231.30567093143105,
-      "gain_error_db": -1.8322221864512472e-14,
+      "thdn_broadband_db": -231.30543348020993,
+      "thdn_audio_band_db": -231.30567425232957,
+      "gain_error_db": -1.9286549331065764e-14,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -236.45641450213475
+      "max_spur_db": -236.45642219024035
     },
     {
       "input_rate": 44100,
@@ -755,11 +755,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -231.29998110887396,
-      "thdn_audio_band_db": -231.30022307341346,
-      "gain_error_db": 8.081064169716169e-13,
+      "thdn_broadband_db": -231.2999644013311,
+      "thdn_audio_band_db": -231.30020485931362,
+      "gain_error_db": 8.100350719047233e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -236.4564116856672
+      "max_spur_db": -236.45642082962127
     },
     {
       "input_rate": 44100,
@@ -769,11 +769,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -229.35708282525218,
-      "thdn_audio_band_db": -229.39447260791982,
+      "thdn_broadband_db": -229.35708077082234,
+      "thdn_audio_band_db": -229.39446943213085,
       "gain_error_db": -9.402192798895058e-13,
       "max_spur_freq_hz": 999.5,
-      "max_spur_db": -234.56517720336382
+      "max_spur_db": -234.5651883097854
     },
     {
       "input_rate": 44100,
@@ -783,11 +783,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -229.29450123793973,
-      "thdn_audio_band_db": -229.3313538374178,
-      "gain_error_db": 3.676016302500353e-12,
+      "thdn_broadband_db": -229.29433177847136,
+      "thdn_audio_band_db": -229.33118186913038,
+      "gain_error_db": 3.6798736123665644e-12,
       "max_spur_freq_hz": 999.5,
-      "max_spur_db": -234.56522401405905
+      "max_spur_db": -234.56524472027064
     },
     {
       "input_rate": 44100,
@@ -797,11 +797,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -229.28314825864112,
-      "thdn_audio_band_db": -229.3199040243349,
-      "gain_error_db": 3.976886472064845e-12,
+      "thdn_broadband_db": -229.28307662154506,
+      "thdn_audio_band_db": -229.31983106112156,
+      "gain_error_db": 3.978815126997951e-12,
       "max_spur_freq_hz": 999.5,
-      "max_spur_db": -234.56513316602073
+      "max_spur_db": -234.5651466038667
     },
     {
       "input_rate": 44100,
@@ -811,11 +811,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -236.07894352600158,
-      "thdn_audio_band_db": -242.7703066486834,
+      "thdn_broadband_db": -236.0789563223047,
+      "thdn_audio_band_db": -242.7703432953197,
       "gain_error_db": -1.5429239464852607e-14,
       "max_spur_freq_hz": 44046.0,
-      "max_spur_db": -245.3950056205445
+      "max_spur_db": -245.3950129002851
     },
     {
       "input_rate": 44100,
@@ -825,11 +825,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -235.64185157343223,
-      "thdn_audio_band_db": -241.02601142880175,
+      "thdn_broadband_db": -235.6418582093857,
+      "thdn_audio_band_db": -241.02601589243167,
       "gain_error_db": 4.439763656010199e-12,
       "max_spur_freq_hz": 44046.0,
-      "max_spur_db": -245.39500805316754
+      "max_spur_db": -245.39501391890127
     },
     {
       "input_rate": 44100,
@@ -839,11 +839,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -235.72328991469348,
-      "thdn_audio_band_db": -241.31410233648148,
-      "gain_error_db": -3.983636764332543e-12,
+      "thdn_broadband_db": -235.7239548910767,
+      "thdn_audio_band_db": -241.31647863596731,
+      "gain_error_db": -3.979779454466328e-12,
       "max_spur_freq_hz": 44046.0,
-      "max_spur_db": -245.3950027124148
+      "max_spur_db": -245.39501358220502
     },
     {
       "input_rate": 44100,
@@ -853,11 +853,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -230.05756815205757,
-      "thdn_audio_band_db": -236.83688701798192,
-      "gain_error_db": 3.587298175578154e-13,
+      "thdn_broadband_db": -230.0575442320657,
+      "thdn_audio_band_db": -236.83675350273774,
+      "gain_error_db": 3.664444372902414e-13,
       "max_spur_freq_hz": 46954.0,
-      "max_spur_db": -239.37476214766676
+      "max_spur_db": -239.3747654248004
     },
     {
       "input_rate": 44100,
@@ -867,11 +867,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -230.05050688823584,
-      "thdn_audio_band_db": -236.8033547286384,
-      "gain_error_db": -1.1571929598640217e-12,
+      "thdn_broadband_db": -230.05054901961554,
+      "thdn_audio_band_db": -236.80353277320137,
+      "gain_error_db": -1.1542999774643613e-12,
       "max_spur_freq_hz": 46954.0,
-      "max_spur_db": -239.3747633729668
+      "max_spur_db": -239.37476015494812
     },
     {
       "input_rate": 44100,
@@ -881,11 +881,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -230.0482719023124,
-      "thdn_audio_band_db": -236.7927811518963,
+      "thdn_broadband_db": -230.04827885527885,
+      "thdn_audio_band_db": -236.7927953151517,
       "gain_error_db": -1.312449681979123e-12,
       "max_spur_freq_hz": 46954.0,
-      "max_spur_db": -239.3747568640199
+      "max_spur_db": -239.37476193431166
     },
     {
       "input_rate": 44100,
@@ -895,11 +895,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.29035752364587,
-      "thdn_audio_band_db": -227.23085924402216,
+      "thdn_broadband_db": -224.29035823389384,
+      "thdn_audio_band_db": -227.2308603461891,
       "gain_error_db": 3.2787133862811696e-14,
       "max_spur_freq_hz": 15000.5,
-      "max_spur_db": -235.7620134338305
+      "max_spur_db": -235.7620163819504
     },
     {
       "input_rate": 44100,
@@ -909,11 +909,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.28265963132475,
-      "thdn_audio_band_db": -227.2157219982174,
+      "thdn_broadband_db": -224.28265957057135,
+      "thdn_audio_band_db": -227.21572099068908,
       "gain_error_db": 2.237239722403338e-12,
       "max_spur_freq_hz": 15000.5,
-      "max_spur_db": -235.76204834044876
+      "max_spur_db": -235.76204182788115
     },
     {
       "input_rate": 44100,
@@ -923,11 +923,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.2882848924323,
-      "thdn_audio_band_db": -227.22677927344947,
-      "gain_error_db": -1.1542999774643613e-12,
+      "thdn_broadband_db": -224.28827842451196,
+      "thdn_audio_band_db": -227.22676654752837,
+      "gain_error_db": -1.1562286323974684e-12,
       "max_spur_freq_hz": 15000.5,
-      "max_spur_db": -235.76202249499727
+      "max_spur_db": -235.76202426296118
     },
     {
       "input_rate": 44100,
@@ -937,11 +937,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -222.88234012440614,
-      "thdn_audio_band_db": -226.2303168350092,
-      "gain_error_db": -6.981730857846079e-13,
+      "thdn_broadband_db": -222.88234258300486,
+      "thdn_audio_band_db": -226.2303221413577,
+      "gain_error_db": -6.972087583180545e-13,
       "max_spur_freq_hz": 18000.5,
-      "max_spur_db": -233.13946472513888
+      "max_spur_db": -233.13947028391328
     },
     {
       "input_rate": 44100,
@@ -951,11 +951,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -222.88028017530166,
-      "thdn_audio_band_db": -226.2258637035619,
+      "thdn_broadband_db": -222.88027984344734,
+      "thdn_audio_band_db": -226.22586273040665,
       "gain_error_db": 1.5294233619533787e-12,
       "max_spur_freq_hz": 18000.5,
-      "max_spur_db": -233.13949252428034
+      "max_spur_db": -233.13949505494145
     },
     {
       "input_rate": 44100,
@@ -965,11 +965,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -222.88070557829184,
-      "thdn_audio_band_db": -226.2267829426227,
+      "thdn_broadband_db": -222.88070587128206,
+      "thdn_audio_band_db": -226.2267849306498,
       "gain_error_db": 1.40020348143526e-12,
       "max_spur_freq_hz": 18000.5,
-      "max_spur_db": -233.13949130097393
+      "max_spur_db": -233.13949328263993
     },
     {
       "input_rate": 44100,
@@ -979,11 +979,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -222.86484219389533,
-      "thdn_audio_band_db": -226.0013627276771,
-      "gain_error_db": -1.7458098925354646,
+      "thdn_broadband_db": -222.86132179271564,
+      "thdn_audio_band_db": -225.99404983342407,
+      "gain_error_db": -0.060511485615671566,
       "max_spur_freq_hz": 19046.0,
-      "max_spur_db": -233.35456599776853
+      "max_spur_db": -233.3545637020781
     },
     {
       "input_rate": 44100,
@@ -993,11 +993,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -222.83592125466,
-      "thdn_audio_band_db": -225.9420253204198,
-      "gain_error_db": -1.745809892540914,
+      "thdn_broadband_db": -222.86400427707719,
+      "thdn_audio_band_db": -225.99957884329626,
+      "gain_error_db": -0.06051148561480246,
       "max_spur_freq_hz": 19046.0,
-      "max_spur_db": -233.35455987476632
+      "max_spur_db": -233.35456210641655
     },
     {
       "input_rate": 44100,
@@ -1007,11 +1007,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -222.85764082476953,
-      "thdn_audio_band_db": -225.98655638938465,
-      "gain_error_db": -1.7458098925383638,
+      "thdn_broadband_db": -222.85749251150844,
+      "thdn_audio_band_db": -225.98619474720027,
+      "gain_error_db": -0.060511485616448424,
       "max_spur_freq_hz": 19046.0,
-      "max_spur_db": -233.3545634554717
+      "max_spur_db": -233.354565154429
     },
     {
       "input_rate": 96000,
@@ -1021,11 +1021,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -228.0405599478976,
-      "thdn_audio_band_db": -230.70391576489016,
+      "thdn_broadband_db": -228.04056155690165,
+      "thdn_audio_band_db": -230.70392050068295,
       "gain_error_db": -1.2150526078571503e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -233.10696506177717
+      "max_spur_db": -233.10697587718613
     },
     {
       "input_rate": 96000,
@@ -1035,11 +1035,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -228.04055841802773,
-      "thdn_audio_band_db": -230.70393668789538,
-      "gain_error_db": -1.3211286291780135e-13,
+      "thdn_broadband_db": -228.0405616653622,
+      "thdn_audio_band_db": -230.70394553861604,
+      "gain_error_db": -1.3597017278401454e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -233.10698813738864
+      "max_spur_db": -233.10698411588953
     },
     {
       "input_rate": 96000,
@@ -1049,11 +1049,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -228.0405365973358,
-      "thdn_audio_band_db": -230.70386419022626,
-      "gain_error_db": -3.9923157115307005e-13,
+      "thdn_broadband_db": -228.04053705179288,
+      "thdn_audio_band_db": -230.70386259263194,
+      "gain_error_db": -4.011602260861767e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -233.10697947424705
+      "max_spur_db": -233.10697520883508
     },
     {
       "input_rate": 96000,
@@ -1063,11 +1063,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -221.43733663601066,
-      "thdn_audio_band_db": -221.43743680815464,
-      "gain_error_db": -5.49666655935391e-13,
+      "thdn_broadband_db": -221.4373395441125,
+      "thdn_audio_band_db": -221.43743963772755,
+      "gain_error_db": -5.438806911360709e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -226.58771438904887
+      "max_spur_db": -226.58770997099754
     },
     {
       "input_rate": 96000,
@@ -1077,11 +1077,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -221.43748844485404,
-      "thdn_audio_band_db": -221.43758861975002,
-      "gain_error_db": -9.739707412188255e-14,
+      "thdn_broadband_db": -221.4374906035172,
+      "thdn_audio_band_db": -221.43759070328707,
+      "gain_error_db": -9.546841918877594e-14,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -226.58769730164232
+      "max_spur_db": -226.58769853663915
     },
     {
       "input_rate": 96000,
@@ -1091,11 +1091,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -221.43749236775147,
-      "thdn_audio_band_db": -221.43759254651368,
+      "thdn_broadband_db": -221.43750013176685,
+      "thdn_audio_band_db": -221.43760022889546,
       "gain_error_db": -2.217953173072563e-14,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -226.58770990845954
+      "max_spur_db": -226.58771330506698
     },
     {
       "input_rate": 96000,
@@ -1105,11 +1105,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -227.28200941272667,
-      "thdn_audio_band_db": -227.28914745061064,
-      "gain_error_db": 1.9865145810997485e-13,
+      "thdn_broadband_db": -227.28201219129568,
+      "thdn_audio_band_db": -227.2891498753353,
+      "gain_error_db": 2.0250876797618794e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -232.4799348826684
+      "max_spur_db": -232.4799709588746
     },
     {
       "input_rate": 96000,
@@ -1119,11 +1119,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -227.28201140317978,
-      "thdn_audio_band_db": -227.28914945638712,
-      "gain_error_db": -1.832222186451265e-13,
+      "thdn_broadband_db": -227.28200903975528,
+      "thdn_audio_band_db": -227.28914668555134,
+      "gain_error_db": -1.8225789117857317e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -232.4799348605129
+      "max_spur_db": -232.47995969250297
     },
     {
       "input_rate": 96000,
@@ -1133,11 +1133,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -227.28124315748627,
-      "thdn_audio_band_db": -227.28838004171794,
-      "gain_error_db": -5.21701159405344e-13,
+      "thdn_broadband_db": -227.28125807781407,
+      "thdn_audio_band_db": -227.288394482004,
+      "gain_error_db": -5.197725044722374e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -232.47990165768127
+      "max_spur_db": -232.4799118664875
     },
     {
       "input_rate": 96000,
@@ -1147,11 +1147,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.10600840479117,
-      "thdn_audio_band_db": -224.18263741709194,
-      "gain_error_db": 2.8736958503287483e-13,
+      "thdn_broadband_db": -224.10600399486788,
+      "thdn_audio_band_db": -224.18263330793383,
+      "gain_error_db": 2.892982399659813e-13,
       "max_spur_freq_hz": 5000.5,
-      "max_spur_db": -229.55854070679993
+      "max_spur_db": -229.55853799909556
     },
     {
       "input_rate": 96000,
@@ -1161,11 +1161,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.10604571153343,
-      "thdn_audio_band_db": -224.1826754643372,
+      "thdn_broadband_db": -224.10604502774459,
+      "thdn_audio_band_db": -224.1826753614593,
       "gain_error_db": 2.352959018389989e-13,
       "max_spur_freq_hz": 5000.5,
-      "max_spur_db": -229.5585364202307
+      "max_spur_db": -229.5585360389029
     },
     {
       "input_rate": 96000,
@@ -1175,11 +1175,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.1061086693037,
-      "thdn_audio_band_db": -224.18273933681957,
-      "gain_error_db": -6.557426772562377e-14,
+      "thdn_broadband_db": -224.10611050339068,
+      "thdn_audio_band_db": -224.18274181382785,
+      "gain_error_db": -6.364561279251717e-14,
       "max_spur_freq_hz": 5000.5,
-      "max_spur_db": -229.55851609369472
+      "max_spur_db": -229.55851544996437
     },
     {
       "input_rate": 96000,
@@ -1189,11 +1189,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -229.8166193532451,
-      "thdn_audio_band_db": -230.090699947467,
-      "gain_error_db": -9.643274665532871e-16,
+      "thdn_broadband_db": -229.81661449105457,
+      "thdn_audio_band_db": -230.09069815503767,
+      "gain_error_db": 3.857309866213148e-15,
       "max_spur_freq_hz": 15546.0,
-      "max_spur_db": -239.74322087687713
+      "max_spur_db": -239.74321208589654
     },
     {
       "input_rate": 96000,
@@ -1203,11 +1203,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -229.81625183652312,
-      "thdn_audio_band_db": -230.09030807039517,
-      "gain_error_db": -2.5458245117007153e-13,
+      "thdn_broadband_db": -229.81626022956576,
+      "thdn_audio_band_db": -230.09032066488862,
+      "gain_error_db": -2.5072514130385826e-13,
       "max_spur_freq_hz": 15546.0,
-      "max_spur_db": -239.74318606440016
+      "max_spur_db": -239.74317935475688
     },
     {
       "input_rate": 96000,
@@ -1217,11 +1217,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -229.8163545711035,
-      "thdn_audio_band_db": -230.09041702543664,
+      "thdn_broadband_db": -229.81635171198417,
+      "thdn_audio_band_db": -230.0904171776778,
       "gain_error_db": -2.1311637010827906e-13,
       "max_spur_freq_hz": 15546.0,
-      "max_spur_db": -239.74319775102407
+      "max_spur_db": -239.7431949875342
     },
     {
       "input_rate": 96000,
@@ -1231,8 +1231,8 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -221.55599502115905,
-      "thdn_audio_band_db": -221.57715641070664,
+      "thdn_broadband_db": -221.55599500711364,
+      "thdn_audio_band_db": -221.57715642729727,
       "gain_error_db": -2.4204619410487844e-13,
       "max_spur_freq_hz": 14999.5,
       "max_spur_db": -229.00394965084905
@@ -1245,11 +1245,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -221.55601811824593,
-      "thdn_audio_band_db": -221.57717962420668,
-      "gain_error_db": -1.832222186451265e-13,
+      "thdn_broadband_db": -221.5560169570007,
+      "thdn_audio_band_db": -221.57717853129446,
+      "gain_error_db": -1.8515087357823309e-13,
       "max_spur_freq_hz": 14999.5,
-      "max_spur_db": -229.00394899004283
+      "max_spur_db": -229.0039497375339
     },
     {
       "input_rate": 96000,
@@ -1259,8 +1259,8 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -221.55598471041046,
-      "thdn_audio_band_db": -221.5771460798269,
+      "thdn_broadband_db": -221.5559844599278,
+      "thdn_audio_band_db": -221.57714580501488,
       "gain_error_db": 3.1437075409636594e-13,
       "max_spur_freq_hz": 14999.5,
       "max_spur_db": -229.0039491596605
@@ -1273,11 +1273,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.38787863766177,
-      "thdn_audio_band_db": -224.76437080447863,
-      "gain_error_db": 5.61238585533995e-13,
+      "thdn_broadband_db": -224.38788152468226,
+      "thdn_audio_band_db": -224.76437394578141,
+      "gain_error_db": 5.573812756677821e-13,
       "max_spur_freq_hz": 17058.5,
-      "max_spur_db": -234.2912475336671
+      "max_spur_db": -234.29124770549876
     },
     {
       "input_rate": 96000,
@@ -1287,8 +1287,8 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.3883332496749,
-      "thdn_audio_band_db": -224.76486666244907,
+      "thdn_broadband_db": -224.3883327209823,
+      "thdn_audio_band_db": -224.7648660684393,
       "gain_error_db": 1.5236373971541801e-13,
       "max_spur_freq_hz": 17058.5,
       "max_spur_db": -234.29124855218842
@@ -1301,8 +1301,8 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.3868492398445,
-      "thdn_audio_band_db": -224.7632482994086,
+      "thdn_broadband_db": -224.38685019575786,
+      "thdn_audio_band_db": -224.7632492552279,
       "gain_error_db": -9.778280510850883e-13,
       "max_spur_freq_hz": 17058.5,
       "max_spur_db": -234.29124768527683
@@ -1315,11 +1315,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -217.81128865605262,
-      "thdn_audio_band_db": -219.91786278152045,
-      "gain_error_db": -1.7458098925360377,
+      "thdn_broadband_db": -217.81130630027786,
+      "thdn_audio_band_db": -219.91787662300624,
+      "gain_error_db": -0.06051148561415476,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -224.15100159350501
+      "max_spur_db": -224.15099530934748
     },
     {
       "input_rate": 96000,
@@ -1329,11 +1329,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -217.81129393088096,
-      "thdn_audio_band_db": -219.91787587496668,
-      "gain_error_db": -1.7458098925355694,
+      "thdn_broadband_db": -217.811321005059,
+      "thdn_audio_band_db": -219.91790529188557,
+      "gain_error_db": -0.060511485614080956,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -224.15101049844617
+      "max_spur_db": -224.1510136410386
     },
     {
       "input_rate": 96000,
@@ -1343,11 +1343,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -217.81131005929223,
-      "thdn_audio_band_db": -219.91790865713205,
-      "gain_error_db": -1.7458098925357453,
+      "thdn_broadband_db": -217.8113356539365,
+      "thdn_audio_band_db": -219.9179246709545,
+      "gain_error_db": -0.060511485613971225,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -224.15101523421083
+      "max_spur_db": -224.15100412793248
     },
     {
       "input_rate": 192000,
@@ -1357,11 +1357,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -222.31373059648433,
-      "thdn_audio_band_db": -224.97762637709894,
-      "gain_error_db": -4.956643178084037e-13,
+      "thdn_broadband_db": -222.31400706464586,
+      "thdn_audio_band_db": -224.9777779013112,
+      "gain_error_db": -5.159151946060239e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -227.37999290667443
+      "max_spur_db": -227.37998907436224
     },
     {
       "input_rate": 192000,
@@ -1371,11 +1371,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -222.31373910453672,
-      "thdn_audio_band_db": -224.97763031305752,
-      "gain_error_db": -4.001958986196234e-13,
+      "thdn_broadband_db": -222.31401675169022,
+      "thdn_audio_band_db": -224.9777884443488,
+      "gain_error_db": -4.059818634189434e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -227.37998196730342
+      "max_spur_db": -227.37997838007954
     },
     {
       "input_rate": 192000,
@@ -1385,11 +1385,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -222.3137191214823,
-      "thdn_audio_band_db": -224.97760181628536,
-      "gain_error_db": -5.27487124204664e-13,
+      "thdn_broadband_db": -222.31400190666963,
+      "thdn_audio_band_db": -224.9777662808731,
+      "gain_error_db": -5.294157791377707e-13,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -227.37997103116655
+      "max_spur_db": -227.37996952004508
     },
     {
       "input_rate": 192000,
@@ -1399,11 +1399,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.35126306701417,
-      "thdn_audio_band_db": -224.3514255031153,
-      "gain_error_db": 5.284514516711852e-13,
+      "thdn_broadband_db": -224.35133771813162,
+      "thdn_audio_band_db": -224.35145928928083,
+      "gain_error_db": 5.245941418049723e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -229.50202811873788
+      "max_spur_db": -229.50204473163814
     },
     {
       "input_rate": 192000,
@@ -1413,11 +1413,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.3509206864045,
-      "thdn_audio_band_db": -224.35108314606825,
-      "gain_error_db": -5.728105151326714e-13,
+      "thdn_broadband_db": -224.350995810603,
+      "thdn_audio_band_db": -224.35111739545533,
+      "gain_error_db": -5.708818601995647e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -229.5020358248188
+      "max_spur_db": -229.50204660413831
     },
     {
       "input_rate": 192000,
@@ -1427,11 +1427,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.3507886441344,
-      "thdn_audio_band_db": -224.35095108777665,
-      "gain_error_db": -6.42242092724513e-13,
+      "thdn_broadband_db": -224.35085930333727,
+      "thdn_audio_band_db": -224.3509808890082,
+      "gain_error_db": -6.364561279251928e-13,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -229.50202702958617
+      "max_spur_db": -229.5020322250713
     },
     {
       "input_rate": 192000,
@@ -1441,11 +1441,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -219.26959525274722,
-      "thdn_audio_band_db": -219.27197051591736,
-      "gain_error_db": 1.3114853545124605e-13,
+      "thdn_broadband_db": -219.26970395025234,
+      "thdn_audio_band_db": -219.27198630427188,
+      "gain_error_db": 1.3693450025056568e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -224.4468707929139
+      "max_spur_db": -224.44686846448153
     },
     {
       "input_rate": 192000,
@@ -1455,11 +1455,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -219.26947880817852,
-      "thdn_audio_band_db": -219.2718540342628,
-      "gain_error_db": 4.840923882097366e-13,
+      "thdn_broadband_db": -219.26958862423606,
+      "thdn_audio_band_db": -219.27187091169554,
+      "gain_error_db": 4.821637332766302e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -224.4468574576533
+      "max_spur_db": -224.44685828736593
     },
     {
       "input_rate": 192000,
@@ -1469,11 +1469,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -219.2693419407779,
-      "thdn_audio_band_db": -219.27171708068795,
-      "gain_error_db": 7.136023252494032e-13,
+      "thdn_broadband_db": -219.26945472229022,
+      "thdn_audio_band_db": -219.27173694597624,
+      "gain_error_db": 7.078163604500839e-13,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -224.44686232068958
+      "max_spur_db": -224.44688009612372
     },
     {
       "input_rate": 192000,
@@ -1483,11 +1483,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -219.90843682221166,
-      "thdn_audio_band_db": -219.9238104130458,
+      "thdn_broadband_db": -219.9085877086282,
+      "thdn_audio_band_db": -219.92383016959266,
       "gain_error_db": -3.9730291621996334e-13,
       "max_spur_freq_hz": 4999.5,
-      "max_spur_db": -225.18518418203274
+      "max_spur_db": -225.18518625591952
     },
     {
       "input_rate": 192000,
@@ -1497,11 +1497,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -219.90757521484392,
-      "thdn_audio_band_db": -219.92294573642152,
-      "gain_error_db": 1.299913424913734e-12,
+      "thdn_broadband_db": -219.907728132105,
+      "thdn_audio_band_db": -219.92296753146348,
+      "gain_error_db": 1.3018420798468402e-12,
       "max_spur_freq_hz": 4999.5,
-      "max_spur_db": -225.18517758722317
+      "max_spur_db": -225.18518030364868
     },
     {
       "input_rate": 192000,
@@ -1511,11 +1511,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -219.9084506455732,
-      "thdn_audio_band_db": -219.92382433687544,
+      "thdn_broadband_db": -219.90860204563086,
+      "thdn_audio_band_db": -219.92384446437154,
       "gain_error_db": 3.7608771195577383e-13,
       "max_spur_freq_hz": 4999.5,
-      "max_spur_db": -225.18517401460275
+      "max_spur_db": -225.1851786759082
     },
     {
       "input_rate": 192000,
@@ -1525,11 +1525,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -220.39569022633708,
-      "thdn_audio_band_db": -220.4666491368718,
-      "gain_error_db": -5.091649023401505e-13,
+      "thdn_broadband_db": -220.3959451720251,
+      "thdn_audio_band_db": -220.46669288688264,
+      "gain_error_db": -4.946999903418504e-13,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -226.05856633231372
+      "max_spur_db": -226.05856723193375
     },
     {
       "input_rate": 192000,
@@ -1539,11 +1539,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -220.39417786335238,
-      "thdn_audio_band_db": -220.46511195509987,
-      "gain_error_db": -1.629713418475208e-12,
+      "thdn_broadband_db": -220.39443715811927,
+      "thdn_audio_band_db": -220.46516002992797,
+      "gain_error_db": -1.6239274536758873e-12,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -226.0585542365522
+      "max_spur_db": -226.05855317893048
     },
     {
       "input_rate": 192000,
@@ -1553,11 +1553,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -220.39516454862164,
-      "thdn_audio_band_db": -220.46611484725705,
-      "gain_error_db": -1.0434023188107193e-12,
+      "thdn_broadband_db": -220.3954244331952,
+      "thdn_audio_band_db": -220.46616361062522,
+      "gain_error_db": -1.0337590441451852e-12,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -226.05855023345015
+      "max_spur_db": -226.05855040087187
     },
     {
       "input_rate": 192000,
@@ -1567,11 +1567,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.81186259791625,
-      "thdn_audio_band_db": -225.5224782628506,
+      "thdn_broadband_db": -224.81186265065395,
+      "thdn_audio_band_db": -225.52247828706183,
       "gain_error_db": -9.045391636270305e-13,
       "max_spur_freq_hz": 14284.5,
-      "max_spur_db": -237.0303870649497
+      "max_spur_db": -237.03038708830007
     },
     {
       "input_rate": 192000,
@@ -1581,11 +1581,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.81325757427487,
-      "thdn_audio_band_db": -225.52412128648166,
+      "thdn_broadband_db": -224.81325773229204,
+      "thdn_audio_band_db": -225.5241214724887,
       "gain_error_db": 1.8707952851133568e-13,
       "max_spur_freq_hz": 14284.5,
-      "max_spur_db": -237.03038610477546
+      "max_spur_db": -237.03038625439797
     },
     {
       "input_rate": 192000,
@@ -1595,11 +1595,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.80965433340515,
-      "thdn_audio_band_db": -225.51987764162624,
+      "thdn_broadband_db": -224.80965432009782,
+      "thdn_audio_band_db": -225.51987761237137,
       "gain_error_db": -1.4407052350307303e-12,
       "max_spur_freq_hz": 14284.5,
-      "max_spur_db": -237.03038604526114
+      "max_spur_db": -237.03038598648152
     },
     {
       "input_rate": 192000,
@@ -1609,11 +1609,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -223.7629498864776,
-      "thdn_audio_band_db": -224.99950893645212,
-      "gain_error_db": -1.6123555240772455e-12,
+      "thdn_broadband_db": -223.762940392804,
+      "thdn_audio_band_db": -224.99949638388034,
+      "gain_error_db": -1.6142841790103526e-12,
       "max_spur_freq_hz": 11658.5,
-      "max_spur_db": -234.5806246027702
+      "max_spur_db": -234.58062487559624
     },
     {
       "input_rate": 192000,
@@ -1623,11 +1623,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -223.76589494203017,
-      "thdn_audio_band_db": -225.00342452863225,
+      "thdn_broadband_db": -223.7658947417465,
+      "thdn_audio_band_db": -225.00342439253873,
       "gain_error_db": 6.731005716541684e-13,
       "max_spur_freq_hz": 11658.5,
-      "max_spur_db": -234.58062487920017
+      "max_spur_db": -234.58062486686018
     },
     {
       "input_rate": 192000,
@@ -1637,11 +1637,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -223.76101865969886,
-      "thdn_audio_band_db": -224.9969417496425,
+      "thdn_broadband_db": -223.76101881041794,
+      "thdn_audio_band_db": -224.99694188365723,
       "gain_error_db": -2.0019438205648547e-12,
       "max_spur_freq_hz": 11658.5,
-      "max_spur_db": -234.58062487017787
+      "max_spur_db": -234.58062485392844
     },
     {
       "input_rate": 192000,
@@ -1651,11 +1651,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -220.05503045016454,
-      "thdn_audio_band_db": -221.70647301354245,
-      "gain_error_db": -9.951859454830494e-13,
+      "thdn_broadband_db": -220.06106773313775,
+      "thdn_audio_band_db": -221.71154683661385,
+      "gain_error_db": -9.604701566871271e-13,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -227.4203874675269
+      "max_spur_db": -227.4203489327562
     },
     {
       "input_rate": 192000,
@@ -1665,11 +1665,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -220.0554481510159,
-      "thdn_audio_band_db": -221.70708208895408,
-      "gain_error_db": 4.358760148820748e-13,
+      "thdn_broadband_db": -220.0614679588567,
+      "thdn_audio_band_db": -221.7121300367111,
+      "gain_error_db": 5.303801066042918e-13,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -227.42041203043988
+      "max_spur_db": -227.42037691331123
     },
     {
       "input_rate": 192000,
@@ -1679,11 +1679,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -220.05419443043635,
-      "thdn_audio_band_db": -221.70525875772773,
-      "gain_error_db": -1.567032133149233e-12,
+      "thdn_broadband_db": -220.0603507832635,
+      "thdn_audio_band_db": -221.71050695865085,
+      "gain_error_db": -1.4619204392949061e-12,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -227.4204041834993
+      "max_spur_db": -227.42037377816044
     },
     {
       "input_rate": 192000,
@@ -1693,11 +1693,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -222.31371835909184,
-      "thdn_audio_band_db": -224.9776179635736,
-      "gain_error_db": 1.0034714470176531e-9,
+      "thdn_broadband_db": -222.31400901087682,
+      "thdn_audio_band_db": -224.9777857200203,
+      "gain_error_db": -1.0568727205356849e-8,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -227.3799750767357
+      "max_spur_db": -227.3799667743657
     },
     {
       "input_rate": 192000,
@@ -1707,11 +1707,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -222.31371951863704,
-      "thdn_audio_band_db": -224.97761779269413,
-      "gain_error_db": 1.0035698084192302e-9,
+      "thdn_broadband_db": -222.3137452109654,
+      "thdn_audio_band_db": -224.97729441404172,
+      "gain_error_db": -1.0569247942189422e-8,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -227.3799832464602
+      "max_spur_db": -227.37997041207626
     },
     {
       "input_rate": 192000,
@@ -1721,11 +1721,11 @@
       "high_precision": "off",
       "freq_hz": 20.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -222.31368710619256,
-      "thdn_audio_band_db": -224.97754954777818,
-      "gain_error_db": 1.0032766528694319e-9,
+      "thdn_broadband_db": -222.31401890260827,
+      "thdn_audio_band_db": -224.97780234958302,
+      "gain_error_db": -1.056869731120535e-8,
       "max_spur_freq_hz": 20.5,
-      "max_spur_db": -227.37998938003216
+      "max_spur_db": -227.37999097666483
     },
     {
       "input_rate": 192000,
@@ -1735,11 +1735,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.3515757378944,
-      "thdn_audio_band_db": -224.35173844137773,
-      "gain_error_db": 2.509587589133581e-8,
+      "thdn_broadband_db": -224.35164733062547,
+      "thdn_audio_band_db": -224.35176894128296,
+      "gain_error_db": -2.6279493689807976e-7,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -229.502053378014
+      "max_spur_db": -229.502007674064
     },
     {
       "input_rate": 192000,
@@ -1749,11 +1749,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.3515780894075,
-      "thdn_audio_band_db": -224.3517407741604,
-      "gain_error_db": 2.5095926036363923e-8,
+      "thdn_broadband_db": -224.35164401427147,
+      "thdn_audio_band_db": -224.35176562103575,
+      "gain_error_db": -2.627949667922321e-7,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -229.50203210896078
+      "max_spur_db": -229.50202554229296
     },
     {
       "input_rate": 192000,
@@ -1763,11 +1763,11 @@
       "high_precision": "off",
       "freq_hz": 100.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.35153173467367,
-      "thdn_audio_band_db": -224.35169442269031,
-      "gain_error_db": 2.5095727384906387e-8,
+      "thdn_broadband_db": -224.35165255681318,
+      "thdn_audio_band_db": -224.35177418850057,
+      "gain_error_db": -2.6279507479691165e-7,
       "max_spur_freq_hz": 100.5,
-      "max_spur_db": -229.50202446900107
+      "max_spur_db": -229.5020401639183
     },
     {
       "input_rate": 192000,
@@ -1777,11 +1777,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -219.26634082771085,
-      "thdn_audio_band_db": -219.2687209216473,
-      "gain_error_db": 2.3706575831805374e-6,
+      "thdn_broadband_db": -219.26968978767803,
+      "thdn_audio_band_db": -219.2719720833486,
+      "gain_error_db": -0.000014593130157054023,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -224.4468645967439
+      "max_spur_db": -224.44687756592225
     },
     {
       "input_rate": 192000,
@@ -1791,11 +1791,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -219.26888187659043,
-      "thdn_audio_band_db": -219.27126337146933,
-      "gain_error_db": 2.370658956382475e-6,
+      "thdn_broadband_db": -219.26922244248973,
+      "thdn_audio_band_db": -219.27150449841076,
+      "gain_error_db": -0.000014593131431897074,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -224.44686142584234
+      "max_spur_db": -224.44685292392055
     },
     {
       "input_rate": 192000,
@@ -1805,11 +1805,11 @@
       "high_precision": "off",
       "freq_hz": 1000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -219.26958768679265,
-      "thdn_audio_band_db": -219.27196955621446,
-      "gain_error_db": 2.37066001328509e-6,
+      "thdn_broadband_db": -219.26971333014296,
+      "thdn_audio_band_db": -219.27199565472537,
+      "gain_error_db": -0.000014593130501319506,
       "max_spur_freq_hz": 1000.5,
-      "max_spur_db": -224.44688076328464
+      "max_spur_db": -224.44684863401807
     },
     {
       "input_rate": 192000,
@@ -1819,11 +1819,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -219.90848529302494,
-      "thdn_audio_band_db": -219.923865517906,
-      "gain_error_db": 8.415101679331582e-6,
+      "thdn_broadband_db": -219.90763246108867,
+      "thdn_audio_band_db": -219.92287192531654,
+      "gain_error_db": 2.8740925698934625e-8,
       "max_spur_freq_hz": 4999.5,
-      "max_spur_db": -225.18516569808162
+      "max_spur_db": -225.18516739123967
     },
     {
       "input_rate": 192000,
@@ -1833,11 +1833,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -219.908509074726,
-      "thdn_audio_band_db": -219.92388936990122,
-      "gain_error_db": 8.415101962843584e-6,
+      "thdn_broadband_db": -219.90365473981026,
+      "thdn_audio_band_db": -219.91888027178948,
+      "gain_error_db": 2.874526902982961e-8,
       "max_spur_freq_hz": 4999.5,
-      "max_spur_db": -225.18517474825114
+      "max_spur_db": -225.18516144458454
     },
     {
       "input_rate": 192000,
@@ -1847,11 +1847,11 @@
       "high_precision": "off",
       "freq_hz": 5000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -219.90842212951875,
-      "thdn_audio_band_db": -219.92380203540947,
-      "gain_error_db": 8.415101490323583e-6,
+      "thdn_broadband_db": -219.9086748061855,
+      "thdn_audio_band_db": -219.92391800438187,
+      "gain_error_db": 2.8742410763228204e-8,
       "max_spur_freq_hz": 4999.5,
-      "max_spur_db": -225.18517783972817
+      "max_spur_db": -225.1851771985224
     },
     {
       "input_rate": 192000,
@@ -1861,11 +1861,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -220.3953312211587,
-      "thdn_audio_band_db": -220.46629333491808,
-      "gain_error_db": -2.1402683095078388e-7,
+      "thdn_broadband_db": -220.39239864440134,
+      "thdn_audio_band_db": -220.46308908551384,
+      "gain_error_db": -1.5329884941253576e-7,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -226.05856712689476
+      "max_spur_db": -226.05854473538062
     },
     {
       "input_rate": 192000,
@@ -1875,11 +1875,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -220.39547092477983,
-      "thdn_audio_band_db": -220.46643540018422,
-      "gain_error_db": -2.1402695438470262e-7,
+      "thdn_broadband_db": -220.39570554553663,
+      "thdn_audio_band_db": -220.46645029123607,
+      "gain_error_db": -1.5329721680610605e-7,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -226.05855263496545
+      "max_spur_db": -226.05854326885233
     },
     {
       "input_rate": 192000,
@@ -1889,11 +1889,11 @@
       "high_precision": "off",
       "freq_hz": 10000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -220.39437243224157,
-      "thdn_audio_band_db": -220.4653187976251,
-      "gain_error_db": -2.140292687706794e-7,
+      "thdn_broadband_db": -220.39471286798948,
+      "thdn_audio_band_db": -220.46544109679496,
+      "gain_error_db": -1.5329790340727435e-7,
       "max_spur_freq_hz": 9999.5,
-      "max_spur_db": -226.05854778130475
+      "max_spur_db": -226.05852057126353
     },
     {
       "input_rate": 192000,
@@ -1903,11 +1903,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -224.80517603181042,
-      "thdn_audio_band_db": -225.51460415000014,
-      "gain_error_db": -0.000023820604700764616,
+      "thdn_broadband_db": -224.80243438807773,
+      "thdn_audio_band_db": -225.5113761365883,
+      "gain_error_db": -1.6681871934520543e-6,
       "max_spur_freq_hz": 14284.5,
-      "max_spur_db": -237.03038641098982
+      "max_spur_db": -237.03038628155497
     },
     {
       "input_rate": 192000,
@@ -1917,11 +1917,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -224.8133085802038,
-      "thdn_audio_band_db": -225.52418193442355,
-      "gain_error_db": -0.00002382060691486655,
+      "thdn_broadband_db": -224.8115423418854,
+      "thdn_audio_band_db": -225.52210064256798,
+      "gain_error_db": -1.668185699708522e-6,
       "max_spur_freq_hz": 14284.5,
-      "max_spur_db": -237.03038664364948
+      "max_spur_db": -237.0303874236326
     },
     {
       "input_rate": 192000,
@@ -1931,11 +1931,11 @@
       "high_precision": "off",
       "freq_hz": 15000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -224.7993783733059,
-      "thdn_audio_band_db": -225.50777854261528,
-      "gain_error_db": -0.000023820604032483847,
+      "thdn_broadband_db": -224.81328659846,
+      "thdn_audio_band_db": -225.5241555116894,
+      "gain_error_db": -1.6681848221703586e-6,
       "max_spur_freq_hz": 14284.5,
-      "max_spur_db": -237.0303863870588
+      "max_spur_db": -237.03038608681743
     },
     {
       "input_rate": 192000,
@@ -1945,11 +1945,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -223.7662208114321,
-      "thdn_audio_band_db": -225.00385795201862,
-      "gain_error_db": -0.00003975219672988667,
+      "thdn_broadband_db": -223.75187395190122,
+      "thdn_audio_band_db": -224.98479070543073,
+      "gain_error_db": -0.000028827598220991766,
       "max_spur_freq_hz": 11658.5,
-      "max_spur_db": -234.58062527206238
+      "max_spur_db": -234.58062538169122
     },
     {
       "input_rate": 192000,
@@ -1959,11 +1959,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -223.72429930063393,
-      "thdn_audio_band_db": -224.94820173302918,
-      "gain_error_db": -0.00003975219070377675,
+      "thdn_broadband_db": -223.76634982471498,
+      "thdn_audio_band_db": -225.004029228102,
+      "gain_error_db": -0.00002882759460378743,
       "max_spur_freq_hz": 11658.5,
-      "max_spur_db": -234.58062445505732
+      "max_spur_db": -234.58062294925523
     },
     {
       "input_rate": 192000,
@@ -1973,11 +1973,11 @@
       "high_precision": "off",
       "freq_hz": 18000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -223.75478051489327,
-      "thdn_audio_band_db": -224.98865210797274,
-      "gain_error_db": -0.00003975219334122444,
+      "thdn_broadband_db": -223.7362009111625,
+      "thdn_audio_band_db": -224.96398479849603,
+      "gain_error_db": -0.000028827590238262505,
       "max_spur_freq_hz": 11658.5,
-      "max_spur_db": -234.58062490649507
+      "max_spur_db": -234.58062497726013
     },
     {
       "input_rate": 192000,
@@ -1987,11 +1987,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -1.0,
-      "thdn_broadband_db": -220.05157645712615,
-      "thdn_audio_band_db": -221.70145322353443,
-      "gain_error_db": 0.00003466552362945964,
+      "thdn_broadband_db": -220.0612888665987,
+      "thdn_audio_band_db": -221.71187240383796,
+      "gain_error_db": -8.082719845562949e-6,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -227.42031524586397
+      "max_spur_db": -227.42033777146332
     },
     {
       "input_rate": 192000,
@@ -2001,11 +2001,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -20.0,
-      "thdn_broadband_db": -220.05468294405864,
-      "thdn_audio_band_db": -221.705964245436,
-      "gain_error_db": 0.000034665521548449266,
+      "thdn_broadband_db": -220.05566620115215,
+      "thdn_audio_band_db": -221.7036408904454,
+      "gain_error_db": -8.082715870601433e-6,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -227.42034972341213
+      "max_spur_db": -227.42037517351264
     },
     {
       "input_rate": 192000,
@@ -2015,11 +2015,11 @@
       "high_precision": "off",
       "freq_hz": 20000.0,
       "amplitude_dbfs": -60.0,
-      "thdn_broadband_db": -220.05439257145667,
-      "thdn_audio_band_db": -221.70556673370868,
-      "gain_error_db": 0.00003466552204025431,
+      "thdn_broadband_db": -220.06091098152635,
+      "thdn_audio_band_db": -221.71129938579497,
+      "gain_error_db": -8.082720194649817e-6,
       "max_spur_freq_hz": 19999.5,
-      "max_spur_db": -227.42034609203304
+      "max_spur_db": -227.42033476666623
     }
   ]
 }

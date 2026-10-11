@@ -7,8 +7,8 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-/// Combined THD+N, pre-ringing, and HydrogenAudio quality reporting for ardftsrc's `f64`
-/// resamplers.
+/// Combined THD+N, pre-ringing, and HydrogenAudio quality reporting for ardftsrc's
+/// resamplers (`f64`, plus an `f32` HydrogenAudio run of the fast preset).
 #[derive(Debug, Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -38,8 +38,9 @@ enum RunTarget {
     /// Measure impulse pre-ringing and below-rolloff pre-echo, and write
     /// preringing_<preset>_report.json.
     Preringing(PreringingArgs),
-    /// Run the HydrogenAudio Test Suite once per preset (f64, no high-precision backend) and
-    /// write hydrogen_src_<preset>_report.json. Requires GNU Octave on PATH.
+    /// Run the HydrogenAudio Test Suite once per preset in f64, plus the fast preset in f32
+    /// (no high-precision backend), and write hydrogen_src_<variant>_report.json. Requires
+    /// GNU Octave on PATH.
     HydrogenSrc(HydrogenSrcArgs),
 }
 
@@ -236,7 +237,7 @@ fn run_hydrogen_src(args: &HydrogenSrcArgs) {
     std::fs::create_dir_all(&args.out_dir)
         .unwrap_or_else(|e| panic!("failed to create {}: {e}", args.out_dir.display()));
 
-    hydrogen::run_all_presets(args.workdir.as_deref(), &args.out_dir, args.quiet)
+    hydrogen::run_all(args.workdir.as_deref(), &args.out_dir, args.quiet)
         .unwrap_or_else(|e| panic!("hydrogen_src run failed: {e}"));
 }
 

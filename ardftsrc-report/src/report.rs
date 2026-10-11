@@ -1,10 +1,12 @@
 //! Reads back `thdn_<preset>_report.json` (written by `run thdn`),
 //! `preringing_<preset>_report.json` (written by `run preringing`), and
-//! `hydrogen_src_<preset>_report.json` (written by `run hydrogen-src`) from `--out-dir`
-//! and renders one combined `report_<preset>.md` per preset present, plus a
-//! `README.md` index linking those reports. A preset missing
-//! all three files is skipped with a warning; a preset missing only some still gets a
-//! report, with a note in place of each missing section.
+//! `hydrogen_src_<variant>_report.json` (written by `run hydrogen-src`) from `--out-dir`
+//! and renders one combined `report_<variant>.md` per [`VARIANTS`] entry present, plus a
+//! `README.md` index linking those reports. A variant missing
+//! all of its files is skipped with a warning; a variant missing only some still gets a
+//! report, with a note in place of each missing section. THD+N and pre-ringing are
+//! measured in `f64` only, so an `f32` variant's report has just the HydrogenAudio section
+//! and links to its preset's `f64` report for the rest.
 //!
 //! Layout: an overall title, a transposed preset-configuration table, the HydrogenAudio
 //! Test Suite section (with titled whitelist figures copied alongside the report by
@@ -18,7 +20,7 @@ use std::path::Path;
 use tabled::settings::Alignment;
 
 use crate::git::git_revision;
-use crate::hydrogen::{FIGURES, PresetResult};
+use crate::hydrogen::{FIGURES, Precision, PresetResult, VARIANTS, Variant};
 use crate::preringing::Report as PreringingReport;
 use crate::preset::Preset;
 use crate::thdn::report::{Report as ThdnReport, render_table};
@@ -33,6 +35,15 @@ fn capitalize(s: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+/// Display name used in report titles and the index, e.g. `Fast` or `Fast (f32)`.
+fn variant_title(variant: Variant) -> String {
+    let preset = capitalize(variant.preset.label());
+    match variant.precision {
+        Precision::F64 => preset,
+        Precision::F32 => format!("{preset} ({})", variant.precision.label()),
     }
 }
 
@@ -80,38 +91,44 @@ fn hydrogen_src_table(case: &PresetResult) -> String {
 }
 
 /// Reads `thdn_<preset>_report.json`, `preringing_<preset>_report.json`, and
-/// `hydrogen_src_<preset>_report.json` from `out_dir` for each preset in [`Preset::ALL`]
-/// and writes `report_<preset>.md` combining whichever are present, plus a `README.md`
+/// `hydrogen_src_<variant>_report.json` from `out_dir` for each variant in [`VARIANTS`]
+/// and writes `report_<variant>.md` combining whichever are present, plus a `README.md`
 /// index linking each generated report.
 pub fn write_all(out_dir: &Path, quiet: bool) {
     let revision = git_revision();
     let mut written = Vec::new();
 
-    for &preset in Preset::ALL.iter() {
+    for &variant in VARIANTS {
+        let label = variant.label();
+        let preset = variant.preset;
+        let is_f64 = variant.precision == Precision::F64;
         let thdn_path = out_dir.join(format!("thdn_{}_report.json", preset.label()));
         let preringing_path = out_dir.join(format!("preringing_{}_report.json", preset.label()));
-        let hydrogen_src_path = out_dir.join(format!("hydrogen_src_{}_report.json", preset.label()));
+        let hydrogen_src_path = out_dir.join(format!("hydrogen_src_{label}_report.json"));
 
-        let thdn: Option<ThdnReport> = read_json(&thdn_path);
-        let preringing: Option<PreringingReport> = read_json(&preringing_path);
+        let thdn: Option<ThdnReport> = if is_f64 { read_json(&thdn_path) } else { None };
+        let preringing: Option<PreringingReport> = if is_f64 { read_json(&preringing_path) } else { None };
         let hydrogen: Option<PresetResult> = read_json(&hydrogen_src_path);
 
         if thdn.is_none() && preringing.is_none() && hydrogen.is_none() {
             if !quiet {
-                eprintln!(
-                    "report: skipping {} (none of {}, {}, or {} found)",
-                    preset.label(),
-                    thdn_path.display(),
-                    preringing_path.display(),
-                    hydrogen_src_path.display()
-                );
+                if is_f64 {
+                    eprintln!(
+                        "report: skipping {label} (none of {}, {}, or {} found)",
+                        thdn_path.display(),
+                        preringing_path.display(),
+                        hydrogen_src_path.display()
+                    );
+                } else {
+                    eprintln!("report: skipping {label} ({} not found)", hydrogen_src_path.display());
+                }
             }
             continue;
         }
 
         let mut out = String::new();
 
-        let _ = writeln!(out, "# ardftsrc Quality Report: {}", capitalize(preset.label()));
+        let _ = writeln!(out, "# ardftsrc Quality Report: {}", variant_title(variant));
         let _ = writeln!(out);
         if let Some(revision) = revision.as_deref() {
             let _ = writeln!(out, "Revision: {revision}");
@@ -129,14 +146,15 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
             Some(case) => {
                 let _ = writeln!(
                     out,
-                    "Local HydrogenAudio Test Suite run, `f64`, no high-precision backend. See \
+                    "Local HydrogenAudio Test Suite run, `{}`, no high-precision backend. See \
                      <https://src.hydrogenaudio.org/> for the test suite's own scoring \
-                     methodology."
+                     methodology.",
+                    case.precision.label()
                 );
                 let _ = writeln!(out);
                 let _ = writeln!(out, "{}", hydrogen_src_table(case));
                 for spec in FIGURES {
-                    let dest = spec.dest_name(case.preset);
+                    let dest = spec.dest_name(case.variant());
                     if !case.figures.iter().any(|name| name == &dest) {
                         continue;
                     }
@@ -157,8 +175,25 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
                 );
             }
         }
-        let _ = writeln!(out);
 
+        if !is_f64 {
+            let _ = writeln!(out);
+            let _ = writeln!(out, "## THD+N and Pre-ringing");
+            let _ = writeln!(out);
+            let _ = writeln!(
+                out,
+                "THD+N and pre-ringing are measured in `f64` only; see [report_{0}.md](report_{0}.md).",
+                preset.label()
+            );
+            let md_path = out_dir.join(format!("report_{label}.md"));
+            std::fs::write(&md_path, out).unwrap_or_else(|e| panic!("failed to write {}: {e}", md_path.display()));
+            written.push(variant);
+            if !quiet {
+                eprintln!("report: wrote {}", md_path.display());
+            }
+            continue;
+        }
+        let _ = writeln!(out);
         let _ = writeln!(out, "## THD+N");
         let _ = writeln!(out);
         match &thdn {
@@ -190,9 +225,9 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
             }
         }
 
-        let md_path = out_dir.join(format!("report_{}.md", preset.label()));
+        let md_path = out_dir.join(format!("report_{label}.md"));
         std::fs::write(&md_path, out).unwrap_or_else(|e| panic!("failed to write {}: {e}", md_path.display()));
-        written.push(preset);
+        written.push(variant);
         if !quiet {
             eprintln!("report: wrote {}", md_path.display());
         }
@@ -201,10 +236,10 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
     write_index(out_dir, &written, revision.as_deref(), quiet);
 }
 
-/// Writes `README.md` in `out_dir` linking each `report_<preset>.md` that
-/// [`write_all`] produced. Skipped if no preset reports were written.
-fn write_index(out_dir: &Path, presets: &[Preset], revision: Option<&str>, quiet: bool) {
-    if presets.is_empty() {
+/// Writes `README.md` in `out_dir` linking each `report_<variant>.md` that
+/// [`write_all`] produced. Skipped if no reports were written.
+fn write_index(out_dir: &Path, variants: &[Variant], revision: Option<&str>, quiet: bool) {
+    if variants.is_empty() {
         return;
     }
 
@@ -215,8 +250,8 @@ fn write_index(out_dir: &Path, presets: &[Preset], revision: Option<&str>, quiet
         let _ = writeln!(out, "Revision: {revision}");
         let _ = writeln!(out);
     }
-    for &preset in presets {
-        let _ = writeln!(out, "- [{}](report_{}.md)", capitalize(preset.label()), preset.label());
+    for &variant in variants {
+        let _ = writeln!(out, "- [{}](report_{}.md)", variant_title(variant), variant.label());
     }
 
     let path = out_dir.join("README.md");

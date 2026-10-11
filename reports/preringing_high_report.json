@@ -12,171 +12,171 @@
       "decimate": false,
       "preset": "high",
       "band": {
-        "passband_edge_hz": 21771.142128109932,
+        "passband_edge_hz": 21741.300031542778,
         "stopband_edge_hz": 22050.0
       },
       "impulses": [
         {
           "chunk_position": 0.0,
-          "peak": 0.9937325527820691,
+          "peak": 0.9936755952380953,
           "pre_ring_ms": [
-            5.395833333333333,
-            21.6875,
-            36.041666666666664
+            5.145833333333333,
+            16.666666666666664,
+            22.645833333333332
           ],
-          "ringing_freq_hz": 21911.80354209869
+          "ringing_freq_hz": 21910.549261288746
         },
         {
           "chunk_position": 0.25,
-          "peak": 0.733905620957162,
+          "peak": 0.9936755952380953,
           "pre_ring_ms": [
-            6.467828798186019,
-            22.73866213151935,
-            36.884495464852684
+            5.145833333333333,
+            16.666666666666664,
+            22.645833333333332
           ],
-          "ringing_freq_hz": 21911.801987497478
+          "ringing_freq_hz": 21910.549261288746
         },
         {
           "chunk_position": 0.5,
-          "peak": 0.9937325527820691,
+          "peak": 0.9936755952380953,
           "pre_ring_ms": [
-            5.395833333333333,
-            21.6875,
-            36.041666666666664
+            5.145833333333333,
+            16.666666666666664,
+            22.645833333333332
           ],
-          "ringing_freq_hz": 21911.80354209869
+          "ringing_freq_hz": 21910.549261288746
         },
         {
           "chunk_position": 0.75,
-          "peak": 0.7339056209571617,
+          "peak": 0.9936755952380953,
           "pre_ring_ms": [
-            6.467828798186019,
-            22.73866213151935,
-            36.884495464852684
+            5.145833333333333,
+            16.666666666666664,
+            22.645833333333332
           ],
-          "ringing_freq_hz": 21911.801987497478
+          "ringing_freq_hz": 21910.549261288746
         }
       ],
       "transients": [
         {
           "chunk_position": 0.0,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
+          "sigma_ms": 0.062083618035092394,
           "delay_offset_samples": 1.3571896823692235e-13,
           "pre_echo_db": -271.34399887704546,
-          "pre_echo_lead_ms": 0.0708900226757398,
-          "post_echo_db": -271.3084737165294,
+          "pre_echo_lead_ms": 0.05005668934240645,
+          "post_echo_db": -271.45145455232273,
           "post_echo_lag_ms": 0.05410997732426022
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
           "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -255.4549236449246,
+          "pre_echo_db": -255.46635997263084,
           "pre_echo_lead_ms": 0.029223356009073123,
-          "post_echo_db": -256.6573164910727,
+          "post_echo_db": -256.64256268800807,
           "post_echo_lag_ms": 0.07494331065759353
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
           "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -250.13623521792766,
+          "pre_echo_db": -250.17037668979995,
           "pre_echo_lead_ms": 0.0708900226757398,
-          "post_echo_db": -249.93113155388994,
+          "post_echo_db": -249.9621972715837,
           "post_echo_lag_ms": 0.012443310657593545
         },
         {
           "chunk_position": 0.25,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -271.20276178729574,
-          "pre_echo_lead_ms": 0.05955215419500851,
-          "post_echo_db": -271.0983209741993,
-          "post_echo_lag_ms": 0.0654478458049915
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": 1.357194329290289e-13,
+          "pre_echo_db": -271.34399887704546,
+          "pre_echo_lead_ms": 0.05005668934240645,
+          "post_echo_db": -271.41548808421146,
+          "post_echo_lag_ms": 0.05410997732426022
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -255.08025686872313,
-          "pre_echo_lead_ms": 0.01788548752834184,
-          "post_echo_db": -254.610202871661,
-          "post_echo_lag_ms": 0.023781179138324823
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": 1.357194329290289e-13,
+          "pre_echo_db": -255.46635997263084,
+          "pre_echo_lead_ms": 0.029223356009073123,
+          "post_echo_db": -256.64911684009274,
+          "post_echo_lag_ms": 0.07494331065759353
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -250.27991016702344,
-          "pre_echo_lead_ms": 0.03871882086167518,
-          "post_echo_db": -250.52747917259356,
-          "post_echo_lag_ms": 0.04461451247165816
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": 1.357194329290289e-13,
+          "pre_echo_db": -250.1734871247976,
+          "pre_echo_lead_ms": 0.0708900226757398,
+          "post_echo_db": -249.96295636178633,
+          "post_echo_lag_ms": 0.012443310657593545
         },
         {
           "chunk_position": 0.5,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -271.3796699318538,
-          "pre_echo_lead_ms": 0.07089002267573413,
-          "post_echo_db": -271.34399887704546,
-          "post_echo_lag_ms": 0.05410997732426587
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -271.34399887704546,
+          "pre_echo_lead_ms": 0.05005668934240645,
+          "post_echo_db": -271.41548808421146,
+          "post_echo_lag_ms": 0.05410997732426022
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -255.44921112276012,
-          "pre_echo_lead_ms": 0.029223356009067464,
-          "post_echo_db": -256.63437694653135,
-          "post_echo_lag_ms": 0.07494331065759921
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -255.46635997263084,
+          "pre_echo_lead_ms": 0.029223356009073123,
+          "post_echo_db": -256.64911684009274,
+          "post_echo_lag_ms": 0.07494331065759353
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -250.19451174577858,
-          "pre_echo_lead_ms": 0.07089002267573413,
-          "post_echo_db": -249.95764412297092,
-          "post_echo_lag_ms": 0.0124433106575992
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -250.17115419413187,
+          "pre_echo_lead_ms": 0.0708900226757398,
+          "post_echo_db": -249.96295636178633,
+          "post_echo_lag_ms": 0.012443310657593545
         },
         {
           "chunk_position": 0.75,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -271.20276178729574,
-          "pre_echo_lead_ms": 0.05955215419501416,
-          "post_echo_db": -271.2730932617525,
-          "post_echo_lag_ms": 0.06544784580498583
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": 1.357207536393218e-13,
+          "pre_echo_db": -271.34399887704546,
+          "pre_echo_lead_ms": 0.05005668934240645,
+          "post_echo_db": -271.41548808421146,
+          "post_echo_lag_ms": 0.05410997732426022
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -255.1159054003081,
-          "pre_echo_lead_ms": 0.0178854875283475,
-          "post_echo_db": -254.62009208495311,
-          "post_echo_lag_ms": 0.023781179138319168
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": 1.357207536393218e-13,
+          "pre_echo_db": -255.46635997263084,
+          "pre_echo_lead_ms": 0.029223356009073123,
+          "post_echo_db": -256.640924922445,
+          "post_echo_lag_ms": 0.07494331065759353
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -250.2751874357944,
-          "pre_echo_lead_ms": 0.03871882086168083,
-          "post_echo_db": -250.5129096031086,
-          "post_echo_lag_ms": 0.044614512471652504
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": 1.357207536393218e-13,
+          "pre_echo_db": -250.17193176806714,
+          "pre_echo_lead_ms": 0.0708900226757398,
+          "post_echo_db": -249.95992039893193,
+          "post_echo_lag_ms": 0.012443310657593545
         }
       ]
     },
@@ -186,171 +186,171 @@
       "decimate": false,
       "preset": "high",
       "band": {
-        "passband_edge_hz": 21771.142128109932,
+        "passband_edge_hz": 21741.300031542778,
         "stopband_edge_hz": 22050.0
       },
       "impulses": [
         {
           "chunk_position": 0.0,
-          "peak": 0.9129917828685256,
+          "peak": 0.9129394531249999,
           "pre_ring_ms": [
-            5.487528344671202,
-            20.77097505668934,
-            35.21541950113379
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.644069489084
+          "ringing_freq_hz": 21910.196795383377
         },
         {
           "chunk_position": 0.25,
-          "peak": 0.5848653818491849,
+          "peak": 0.9129394531249999,
           "pre_ring_ms": [
-            7.1315192743764175,
-            22.46031746031746,
-            36.88208616780045
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.980091964368
+          "ringing_freq_hz": 21910.196795383377
         },
         {
           "chunk_position": 0.5,
-          "peak": 0.9129917828685258,
+          "peak": 0.9129394531249999,
           "pre_ring_ms": [
-            5.487528344671202,
-            20.77097505668934,
-            35.21541950113379
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.644069489084
+          "ringing_freq_hz": 21910.196795383377
         },
         {
           "chunk_position": 0.75,
-          "peak": 0.584865381849185,
+          "peak": 0.9129394531249999,
           "pre_ring_ms": [
-            7.1315192743764175,
-            22.46031746031746,
-            36.88208616780045
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.980091964368
+          "ringing_freq_hz": 21910.196795383377
         }
       ],
       "transients": [
         {
           "chunk_position": 0.0,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
+          "sigma_ms": 0.062083618035092394,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -270.5290995232443,
+          "pre_echo_db": -270.75898525705446,
           "pre_echo_lead_ms": 0.05305980725623276,
-          "post_echo_db": -270.4645201206403,
+          "post_echo_db": -270.4004173231361,
           "post_echo_lag_ms": 0.060318877551023484
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -255.09121007274467,
+          "pre_echo_db": -255.09669185875057,
           "pre_echo_lead_ms": 0.030384070294781504,
-          "post_echo_db": -255.2070604293435,
+          "post_echo_db": -255.19041547444826,
           "post_echo_lag_ms": 0.014967403628120992
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -249.5943637392662,
-          "pre_echo_lead_ms": 0.09841128117913525,
-          "post_echo_db": -249.1906267434863,
-          "post_echo_lag_ms": 0.014967403628120992
-        },
-        {
-          "chunk_position": 0.25,
-          "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -270.4004173231361,
-          "pre_echo_lead_ms": 0.06439767573695837,
-          "post_echo_db": -270.6926804340249,
-          "post_echo_lag_ms": 0.07165674603174911
-        },
-        {
-          "chunk_position": 0.25,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -254.16182378790407,
-          "pre_echo_lead_ms": 0.01904620181405588,
-          "post_echo_db": -254.1433784854996,
-          "post_echo_lag_ms": 0.02630527210884661
-        },
-        {
-          "chunk_position": 0.25,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -249.1589096186451,
-          "pre_echo_lead_ms": 0.04172193877550713,
-          "post_echo_db": -249.56603423927217,
-          "post_echo_lag_ms": 0.09433248299320035
-        },
-        {
-          "chunk_position": 0.5,
-          "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -270.62687792508393,
-          "pre_echo_lead_ms": 0.05305980725623276,
-          "post_echo_db": -270.5290995232443,
-          "post_echo_lag_ms": 0.060318877551023484
-        },
-        {
-          "chunk_position": 0.5,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -255.09121007274467,
-          "pre_echo_lead_ms": 0.030384070294781504,
-          "post_echo_db": -255.2070604293435,
-          "post_echo_lag_ms": 0.014967403628120992
-        },
-        {
-          "chunk_position": 0.5,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -249.59145389346412,
+          "pre_echo_db": -249.57619317567944,
           "pre_echo_lead_ms": 0.09841128117913525,
           "post_echo_db": -249.1947949702182,
           "post_echo_lag_ms": 0.014967403628120992
         },
         {
+          "chunk_position": 0.25,
+          "carrier_hz": 0.0,
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": 1.357206552041389e-13,
+          "pre_echo_db": -270.4967498037719,
+          "pre_echo_lead_ms": 0.053059807256238906,
+          "post_echo_db": -270.4967498037719,
+          "post_echo_lag_ms": 0.06031887755101733
+        },
+        {
+          "chunk_position": 0.25,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": 1.357206552041389e-13,
+          "pre_echo_db": -255.07205102055676,
+          "pre_echo_lead_ms": 0.030384070294787655,
+          "post_echo_db": -255.19596024938156,
+          "post_echo_lag_ms": 0.014967403628114835
+        },
+        {
+          "chunk_position": 0.25,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": 1.357206552041389e-13,
+          "pre_echo_db": -249.53562852687585,
+          "pre_echo_lead_ms": 0.0984112811791414,
+          "post_echo_db": -249.1947949702182,
+          "post_echo_lag_ms": 0.014967403628114835
+        },
+        {
+          "chunk_position": 0.5,
+          "carrier_hz": 0.0,
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -270.75898525705446,
+          "pre_echo_lead_ms": 0.075735544217684,
+          "post_echo_db": -270.4004173231361,
+          "post_echo_lag_ms": 0.060318877551023484
+        },
+        {
+          "chunk_position": 0.5,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -255.09943404966145,
+          "pre_echo_lead_ms": 0.030384070294781504,
+          "post_echo_db": -255.19041547444826,
+          "post_echo_lag_ms": 0.014967403628120992
+        },
+        {
+          "chunk_position": 0.5,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -249.57619317567944,
+          "pre_echo_lead_ms": 0.09841128117913525,
+          "post_echo_db": -249.1941001268405,
+          "post_echo_lag_ms": 0.014967403628120992
+        },
+        {
           "chunk_position": 0.75,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
+          "sigma_ms": 0.062083618035092394,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -270.43240958633197,
-          "pre_echo_lead_ms": 0.06439767573695837,
-          "post_echo_db": -270.6597168664235,
-          "post_echo_lag_ms": 0.07165674603174911
+          "pre_echo_db": -270.7257695774252,
+          "pre_echo_lead_ms": 0.05305980725623276,
+          "post_echo_db": -270.43240958633197,
+          "post_echo_lag_ms": 0.060318877551023484
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -254.1519814189891,
-          "pre_echo_lead_ms": 0.01904620181405588,
-          "post_echo_db": -254.12865039441155,
-          "post_echo_lag_ms": 0.02630527210884661
+          "pre_echo_db": -255.09943404966145,
+          "pre_echo_lead_ms": 0.030384070294781504,
+          "post_echo_db": -255.19596024938156,
+          "post_echo_lag_ms": 0.014967403628120992
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -249.14577144094878,
-          "pre_echo_lead_ms": 0.04172193877550713,
-          "post_echo_db": -249.5645839320993,
-          "post_echo_lag_ms": 0.09433248299320035
+          "pre_echo_db": -249.57256361997162,
+          "pre_echo_lead_ms": 0.09841128117913525,
+          "post_echo_db": -249.19687983392495,
+          "post_echo_lag_ms": 0.014967403628120992
         }
       ]
     },
@@ -360,171 +360,171 @@
       "decimate": false,
       "preset": "high",
       "band": {
-        "passband_edge_hz": 21771.142128109932,
+        "passband_edge_hz": 21741.300031542778,
         "stopband_edge_hz": 22050.0
       },
       "impulses": [
         {
           "chunk_position": 0.0,
-          "peak": 0.9937325527820691,
+          "peak": 0.9936755952380953,
           "pre_ring_ms": [
-            5.510416666666666,
-            21.78125,
-            36.041666666666664
+            5.145833333333333,
+            16.760416666666664,
+            22.739583333333332
           ],
-          "ringing_freq_hz": 21911.80266035708
+          "ringing_freq_hz": 21910.54686741758
         },
         {
           "chunk_position": 0.25,
-          "peak": 0.9910706281170568,
+          "peak": 0.9936755952380956,
           "pre_ring_ms": [
-            5.4886621315193524,
-            21.78032879818602,
-            36.040745464852684
+            5.145833333333333,
+            16.760416666666664,
+            22.739583333333332
           ],
-          "ringing_freq_hz": 21911.802659374698
+          "ringing_freq_hz": 21910.54686741758
         },
         {
           "chunk_position": 0.5,
-          "peak": 0.9937325527820691,
+          "peak": 0.9936755952380953,
           "pre_ring_ms": [
-            5.510416666666666,
-            21.78125,
-            36.041666666666664
+            5.145833333333333,
+            16.760416666666664,
+            22.739583333333332
           ],
-          "ringing_freq_hz": 21911.80266035708
+          "ringing_freq_hz": 21910.54686741758
         },
         {
           "chunk_position": 0.75,
-          "peak": 0.9910706281170568,
+          "peak": 0.9936755952380953,
           "pre_ring_ms": [
-            5.4886621315193524,
-            21.78032879818602,
-            36.040745464852684
+            5.145833333333333,
+            16.760416666666664,
+            22.739583333333332
           ],
-          "ringing_freq_hz": 21911.802659374698
+          "ringing_freq_hz": 21910.54686741758
         }
       ],
       "transients": [
         {
           "chunk_position": 0.0,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
+          "sigma_ms": 0.062083618035092394,
           "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -277.0157209847009,
-          "pre_echo_lead_ms": 0.060473356009071715,
-          "post_echo_db": -277.2936931750321,
-          "post_echo_lag_ms": 0.05410997732426163
+          "pre_echo_db": -277.22336170057537,
+          "pre_echo_lead_ms": 0.07089002267573837,
+          "post_echo_db": -277.50817048286757,
+          "post_echo_lag_ms": 0.0645266439909283
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
           "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -260.9543247093786,
+          "pre_echo_db": -260.9812744351191,
           "pre_echo_lead_ms": 0.01880668934240504,
-          "post_echo_db": -260.65026769852795,
+          "post_echo_db": -260.68215449907177,
           "post_echo_lag_ms": 0.022859977324261628
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
           "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -256.04297064264097,
+          "pre_echo_db": -256.132088990144,
           "pre_echo_lead_ms": 0.03964002267573838,
-          "post_echo_db": -255.94568279726076,
+          "post_echo_db": -255.99267053575332,
           "post_echo_lag_ms": 0.012443310657594957
         },
         {
           "chunk_position": 0.25,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": -1.3571896823692235e-13,
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -277.2936931750321,
+          "pre_echo_lead_ms": 0.07089002267573837,
+          "post_echo_db": -277.50817048286757,
+          "post_echo_lag_ms": 0.05410997732426163
+        },
+        {
+          "chunk_position": 0.25,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -260.97587779646267,
+          "pre_echo_lead_ms": 0.01880668934240504,
+          "post_echo_db": -260.6841105602529,
+          "post_echo_lag_ms": 0.022859977324261628
+        },
+        {
+          "chunk_position": 0.25,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -256.1228273333524,
+          "pre_echo_lead_ms": 0.03964002267573838,
+          "post_echo_db": -255.98963138609383,
+          "post_echo_lag_ms": 0.012443310657594957
+        },
+        {
+          "chunk_position": 0.5,
+          "carrier_hz": 0.0,
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -277.2936931750321,
+          "pre_echo_lead_ms": 0.07089002267573837,
+          "post_echo_db": -277.50817048286757,
+          "post_echo_lag_ms": 0.05410997732426163
+        },
+        {
+          "chunk_position": 0.5,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -260.9974844982464,
+          "pre_echo_lead_ms": 0.01880668934240504,
+          "post_echo_db": -260.6886764168118,
+          "post_echo_lag_ms": 0.022859977324261628
+        },
+        {
+          "chunk_position": 0.5,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": 1.3571896823692235e-13,
+          "pre_echo_db": -256.132088990144,
+          "pre_echo_lead_ms": 0.03964002267573838,
+          "post_echo_db": -255.98963138609383,
+          "post_echo_lag_ms": 0.012443310657594957
+        },
+        {
+          "chunk_position": 0.75,
+          "carrier_hz": 0.0,
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": 1.3571896823692235e-13,
           "pre_echo_db": -277.15359514365895,
-          "pre_echo_lead_ms": 0.05955215419500992,
-          "post_echo_db": -277.15359514365895,
-          "post_echo_lag_ms": 0.06544784580499008
-        },
-        {
-          "chunk_position": 0.25,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -261.1282657338665,
-          "pre_echo_lead_ms": 0.017885487528343257,
-          "post_echo_db": -260.6577408295108,
-          "post_echo_lag_ms": 0.023781179138323408
-        },
-        {
-          "chunk_position": 0.25,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -256.15141588530156,
-          "pre_echo_lead_ms": 0.06996882086167659,
-          "post_echo_db": -255.8797990023402,
-          "post_echo_lag_ms": 0.013364512471656743
-        },
-        {
-          "chunk_position": 0.5,
-          "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -277.22336170057537,
-          "pre_echo_lead_ms": 0.06047335600906888,
-          "post_echo_db": -277.15359514365895,
-          "post_echo_lag_ms": 0.06452664399093112
-        },
-        {
-          "chunk_position": 0.5,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -260.93282497157463,
-          "pre_echo_lead_ms": 0.018806689342402216,
-          "post_echo_db": -260.63015470513153,
-          "post_echo_lag_ms": 0.022859977324264456
-        },
-        {
-          "chunk_position": 0.5,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -256.0475578567101,
-          "pre_echo_lead_ms": 0.03964002267573554,
-          "post_echo_db": -255.9881122099399,
-          "post_echo_lag_ms": 0.012443310657597786
+          "pre_echo_lead_ms": 0.07089002267573837,
+          "post_echo_db": -277.2936931750321,
+          "post_echo_lag_ms": 0.0645266439909283
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
           "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -277.22336170057537,
-          "pre_echo_lead_ms": 0.05955215419501275,
-          "post_echo_db": -277.3645987903251,
-          "post_echo_lag_ms": 0.055031179138320584
+          "pre_echo_db": -260.97048450871534,
+          "pre_echo_lead_ms": 0.01880668934240504,
+          "post_echo_db": -260.67303203349707,
+          "post_echo_lag_ms": 0.022859977324261628
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
           "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -261.1337579184555,
-          "pre_echo_lead_ms": 0.01788548752834608,
-          "post_echo_db": -260.65286631923186,
-          "post_echo_lag_ms": 0.023781179138320584
-        },
-        {
-          "chunk_position": 0.75,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": 1.3571896823692235e-13,
-          "pre_echo_db": -255.98203816099442,
-          "pre_echo_lead_ms": 0.06996882086167941,
-          "post_echo_db": -255.85769891975127,
-          "post_echo_lag_ms": 0.013364512471653916
+          "pre_echo_db": -256.1151168227368,
+          "pre_echo_lead_ms": 0.03964002267573838,
+          "post_echo_db": -255.98203816099442,
+          "post_echo_lag_ms": 0.012443310657594957
         }
       ]
     },
@@ -534,171 +534,171 @@
       "decimate": false,
       "preset": "high",
       "band": {
-        "passband_edge_hz": 21771.142128109932,
+        "passband_edge_hz": 21741.300031542778,
         "stopband_edge_hz": 22050.0
       },
       "impulses": [
         {
           "chunk_position": 0.0,
-          "peak": 0.4564958914342627,
+          "peak": 0.45646972656249996,
           "pre_ring_ms": [
-            5.487528344671202,
-            20.77097505668934,
-            35.21541950113379
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.644069489084
+          "ringing_freq_hz": 21910.196795383377
         },
         {
           "chunk_position": 0.25,
-          "peak": 0.29243269092459245,
+          "peak": 0.45646972656249996,
           "pre_ring_ms": [
-            7.1315192743764175,
-            22.46031746031746,
-            36.88208616780045
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.980091964368
+          "ringing_freq_hz": 21910.196795383377
         },
         {
           "chunk_position": 0.5,
-          "peak": 0.4564958914342629,
+          "peak": 0.45646972656249996,
           "pre_ring_ms": [
-            5.487528344671202,
-            20.77097505668934,
-            35.21541950113379
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.644069489084
+          "ringing_freq_hz": 21910.196795383377
         },
         {
           "chunk_position": 0.75,
-          "peak": 0.2924326909245925,
+          "peak": 0.45646972656249996,
           "pre_ring_ms": [
-            7.1315192743764175,
-            22.46031746031746,
-            36.88208616780045
+            5.170068027210884,
+            16.666666666666668,
+            22.58503401360544
           ],
-          "ringing_freq_hz": 21911.980091964368
+          "ringing_freq_hz": 21910.196795383377
         }
       ],
       "transients": [
         {
           "chunk_position": 0.0,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
+          "sigma_ms": 0.062083618035092394,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -270.62687792508393,
+          "pre_echo_db": -270.56157017652856,
           "pre_echo_lead_ms": 0.07188137755101733,
-          "post_echo_db": -270.4967498037719,
+          "post_echo_db": -270.4004173231361,
           "post_echo_lag_ms": 0.06417304421769014
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -254.15321110535598,
+          "pre_echo_db": -254.1679809368385,
           "pre_echo_lead_ms": 0.02652990362811484,
-          "post_echo_db": -254.19636017391414,
+          "post_echo_db": -254.20130517241842,
           "post_echo_lag_ms": 0.018821570294787655
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -249.5276826835824,
+          "pre_echo_db": -249.55588717078396,
           "pre_echo_lead_ms": 0.09455711451246858,
-          "post_echo_db": -249.1522516107819,
+          "post_echo_db": -249.1689062094298,
           "post_echo_lag_ms": 0.0414973072562389
         },
         {
           "chunk_position": 0.25,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": -1.3571896664585635e-13,
-          "pre_echo_db": -270.368542463005,
-          "pre_echo_lead_ms": 0.06054350907029171,
-          "post_echo_db": -270.6597168664235,
-          "post_echo_lag_ms": 0.05283517573696453
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -270.5290995232443,
+          "pre_echo_lead_ms": 0.07188137755101733,
+          "post_echo_db": -270.43240958633197,
+          "post_echo_lag_ms": 0.06417304421769014
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": -1.3571896664585635e-13,
-          "pre_echo_db": -255.09669185875057,
-          "pre_echo_lead_ms": 0.015192035147389212,
-          "post_echo_db": -255.02025990426063,
-          "post_echo_lag_ms": 0.03015943877551328
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -254.15813159246565,
+          "pre_echo_lead_ms": 0.02652990362811484,
+          "post_echo_db": -254.20130517241842,
+          "post_echo_lag_ms": 0.018821570294787655
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": -1.3571896664585635e-13,
-          "pre_echo_db": -249.22054332994688,
-          "pre_echo_lead_ms": 0.015192035147389212,
-          "post_echo_db": -249.52984901097562,
-          "post_echo_lag_ms": 0.09818664965986702
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -249.55588717078396,
+          "pre_echo_lead_ms": 0.09455711451246858,
+          "post_echo_db": -249.1669579190824,
+          "post_echo_lag_ms": 0.0414973072562389
         },
         {
           "chunk_position": 0.5,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
+          "sigma_ms": 0.062083618035092394,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -270.5941626711987,
+          "pre_echo_db": -270.5290995232443,
           "pre_echo_lead_ms": 0.07188137755101733,
-          "post_echo_db": -270.56157017652856,
+          "post_echo_db": -270.43240958633197,
           "post_echo_lag_ms": 0.06417304421769014
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -254.1519814189891,
+          "pre_echo_db": -254.16674915783364,
           "pre_echo_lead_ms": 0.02652990362811484,
-          "post_echo_db": -254.19636017391414,
+          "post_echo_db": -254.20130517241842,
           "post_echo_lag_ms": 0.018821570294787655
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
           "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -249.52335164901848,
+          "pre_echo_db": -249.55588717078396,
           "pre_echo_lead_ms": 0.09455711451246858,
-          "post_echo_db": -249.15242448150815,
+          "post_echo_db": -249.16773718278074,
           "post_echo_lag_ms": 0.0414973072562389
         },
         {
           "chunk_position": 0.75,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.061998518901857244,
-          "delay_offset_samples": 1.3571892116305284e-13,
-          "pre_echo_db": -270.43240958633197,
-          "pre_echo_lead_ms": 0.06054350907029787,
-          "post_echo_db": -270.5941626711987,
-          "post_echo_lag_ms": 0.052835175736958374
+          "sigma_ms": 0.062083618035092394,
+          "delay_offset_samples": -1.357187470598963e-13,
+          "pre_echo_db": -270.5290995232443,
+          "pre_echo_lead_ms": 0.07188137755101733,
+          "post_echo_db": -270.43240958633197,
+          "post_echo_lag_ms": 0.06417304421769014
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 10667.859642773867,
-          "sigma_ms": 0.12399703780371449,
-          "delay_offset_samples": 1.3571892116305284e-13,
-          "pre_echo_db": -255.09121007274467,
-          "pre_echo_lead_ms": 0.015192035147395368,
-          "post_echo_db": -255.00668183421706,
-          "post_echo_lag_ms": 0.030159438775507124
+          "carrier_hz": 10653.237015455961,
+          "sigma_ms": 0.12416723607018479,
+          "delay_offset_samples": -1.357187470598963e-13,
+          "pre_echo_db": -254.16059288169663,
+          "pre_echo_lead_ms": 0.02652990362811484,
+          "post_echo_db": -254.20377872779267,
+          "post_echo_lag_ms": 0.018821570294787655
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 18135.361392715575,
-          "sigma_ms": 0.4133234593457151,
-          "delay_offset_samples": 1.3571892116305284e-13,
-          "pre_echo_db": -249.22542323917804,
-          "pre_echo_lead_ms": 0.015192035147395368,
-          "post_echo_db": -249.49741069502863,
-          "post_echo_lag_ms": 0.09818664965986088
+          "carrier_hz": 18110.502926275134,
+          "sigma_ms": 0.4138907869006159,
+          "delay_offset_samples": -1.357187470598963e-13,
+          "pre_echo_db": -249.55588717078396,
+          "pre_echo_lead_ms": 0.09455711451246858,
+          "post_echo_db": -249.17003208752027,
+          "post_echo_lag_ms": 0.0414973072562389
         }
       ]
     },
@@ -708,171 +708,171 @@
       "decimate": false,
       "preset": "high",
       "band": {
-        "passband_edge_hz": 23696.481227874756,
+        "passband_edge_hz": 23664.000034332275,
         "stopband_edge_hz": 24000.0
       },
       "impulses": [
         {
           "chunk_position": 0.0,
-          "peak": 0.24843287332590802,
+          "peak": 0.2484130859375,
           "pre_ring_ms": [
-            5.041666666666666,
-            19.0625,
-            32.354166666666664
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.383044906455
+          "ringing_freq_hz": 23847.269744481495
         },
         {
           "chunk_position": 0.25,
-          "peak": 0.15914704000182725,
+          "peak": 0.2484130859375,
           "pre_ring_ms": [
-            6.552083333333333,
-            20.635416666666664,
-            33.86458333333333
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.748974548944
+          "ringing_freq_hz": 23847.269744481495
         },
         {
           "chunk_position": 0.5,
-          "peak": 0.24843287332590802,
+          "peak": 0.2484130859375,
           "pre_ring_ms": [
-            5.041666666666666,
-            19.0625,
-            32.354166666666664
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.383044906455
+          "ringing_freq_hz": 23847.269744481495
         },
         {
           "chunk_position": 0.75,
-          "peak": 0.15914704000182725,
+          "peak": 0.2484130859375,
           "pre_ring_ms": [
-            6.552083333333333,
-            20.635416666666664,
-            33.86458333333333
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.748974548944
+          "ringing_freq_hz": 23847.269744481495
         }
       ],
       "transients": [
         {
           "chunk_position": 0.0,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": -1.3572057379380843e-13,
-          "pre_echo_db": -270.56157017652856,
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -270.4967498037719,
           "pre_echo_lead_ms": 0.0644270833333305,
           "post_echo_db": -270.4967498037719,
           "post_echo_lag_ms": 0.060572916666669495
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": -1.3572057379380843e-13,
-          "pre_echo_db": -253.93462552636498,
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -253.9388237814073,
           "pre_echo_lead_ms": 0.022760416666663837,
-          "post_echo_db": -253.95864293317348,
+          "post_echo_db": -253.970676586578,
           "post_echo_lag_ms": 0.018906250000002827
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": -1.3572057379380843e-13,
-          "pre_echo_db": -249.29332858563305,
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -249.29438284772303,
           "pre_echo_lead_ms": 0.0644270833333305,
-          "post_echo_db": -249.36035239345296,
+          "post_echo_db": -249.363894329496,
           "post_echo_lag_ms": 0.03973958333333616
         },
         {
           "chunk_position": 0.25,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": -1.3571896823692235e-13,
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": -1.3571898892387694e-13,
           "pre_echo_db": -270.4967498037719,
-          "pre_echo_lead_ms": 0.05401041666666385,
-          "post_echo_db": -270.6597168664235,
-          "post_echo_lag_ms": 0.05015625000000283
+          "pre_echo_lead_ms": 0.0644270833333305,
+          "post_echo_db": -270.4967498037719,
+          "post_echo_lag_ms": 0.060572916666669495
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -255.79879108513413,
-          "pre_echo_lead_ms": 0.012343749999997173,
-          "post_echo_db": -255.65726633075545,
-          "post_echo_lag_ms": 0.029322916666669495
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": -1.3571898892387694e-13,
+          "pre_echo_db": -253.93762407289185,
+          "pre_echo_lead_ms": 0.022760416666663837,
+          "post_echo_db": -253.97188086937203,
+          "post_echo_lag_ms": 0.018906250000002827
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": -1.3571896823692235e-13,
-          "pre_echo_db": -249.1107757978096,
-          "pre_echo_lead_ms": 0.012343749999997173,
-          "post_echo_db": -249.58418354095284,
-          "post_echo_lag_ms": 0.11265625000000283
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": -1.3571898892387694e-13,
+          "pre_echo_db": -249.29543723779105,
+          "pre_echo_lead_ms": 0.0644270833333305,
+          "post_echo_db": -249.36460289005748,
+          "post_echo_lag_ms": 0.03973958333333616
         },
         {
           "chunk_position": 0.5,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": -1.3572057379380843e-13,
-          "pre_echo_db": -270.5290995232443,
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -270.4967498037719,
           "pre_echo_lead_ms": 0.0644270833333305,
-          "post_echo_db": -270.5941626711987,
+          "post_echo_db": -270.4967498037719,
           "post_echo_lag_ms": 0.060572916666669495
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": -1.3572057379380843e-13,
-          "pre_echo_db": -253.92983000401375,
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": -1.3571896823692235e-13,
+          "pre_echo_db": -253.93822390643638,
           "pre_echo_lead_ms": 0.022760416666663837,
-          "post_echo_db": -253.946625928437,
+          "post_echo_db": -253.96947247073243,
           "post_echo_lag_ms": 0.018906250000002827
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": -1.3572057379380843e-13,
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": -1.3571896823692235e-13,
           "pre_echo_db": -249.29543723779105,
           "pre_echo_lead_ms": 0.0644270833333305,
-          "post_echo_db": -249.35893602334983,
+          "post_echo_db": -249.36247738175422,
           "post_echo_lag_ms": 0.03973958333333616
         },
         {
           "chunk_position": 0.75,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": -1.3571859002405379e-13,
-          "pre_echo_db": -270.4004173231361,
-          "pre_echo_lead_ms": 0.05401041666666385,
-          "post_echo_db": -270.5941626711987,
-          "post_echo_lag_ms": 0.05015625000000283
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": 1.3571924725723274e-13,
+          "pre_echo_db": -270.6597168664235,
+          "pre_echo_lead_ms": 0.06442708333333616,
+          "post_echo_db": -270.4645201206403,
+          "post_echo_lag_ms": 0.06057291666666384
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": -1.3571859002405379e-13,
-          "pre_echo_db": -255.79879108513413,
-          "pre_echo_lead_ms": 0.012343749999997173,
-          "post_echo_db": -255.65726633075545,
-          "post_echo_lag_ms": 0.029322916666669495
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": 1.3571924725723274e-13,
+          "pre_echo_db": -253.943624273212,
+          "pre_echo_lead_ms": 0.022760416666669496,
+          "post_echo_db": -253.96586112442384,
+          "post_echo_lag_ms": 0.01890624999999717
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": -1.3571859002405379e-13,
-          "pre_echo_db": -249.10888350333633,
-          "pre_echo_lead_ms": 0.012343749999997173,
-          "post_echo_db": -249.58127710303444,
-          "post_echo_lag_ms": 0.11265625000000283
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": 1.3571924725723274e-13,
+          "pre_echo_db": -249.29649175586826,
+          "pre_echo_lead_ms": 0.06442708333333616,
+          "post_echo_db": -249.36460289005748,
+          "post_echo_lag_ms": 0.039739583333330504
         }
       ]
     },
@@ -882,171 +882,171 @@
       "decimate": true,
       "preset": "high",
       "band": {
-        "passband_edge_hz": 23696.481227874756,
+        "passband_edge_hz": 23664.000034332275,
         "stopband_edge_hz": 24000.0
       },
       "impulses": [
         {
           "chunk_position": 0.0,
-          "peak": 0.248432869167742,
+          "peak": 0.24841308313373922,
           "pre_ring_ms": [
-            5.041666666666666,
-            19.0625,
-            32.354166666666664
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.383044719343
+          "ringing_freq_hz": 23847.269743656772
         },
         {
           "chunk_position": 0.25,
-          "peak": 0.15914703735987398,
+          "peak": 0.24841308313373922,
           "pre_ring_ms": [
-            6.552083333333333,
-            20.635416666666664,
-            33.86458333333333
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.748974330447
+          "ringing_freq_hz": 23847.269743656772
         },
         {
           "chunk_position": 0.5,
-          "peak": 0.24843286916774193,
+          "peak": 0.24841308313373922,
           "pre_ring_ms": [
-            5.041666666666666,
-            19.0625,
-            32.354166666666664
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.383044719343
+          "ringing_freq_hz": 23847.269743656772
         },
         {
           "chunk_position": 0.75,
-          "peak": 0.15914703735987398,
+          "peak": 0.24841308313373922,
           "pre_ring_ms": [
-            6.552083333333333,
-            20.635416666666664,
-            33.86458333333333
+            4.75,
+            15.25,
+            20.604166666666664
           ],
-          "ringing_freq_hz": 23849.748974330447
+          "ringing_freq_hz": 23847.269743656772
         }
       ],
       "transients": [
         {
           "chunk_position": 0.0,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": 3.856664046259339e-12,
-          "pre_echo_db": -155.60485792995087,
-          "pre_echo_lead_ms": 0.0019270833334136804,
-          "post_echo_db": -156.0780688003906,
-          "post_echo_lag_ms": 0.018906249999919654
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": 1.0141152244111918e-12,
+          "pre_echo_db": -159.1539262006626,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.6260021472357,
+          "post_echo_lag_ms": 0.01890624999997887
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": 3.856664046259339e-12,
-          "pre_echo_db": -155.68767272617166,
-          "pre_echo_lead_ms": 0.0019270833334136804,
-          "post_echo_db": -156.38658776414633,
-          "post_echo_lag_ms": 0.03973958333325298
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": 1.0141152244111918e-12,
+          "pre_echo_db": -159.23626245940295,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.94246714411045,
+          "post_echo_lag_ms": 0.039739583333312206
         },
         {
           "chunk_position": 0.0,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": 3.856664046259339e-12,
-          "pre_echo_db": -152.4189914175052,
-          "pre_echo_lead_ms": 1.3560937500000805,
-          "post_echo_db": -152.42311066759817,
-          "post_echo_lag_ms": 1.3314062499999195
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": 1.0141152244111918e-12,
+          "pre_echo_db": -152.86065968649004,
+          "pre_echo_lead_ms": 1.3352604166666877,
+          "post_echo_db": -152.92229795912834,
+          "post_echo_lag_ms": 1.3105729166666458
         },
         {
           "chunk_position": 0.25,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": -1.0141162913079457e-12,
-          "pre_echo_db": -155.80376921108189,
-          "pre_echo_lead_ms": 0.012343749999978873,
-          "post_echo_db": -155.696362899372,
-          "post_echo_lag_ms": 0.008489583333354459
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": 1.0141149323161096e-12,
+          "pre_echo_db": -159.15392611318015,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.6260024243417,
+          "post_echo_lag_ms": 0.01890624999997887
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": -1.0141162913079457e-12,
-          "pre_echo_db": -158.4554004778709,
-          "pre_echo_lead_ms": 0.03317708333331221,
-          "post_echo_db": -157.40943224872865,
-          "post_echo_lag_ms": 0.008489583333354459
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": 1.0141149323161096e-12,
+          "pre_echo_db": -159.23626245940295,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.94246695251823,
+          "post_echo_lag_ms": 0.039739583333312206
         },
         {
           "chunk_position": 0.25,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": -1.0141162913079457e-12,
-          "pre_echo_db": -152.56017266384296,
-          "pre_echo_lead_ms": 1.3040104166666455,
-          "post_echo_db": -152.51912824694008,
-          "post_echo_lag_ms": 1.2793229166666877
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": 1.0141149323161096e-12,
+          "pre_echo_db": -152.8606596815639,
+          "pre_echo_lead_ms": 1.3352604166666877,
+          "post_echo_db": -152.92229795329163,
+          "post_echo_lag_ms": 1.3105729166666458
         },
         {
           "chunk_position": 0.5,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": 3.856664046259339e-12,
-          "pre_echo_db": -155.60485804622883,
-          "pre_echo_lead_ms": 0.0019270833334136804,
-          "post_echo_db": -156.07806855481346,
-          "post_echo_lag_ms": 0.018906249999919654
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": 1.0141162859512622e-12,
+          "pre_echo_db": -159.15392611318015,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.6260024243417,
+          "post_echo_lag_ms": 0.01890624999997887
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": 3.856664046259339e-12,
-          "pre_echo_db": -155.68767290225952,
-          "pre_echo_lead_ms": 0.0019270833334136804,
-          "post_echo_db": -156.38658770053215,
-          "post_echo_lag_ms": 0.03973958333325298
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": 1.0141162859512622e-12,
+          "pre_echo_db": -159.23626245940295,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.94246695251823,
+          "post_echo_lag_ms": 0.039739583333312206
         },
         {
           "chunk_position": 0.5,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": 3.856664046259339e-12,
-          "pre_echo_db": -152.4189914009514,
-          "pre_echo_lead_ms": 1.3560937500000805,
-          "post_echo_db": -152.4231106465,
-          "post_echo_lag_ms": 1.3314062499999195
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": 1.0141162859512622e-12,
+          "pre_echo_db": -152.86065968537235,
+          "pre_echo_lead_ms": 1.3352604166666877,
+          "post_echo_db": -152.92229795821115,
+          "post_echo_lag_ms": 1.3105729166666458
         },
         {
           "chunk_position": 0.75,
           "carrier_hz": 0.0,
-          "sigma_ms": 0.05696113924108133,
-          "delay_offset_samples": -1.0141162913079457e-12,
-          "pre_echo_db": -155.8037689136531,
-          "pre_echo_lead_ms": 0.012343749999978873,
-          "post_echo_db": -155.696362899372,
-          "post_echo_lag_ms": 0.008489583333354459
+          "sigma_ms": 0.05703932406974114,
+          "delay_offset_samples": 1.014116270731212e-12,
+          "pre_echo_db": -159.15392611318015,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.6260024243417,
+          "post_echo_lag_ms": 0.01890624999997887
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 11611.27580165863,
-          "sigma_ms": 0.11392227848216266,
-          "delay_offset_samples": -1.0141162913079457e-12,
-          "pre_echo_db": -158.4554005585934,
-          "pre_echo_lead_ms": 0.03317708333331221,
-          "post_echo_db": -157.40943224872865,
-          "post_echo_lag_ms": 0.008489583333354459
+          "carrier_hz": 11595.360016822815,
+          "sigma_ms": 0.11407864813948228,
+          "delay_offset_samples": 1.014116270731212e-12,
+          "pre_echo_db": -159.23626245940295,
+          "pre_echo_lead_ms": 0.001927083333354461,
+          "post_echo_db": -159.94246695251823,
+          "post_echo_lag_ms": 0.039739583333312206
         },
         {
           "chunk_position": 0.75,
-          "carrier_hz": 19739.16886281967,
-          "sigma_ms": 0.37974092827387557,
-          "delay_offset_samples": -1.0141162913079457e-12,
-          "pre_echo_db": -152.56017262475436,
-          "pre_echo_lead_ms": 1.3040104166666455,
-          "post_echo_db": -152.51912825271603,
-          "post_echo_lag_ms": 1.2793229166666877
+          "carrier_hz": 19712.112028598785,
+          "sigma_ms": 0.3802621604649409,
+          "delay_offset_samples": 1.014116270731212e-12,
+          "pre_echo_db": -152.86065968442023,
+          "pre_echo_lead_ms": 1.3352604166666877,
+          "post_echo_db": -152.92229795912834,
+          "post_echo_lag_ms": 1.3105729166666458
         }
       ]
     }

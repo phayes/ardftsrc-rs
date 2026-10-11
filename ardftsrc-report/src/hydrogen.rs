@@ -1,16 +1,77 @@
 //! Runs ardftsrc through the HydrogenAudio Test Suite (the external
 //! `hydrogen_src`/`octave` toolchain at <https://github.com/phayes/hydrogen_src>) once
-//! per preset, `f64` only with no high-precision backend.
+//! once per [`Variant`]: every preset in `f64`, plus [`Preset::Fast`] in `f32`. No
+//! high-precision backend.
 //!
 //! Requires GNU Octave on `PATH` (with the `signal` and `image` packages).
 
 use std::path::{Path, PathBuf};
 
 use ardftsrc::{Config, PlanarResampler};
-use hydrogen_src::{HydrogenError, LocalHarness, LocalTestResults, ResampleRequestF64};
+use hydrogen_src::{HydrogenError, LocalHarness, LocalTestResults, ResampleRequestF32, ResampleRequestF64};
 use serde::{Deserialize, Serialize};
 
 use crate::preset::Preset;
+
+/// Sample type the resampler runs in for a HydrogenAudio Test Suite run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Precision {
+    F32,
+    #[default]
+    F64,
+}
+
+impl Precision {
+    pub fn label(self) -> &'static str {
+        match self {
+            Precision::F32 => "f32",
+            Precision::F64 => "f64",
+        }
+    }
+}
+
+/// One HydrogenAudio Test Suite run: a preset in a given [`Precision`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Variant {
+    pub preset: Preset,
+    pub precision: Precision,
+}
+
+impl Variant {
+    /// File-name stem shared by this variant's JSON, figures, and Markdown report:
+    /// `<preset>` for `f64`, `<preset>_f32` for `f32`.
+    pub fn label(self) -> String {
+        match self.precision {
+            Precision::F64 => self.preset.label().to_string(),
+            Precision::F32 => format!("{}_{}", self.preset.label(), self.precision.label()),
+        }
+    }
+}
+
+/// Every variant run by [`run_all`], in report display order.
+pub const VARIANTS: &[Variant] = &[
+    Variant {
+        preset: Preset::Fast,
+        precision: Precision::F64,
+    },
+    Variant {
+        preset: Preset::Fast,
+        precision: Precision::F32,
+    },
+    Variant {
+        preset: Preset::Good,
+        precision: Precision::F64,
+    },
+    Variant {
+        preset: Preset::High,
+        precision: Precision::F64,
+    },
+    Variant {
+        preset: Preset::Extreme,
+        precision: Precision::F64,
+    },
+];
 
 /// One preset's HydrogenAudio Test Suite scores. Mirrors [`LocalTestResults`] but
 /// replaces `figures` (absolute, workdir/machine-dependent paths) with file names of
@@ -20,6 +81,8 @@ use crate::preset::Preset;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresetResult {
     pub preset: Preset,
+    #[serde(default)]
+    pub precision: Precision,
     pub balanced_score: f64,
     pub spectrogram_score: f64,
     pub bandwidth_score: f64,
@@ -32,13 +95,13 @@ pub struct PresetResult {
     pub delay_score: f64,
     /// File names (relative to the report `--out-dir`) of the whitelisted
     /// [`FIGURES`] copied from [`LocalTestResults::figures`], each prefixed with
-    /// `<preset>_` so all four presets' figures can share one output directory
+    /// [`Variant::label`] so every variant's figures can share one output directory
     /// without colliding.
     pub figures: Vec<String>,
 }
 
 /// One HydrogenAudio analysis figure copied into `--out-dir` and embedded in
-/// `report_<preset>.md`.
+/// `report_<variant>.md`.
 #[derive(Debug, Clone, Copy)]
 pub struct Figure {
     /// Original file name in `hydrogen_src`'s `analysis_output` directory.
@@ -48,8 +111,8 @@ pub struct Figure {
 }
 
 impl Figure {
-    pub fn dest_name(&self, preset: Preset) -> String {
-        format!("{}_{}", preset.label(), self.file_name)
+    pub fn dest_name(&self, variant: Variant) -> String {
+        format!("{}_{}", variant.label(), self.file_name)
     }
 }
 
@@ -154,9 +217,17 @@ would clip if later not corrected. [96 kHz source resampled to 44 kHz]",
 ];
 
 impl PresetResult {
-    fn from_local_results(preset: Preset, results: LocalTestResults, out_dir: &Path) -> Self {
+    pub fn variant(&self) -> Variant {
+        Variant {
+            preset: self.preset,
+            precision: self.precision,
+        }
+    }
+
+    fn from_local_results(variant: Variant, results: LocalTestResults, out_dir: &Path) -> Self {
         PresetResult {
-            preset,
+            preset: variant.preset,
+            precision: variant.precision,
             balanced_score: results.balanced_score,
             spectrogram_score: results.spectrogram_score,
             bandwidth_score: results.bandwidth_score,
@@ -167,18 +238,18 @@ impl PresetResult {
             gapless_score: results.gapless_score,
             intermoddiff_score: results.intermoddiff_score,
             delay_score: results.delay_score,
-            figures: copy_figures(preset, &results.figures, out_dir),
+            figures: copy_figures(variant, &results.figures, out_dir),
         }
     }
 }
 
 /// Copies each of [`FIGURES`] from `figures` (absolute paths into the
 /// `hydrogen_src` workdir's `analysis_output`) into `out_dir`, renamed
-/// `<preset>_<original file name>` so the four presets' figures coexist in one
-/// report directory and `report_<preset>.md` can reference them with a plain
+/// `<variant>_<original file name>` so every variant's figures coexist in one
+/// report directory and `report_<variant>.md` can reference them with a plain
 /// relative Markdown image link. Source files that are missing or fail to copy
 /// are skipped with a warning rather than failing the whole run.
-fn copy_figures(preset: Preset, figures: &[PathBuf], out_dir: &Path) -> Vec<String> {
+fn copy_figures(variant: Variant, figures: &[PathBuf], out_dir: &Path) -> Vec<String> {
     FIGURES
         .iter()
         .filter_map(|spec| {
@@ -189,11 +260,11 @@ fn copy_figures(preset: Preset, figures: &[PathBuf], out_dir: &Path) -> Vec<Stri
                 eprintln!(
                     "hydrogen_src: warning: missing figure {} for {}",
                     spec.file_name,
-                    preset.label()
+                    variant.label()
                 );
                 return None;
             };
-            let dest_name = spec.dest_name(preset);
+            let dest_name = spec.dest_name(variant);
             let dest_path = out_dir.join(&dest_name);
             match std::fs::copy(src, &dest_path) {
                 Ok(_) => Some(dest_name),
@@ -208,6 +279,22 @@ fn copy_figures(preset: Preset, figures: &[PathBuf], out_dir: &Path) -> Vec<Stri
             }
         })
         .collect()
+}
+
+fn resample_f32(request: ResampleRequestF32, base: Config) -> Vec<f32> {
+    let config = Config {
+        input_sample_rate: request.sample_rate,
+        output_sample_rate: request.target_sample_rate,
+        channels: request.channels,
+        ..base
+    };
+    let mut resampler = PlanarResampler::<f32>::new(config).expect("ardftsrc-report preset configs are always valid");
+    let mut output = resampler
+        .process_all(&[request.samples.as_slice()])
+        .expect("resampling the HydrogenAudio test pack should never fail");
+    output
+        .pop_channel()
+        .expect("PlanarResampler output always has exactly one channel for mono input")
 }
 
 fn resample_f64(request: ResampleRequestF64, base: Config) -> Vec<f64> {
@@ -226,42 +313,59 @@ fn resample_f64(request: ResampleRequestF64, base: Config) -> Vec<f64> {
         .expect("PlanarResampler output always has exactly one channel for mono input")
 }
 
-/// Runs the HydrogenAudio Test Suite once per preset (`f64`, no high-precision backend) and
-/// writes `hydrogen_src_<preset>_report.json` into `out_dir` as each preset finishes.
-/// `workdir` is passed straight to [`LocalHarness::new`]; `None` uses `hydrogen_src`'s own
-/// default (platform cache directory).
+/// Runs the HydrogenAudio Test Suite once per [`VARIANTS`] entry (no high-precision
+/// backend) and writes `hydrogen_src_<variant>_report.json` into `out_dir` as each variant
+/// finishes. `workdir` is passed straight to [`LocalHarness::new`]; `None` uses
+/// `hydrogen_src`'s own default (platform cache directory).
 ///
-/// Deliberately reuses a single [`LocalHarness`] (and therefore a single workspace)
-/// across every preset. `LocalHarness::run`'s one-time setup -- checking for `octave`,
-/// generating the fixed Octave test-signal WAVs -- is gated behind a process-global
-/// flag, so it only actually runs for the *first* `LocalHarness::run()` call in this
-/// process no matter how many harness instances exist; a fresh harness/workdir per
-/// preset would silently skip that setup (and the workspace-relative output/analysis
-/// directory preparation that comes with it) for every preset after the first. `run()`
-/// restores its callback slot after each call, so calling it repeatedly on one instance
-/// -- with a new `set_callback_f64` before each call -- is the supported way to sweep
-/// presets.
-pub fn run_all_presets(
-    workdir: Option<&Path>,
-    out_dir: &Path,
-    quiet: bool,
-) -> Result<Vec<PresetResult>, HydrogenError> {
-    let mut harness = LocalHarness::new(workdir.map(PathBuf::from))?;
+/// Every run shares one workspace. `LocalHarness::run`'s one-time setup -- checking for
+/// `octave`, clearing the workspace's output/analysis directories, generating the fixed
+/// Octave test-signal WAVs -- is gated behind a process-global flag, so it only actually
+/// runs for the *first* `LocalHarness::run()` call in this process no matter how many
+/// harness instances exist; a fresh workdir per variant would silently skip that setup for
+/// every variant after the first. `run()` restores its callback slot after each call, so
+/// calling it repeatedly on one instance with a new callback before each call is the
+/// supported way to sweep presets. A harness rejects having both an `f32` and an `f64`
+/// callback set, so each precision gets its own harness over the same workspace.
+///
+/// `f32` variants run before any `f64` variant. Resampled outputs accumulate in the shared
+/// workspace across runs (named `<signal>-32bitfloat.wav` / `<signal>-64bitfloat.wav`), and
+/// before each analysis the harness copies every one of them, in sorted order, to the same
+/// suffix-free `<signal>.wav` that Octave scores. A `-64bitfloat` output left by an earlier
+/// `f64` run would therefore overwrite the `-32bitfloat` one and an `f32` run would be scored
+/// on `f64` output; with `f32` first, each later `f64` run's output correctly wins instead.
+pub fn run_all(workdir: Option<&Path>, out_dir: &Path, quiet: bool) -> Result<Vec<PresetResult>, HydrogenError> {
+    let mut harness_f32 = LocalHarness::new(workdir.map(PathBuf::from))?;
+    let mut harness_f64 = LocalHarness::new(workdir.map(PathBuf::from))?;
     if !quiet {
-        eprintln!("hydrogen_src: workspace at {}", harness.workspace().display());
+        eprintln!("hydrogen_src: workspace at {}", harness_f64.workspace().display());
     }
 
-    let mut all = Vec::with_capacity(Preset::ALL.len());
-    for &preset in Preset::ALL.iter() {
-        if !quiet {
-            eprintln!("hydrogen_src: running {}", preset.label());
-        }
-        let base = preset.base_config();
-        harness.set_callback_f64(move |request: ResampleRequestF64| resample_f64(request, base.clone()));
-        let results = harness.run()?;
-        let case = PresetResult::from_local_results(preset, results, out_dir);
+    let run_order = VARIANTS
+        .iter()
+        .filter(|v| v.precision == Precision::F32)
+        .chain(VARIANTS.iter().filter(|v| v.precision == Precision::F64));
 
-        let json_path = out_dir.join(format!("hydrogen_src_{}_report.json", preset.label()));
+    let mut all = Vec::with_capacity(VARIANTS.len());
+    for &variant in run_order {
+        let label = variant.label();
+        if !quiet {
+            eprintln!("hydrogen_src: running {label}");
+        }
+        let base = variant.preset.base_config();
+        let results = match variant.precision {
+            Precision::F32 => {
+                harness_f32.set_callback_f32(move |request: ResampleRequestF32| resample_f32(request, base.clone()));
+                harness_f32.run()?
+            }
+            Precision::F64 => {
+                harness_f64.set_callback_f64(move |request: ResampleRequestF64| resample_f64(request, base.clone()));
+                harness_f64.run()?
+            }
+        };
+        let case = PresetResult::from_local_results(variant, results, out_dir);
+
+        let json_path = out_dir.join(format!("hydrogen_src_{label}_report.json"));
         std::fs::write(
             &json_path,
             serde_json::to_string_pretty(&case).expect("PresetResult serializes to JSON"),
@@ -269,8 +373,7 @@ pub fn run_all_presets(
         .unwrap_or_else(|e| panic!("failed to write {}: {e}", json_path.display()));
         if !quiet {
             eprintln!(
-                "hydrogen_src: [{}] balanced={:.2} -> wrote {}",
-                preset.label(),
+                "hydrogen_src: [{label}] balanced={:.2} -> wrote {}",
                 case.balanced_score,
                 json_path.display()
             );

@@ -1,0 +1,29 @@
+{
+  "preset": "fast",
+  "precision": "f32",
+  "balanced_score": 70.53844974712644,
+  "spectrogram_score": 49.659915,
+  "bandwidth_score": 90.327846,
+  "impulse_freq_score": 50.752706,
+  "average_impulse_freq": -171.544145,
+  "alias_score": 100.0,
+  "preringing_score": 25.865552,
+  "gapless_score": 100.0,
+  "intermoddiff_score": 35.671453,
+  "delay_score": 100.0,
+  "figures": [
+    "fast_f32_sweep-1-to-44KHz-1to11sec.png",
+    "fast_f32_sweep-1-to-44KHz.png",
+    "fast_f32_aliasing150db.png",
+    "fast_f32_nyquist-filter.png",
+    "fast_f32_intermodulation-harmonic-distortion.png",
+    "fast_f32_intermodulation-harmonic-distortion-difference.png",
+    "fast_f32_impulse-frequency.png",
+    "fast_f32_impulse-response.png",
+    "fast_f32_impulse-phase.png",
+    "fast_f32_impulse-passband.png",
+    "fast_f32_impulse-transition.png",
+    "fast_f32_gaplesstestsine.png",
+    "fast_f32_gaplesstest-frequency.png"
+  ]
+}
