@@ -24,14 +24,12 @@ twofloat = { workspace = true, optional = true }
 f256 = { workspace = true, optional = true }
 rustc_apfloat = { workspace = true, optional = true }
 
-# GPU support is unreleased and is not included in the crates.io package.
-# To opt in, clone this repository and uncomment the GPU dependencies below and the `gpu` feature further down.
-# ash = { version = "0.38", optional = true }
-# vkfft-rs = { git = "https://github.com/phayes/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
+# GPU backend (unreleased).
+ash = { version = "0.38", optional = true }
+vkfft-rs = { git = "https://github.com/phayes/vkfft-rs", optional = true, features = ["vulkan-runtime"] }
 
-# Part of the unreleased GPU backend.
-# [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-# ash-molten = { version = "0.20", optional = true, features = ["pre-built"] }
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+ash-molten = { version = "0.20", optional = true, features = ["pre-built"] }
 
 [dev-dependencies]
 audioadapter-buffers.workspace = true
@@ -47,8 +45,8 @@ mimalloc.workspace = true
 [features]
 default = ["avx", "neon", "sse", "wasm_simd"]
 
-# Unreleased GPU backend. Uncomment this and the GPU dependencies above to opt in.
-# gpu = ["dep:ash", "dep:ash-molten", "dep:vkfft-rs"]
+# Unreleased Vulkan/VkFFT GPU backend.
+gpu = ["dep:ash", "dep:ash-molten", "dep:vkfft-rs"]
 
 # SIMD features (enabled by default)
 avx = ["realfft/avx"]

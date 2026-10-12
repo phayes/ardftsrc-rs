@@ -172,7 +172,7 @@ void main() {{
     }} else {{
         {cvec_ty} s = src[src_base + n];
         {phase_nyquist}
-        value = {cvec_ty}(s.x * gain[n] * {fold}, 0.0);
+        value = {cvec_ty}(s.x * gain[n] * {fold:?}, 0.0);
     }}
 ",
             phase_direct = if phase_enabled {
@@ -190,7 +190,7 @@ void main() {{
             } else {
                 ""
             },
-            fold = format!("{:?}", geometry.nyquist_fold),
+            fold = geometry.nyquist_fold,
         )
         .unwrap();
     }

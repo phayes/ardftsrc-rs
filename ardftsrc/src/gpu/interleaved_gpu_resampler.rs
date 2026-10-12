@@ -364,7 +364,7 @@ impl<T: Float + GpuScalar + FromF64> InterleavedGpuResampler<T> {
     /// [`batch_gapless()`](Self::batch_gapless) for gapless processing of multiple tracks.
     ///
     /// De-interleaves each track, then delegates to a [`PlanarGpuResampler`] built from a
-    /// [`GpuContext::clone_shared`] clone of this resampler's context (sharing the same Vulkan
+    /// `GpuContext::clone_shared` clone of this resampler's context (sharing the same Vulkan
     /// device and already-compiled shaders, so no per-track shader recompilation) -- mirroring
     /// how [`crate::InterleavedResampler::batch`] delegates to [`crate::PlanarResampler`] today.
     /// See [`PlanarGpuResampler::batch`] for the per-track `GpuCore`/parallelism notes.
@@ -614,9 +614,7 @@ mod tests {
     }
 
     /// Builds real pre/input/post interleaved context around `total_frames` of useful input, and
-    /// returns the derived per-channel chunk frame count. Real pre/post context sidesteps the
-    /// known, separately tracked `Extrapolation::Lpc`/GPU divergence without it (see
-    /// `gpu_core.rs`'s `lpc_extrapolation_has_known_gpu_divergence_without_context`).
+    /// returns the derived per-channel chunk frame count.
     fn make_pre_input_post(config: &Config, total_frames: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, usize) {
         let derived = config.derive_config::<f32>().unwrap();
         let chunk_frames = derived.raw_input_chunk_frames();

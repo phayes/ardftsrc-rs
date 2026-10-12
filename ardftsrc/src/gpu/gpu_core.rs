@@ -899,10 +899,8 @@ mod tests {
     /// channel) and the pipelined `GpuCore`, both fed one fixed-size FFT chunk at a time
     /// (the last one possibly short, with `is_final = true`) -- `GpuCore::push_input` requires
     /// this exact contract, matching `CpuCore::process_chunk`.
-    /// Uses real `pre`/`post` context on both ends (see
-    /// [`lpc_extrapolation_has_known_gpu_divergence_without_context`] for why: `Extrapolation::Lpc`
-    /// has a known, separately tracked GPU divergence without real context, unrelated to what
-    /// this test checks).
+    /// Uses real `pre`/`post` context on both ends; the no-context extrapolation paths are
+    /// covered by [`extrapolation_without_context_matches_cpu`].
     fn assert_batch_matches_cpu(
         input_rate: usize,
         output_rate: usize,
@@ -1050,12 +1048,10 @@ mod tests {
         let mut gpu_core = GpuCore::<f32>::new(context).expect("build");
 
         let total_frames = chunk_frames * DEFAULT_GROUP_CHUNKS + 137;
-        // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
-        // `Extrapolation::Lpc`'s known, separately tracked GPU divergence without real context
-        // (unrelated to what this test checks).
+        // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu`.
         let full = tone_channels(channels, chunk_frames + total_frames + chunk_frames, 44_100);
         let pre = full[0][..chunk_frames].to_vec();
-        let input = vec![full[0][chunk_frames..chunk_frames + total_frames].to_vec()];
+        let input = [full[0][chunk_frames..chunk_frames + total_frames].to_vec()];
         let post = full[0][chunk_frames + total_frames..].to_vec();
         cpu_core.pre(pre.clone());
         cpu_core.post(post.clone());
@@ -1183,9 +1179,7 @@ mod tests {
         let context = GpuContext::with_device(context, config).expect("build context");
         let mut gpu_core = GpuCore::<f32>::new(context).expect("build");
 
-        // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu` -- avoids
-        // the separately tracked `Extrapolation::Lpc`/GPU divergence unrelated to what this
-        // test checks.
+        // Real `pre`/`post` context on both ends, same as `assert_batch_matches_cpu`.
         let full = tone_channels(channels, chunk_frames * 6, 44_100);
         let pre = full[0][..chunk_frames].to_vec();
         let input = full[0][chunk_frames..chunk_frames * 5].to_vec();
@@ -1342,9 +1336,8 @@ mod tests {
     }
 
     /// Runs the same CPU-vs-GPU comparison as [`assert_batch_matches_cpu`], but with no
-    /// `pre`/`post` context at all (forcing whichever `extrapolation` strategy `config` selects)
-    /// and returns the max abs error instead of asserting, so different strategies can be
-    /// compared against each other by the tests below.
+    /// `pre`/`post` context at all (forcing the given `extrapolation` strategy at both stream
+    /// edges) and returns the max abs error.
     fn max_batch_error_no_context(
         input_rate: usize,
         output_rate: usize,
@@ -1406,34 +1399,18 @@ mod tests {
     }
 
     #[test]
-    fn non_lpc_extrapolation_avoids_lpc_gpu_divergence() {
-        for strategy in [Extrapolation::Mirror, Extrapolation::OddMirror, Extrapolation::Zero] {
+    fn extrapolation_without_context_matches_cpu() {
+        for strategy in [
+            Extrapolation::Lpc,
+            Extrapolation::OddMirror,
+            Extrapolation::Mirror,
+            Extrapolation::Zero,
+        ] {
             let err = max_batch_error_no_context(44_100, 96_000, 44_100 + 777, strategy);
             assert!(
                 err < 1e-3,
                 "{strategy:?}: unexpectedly large GPU/CPU divergence with no pre/post context: {err}"
             );
         }
-    }
-
-    /// Documents a known, not-yet-root-caused issue (see project memory): with no `pre`/`post`
-    /// context, `Extrapolation::Lpc`'s tail window -- bit-identical between the CPU and GPU cores
-    /// (same shared `crate::window`/`crate::extrapolation` code, same input) -- produces a much
-    /// larger GPU-vs-CPU divergence than the same rate ratio with `OddMirror`/`Mirror`/`Zero` content (see
-    /// [`non_lpc_extrapolation_avoids_lpc_gpu_divergence`], which stays within 1e-3). Since
-    /// the window content is identical either way, this points at a real precision gap
-    /// specifically in how vkfft-rs's generated shader FFT handles this particular window's
-    /// content on the GPU, not a general windowing/buffer bug. Real usage should prefer supplying
-    /// real `pre`/`post` context, or a non-LPC `Extrapolation`, until this is root-caused.
-    /// This test asserts the bug is still present so a fix gets noticed (and this test updated)
-    /// rather than silently regressing back to a large, unexplained error.
-    #[test]
-    fn lpc_extrapolation_has_known_gpu_divergence_without_context() {
-        let err = max_batch_error_no_context(44_100, 96_000, 44_100 + 777, Extrapolation::Lpc);
-        assert!(
-            err > 0.05,
-            "expected the known Extrapolation::Lpc/GPU divergence to still reproduce (got err={err}); \
-             if this now passes, the underlying issue may be fixed -- update this test and project memory"
-        );
     }
 }

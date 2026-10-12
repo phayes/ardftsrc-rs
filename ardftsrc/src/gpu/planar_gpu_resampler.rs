@@ -342,7 +342,7 @@ impl<T: Float + GpuScalar + FromF64> PlanarGpuResampler<T> {
     /// Each input is treated as its own stream with no inter-track context. See
     /// [`batch_gapless()`](Self::batch_gapless) for gapless processing of multiple tracks.
     ///
-    /// Each track gets its own [`GpuCore`], built from a [`GpuContext::clone_shared`] clone of
+    /// Each track gets its own [`GpuCore`], built from a `GpuContext::clone_shared` clone of
     /// this resampler's context so it shares the same Vulkan device and already-compiled shaders
     /// (no per-track shader recompilation) without touching this instance's own stream. With the
     /// `rayon` feature enabled, tracks are processed in parallel -- safe because
@@ -673,9 +673,7 @@ mod tests {
     }
 
     /// Builds real pre/input/post planar context around `total_frames` of useful input, and
-    /// returns the derived per-channel chunk frame count. Real pre/post context sidesteps the
-    /// known, separately tracked `Extrapolation::Lpc`/GPU divergence without it (see
-    /// `gpu_core.rs`'s `lpc_extrapolation_has_known_gpu_divergence_without_context`).
+    /// returns the derived per-channel chunk frame count.
     #[allow(clippy::type_complexity)]
     fn make_pre_input_post(
         config: &Config,
