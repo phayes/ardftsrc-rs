@@ -14,7 +14,7 @@ A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Ra
 
 Generally `ardftsrc` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
-It is ranked among the top scoring resampling libraries on [HydrogenAudio Sample Rate Conversion Comparison](https://src.hydrogenaudio.org/), topping out with a balanced score of 99.92%.  It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
+It is ranked among the top scoring resampling libraries on [HydrogenAudio Sample Rate Conversion Comparison](https://src.hydrogenaudio.org/), topping out with a balanced score of 99.92%.  It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency (see [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md)). 
 
 ## Quick Start
 
@@ -263,6 +263,8 @@ let config = ardftsrc::PRESET_GOOD
 | [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.920` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=0218934d-3d91-47cb-a46f-a0bd821f5ab1&id2=0&adddb=1), [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=1eff4cbe-15a6-454c-afd6-64987e0ac2e1&id2=0&adddb=1) |
 | [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `2304` |   `0.975` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=4843d033-c163-42ad-85f7-1765192cf30a&id2=0&adddb=1) |
 | [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |   `7056` |   `0.996` | High quality for realtime or offline use.  | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=a22e9dbf-99f6-4161-9a8a-6905412f3324&id2=0&adddb=1), [HA-f64-dd](https://src.hydrogenaudio.org/compareresults?id1=d1fc4c2c-be89-4d79-9e27-3d6691454584&id2=0&adddb=1) |
+
+See [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md) for throughput, latency, and which presets suit realtime monitoring, playback, and offline use.
 
 ## Taper profiles
 
