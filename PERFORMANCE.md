@@ -1,3 +1,5 @@
+# NOTE: THIS DOCUMENT IS NOW OUT OF DATE
+
 # Performance Testing
 
 This doc compares ardftsrc-rs against the best-in-class sinc resampler rubato. 

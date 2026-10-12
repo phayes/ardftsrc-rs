@@ -9,7 +9,7 @@
 //! ardftsrc = { path = "../ardftsrc", default-features = false, features = ["rayon"] }
 //! ```
 
-use ardftsrc::{InterleavedResampler, Config, PlanarVecs, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+use ardftsrc::{InterleavedResampler, Config, PlanarVecs, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -28,7 +28,7 @@ struct PresetSpec {
     base: Config,
 }
 
-const PRESETS: [PresetSpec; 4] = [
+const PRESETS: [PresetSpec; 3] = [
     PresetSpec {
         name: "fast",
         base: PRESET_FAST,
@@ -40,10 +40,6 @@ const PRESETS: [PresetSpec; 4] = [
     PresetSpec {
         name: "high",
         base: PRESET_HIGH,
-    },
-    PresetSpec {
-        name: "extreme",
-        base: PRESET_EXTREME,
     },
 ];
 

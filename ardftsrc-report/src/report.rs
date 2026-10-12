@@ -130,10 +130,7 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
 
         let _ = writeln!(out, "# ardftsrc Quality Report: {}", variant_title(variant));
         let _ = writeln!(out);
-        if let Some(revision) = revision.as_deref() {
-            let _ = writeln!(out, "Revision: {revision}");
-            let _ = writeln!(out);
-        }
+        write_version_header(&mut out, revision.as_deref());
 
         let _ = writeln!(out, "## Preset Configuration");
         let _ = writeln!(out);
@@ -236,6 +233,17 @@ pub fn write_all(out_dir: &Path, quiet: bool) {
     write_index(out_dir, &written, revision.as_deref(), quiet);
 }
 
+/// Writes the `Version:` line (the workspace version, shared by `ardftsrc`) and, unless
+/// `revision` is just the matching `v<version>` tag, a `Revision:` line.
+fn write_version_header(out: &mut String, revision: Option<&str>) {
+    let version = env!("CARGO_PKG_VERSION");
+    let _ = writeln!(out, "Version: {version}");
+    if let Some(revision) = revision.filter(|r| r.strip_prefix('v') != Some(version)) {
+        let _ = writeln!(out, "Revision: {revision}");
+    }
+    let _ = writeln!(out);
+}
+
 /// Writes `README.md` in `out_dir` linking each `report_<variant>.md` that
 /// [`write_all`] produced. Skipped if no reports were written.
 fn write_index(out_dir: &Path, variants: &[Variant], revision: Option<&str>, quiet: bool) {
@@ -246,10 +254,7 @@ fn write_index(out_dir: &Path, variants: &[Variant], revision: Option<&str>, qui
     let mut out = String::new();
     let _ = writeln!(out, "# ardftsrc Quality Reports");
     let _ = writeln!(out);
-    if let Some(revision) = revision {
-        let _ = writeln!(out, "Revision: {revision}");
-        let _ = writeln!(out);
-    }
+    write_version_header(&mut out, revision);
     for &variant in variants {
         let _ = writeln!(out, "- [{}](report_{}.md)", variant_title(variant), variant.label());
     }

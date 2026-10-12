@@ -14,7 +14,7 @@ A rust implementation of the Arbitrary Rate Discrete Fourier Transform Sample Ra
 
 Generally `ardftsrc` is preferred over other resamplers when quality is paramount.  Although it is generic over both `f32` and `f64`, it is highly recommended to use it with `f64`, even when processing an `f32` audio stream. 
 
-It is ranked among the top scoring resampling libraries on [HydrogenAudio Sample Rate Conversion Comparison](https://src.hydrogenaudio.org/), topping out with a balanced score of 99.92%.  It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. See [PERFORMANCE.md](https://github.com/phayes/ardftsrc-rs/blob/master/PERFORMANCE.md) for a detailed speed and quality comparison vs rubato.
+It is ranked among the top scoring resampling libraries on [HydrogenAudio Sample Rate Conversion Comparison](https://src.hydrogenaudio.org/), topping out with a balanced score of 99.92%.  It is more compute intensive than other resamplers, so consider sinc [rubato](https://crates.io/crates/rubato) if you want more efficiency. 
 
 ## Quick Start
 
@@ -160,9 +160,9 @@ Set your buffer size and quality depending on debug or release:
 
 ```rust
 let (buffer_frames, preset) = if cfg!(debug_assertions) {
-    (2048, ardftsrc::PRESET_FAST) // unoptimized builds need a big buffer
+    (2048, ardftsrc::PRESET_FAST) // unoptimized builds need a big buffer and a lighweight preset
 } else {
-    (128, ardftsrc::PRESET_GOOD) // Optimized builds can use a small buffer and a high quality preset
+    (512, ardftsrc::PRESET_HIGH) // Optimized builds can use a small buffer and a high quality preset
 };
 ```
 
@@ -256,8 +256,6 @@ let config = ardftsrc::PRESET_GOOD
 | [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.920` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=5ac42856-5fbc-423c-88d6-3ca851e9e4f9&id2=0), [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=b0ef91cd-fbd7-4ee5-bbf3-f930b6b2f8f9&id2=0) |
 | [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `2304` |   `0.975` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e782e63-56c1-4895-ab6b-67f97a4b31d0&id2=0) |
 | [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |   `7056` |   `0.996` | High quality for realtime or offline use.  | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0) |
-
-† You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast and has very high quality metrics.
 
 ## Extreme Downsampling Ratios
 

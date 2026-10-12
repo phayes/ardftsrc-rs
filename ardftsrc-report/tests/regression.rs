@@ -32,11 +32,11 @@ fn preset_good_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
 }
 
 #[test]
-fn preset_extreme_48000_to_44100_1khz_is_well_below_zero_dbfs_thdn() {
+fn preset_high_48000_to_44100_1khz_is_well_below_zero_dbfs_thdn() {
     let case = run_case(
         48_000,
         44_100,
-        Preset::Extreme,
+        Preset::High,
         HighPrecisionVariant::Off,
         false,
         1_000.0,
@@ -105,9 +105,12 @@ fn preset_good_44100_to_48000_pre_ringing_stays_above_the_rolloff() {
         worst.ringing_freq_hz,
         result.band
     );
+    // Ringing time scales with 1 / transition width, so the bound is in periods of the width
+    // rather than in ms: a narrower transition rings proportionally longer at the same quality.
+    let width_hz = result.band.stopband_edge_hz - result.band.passband_edge_hz;
     assert!(
-        worst.pre_ring_ms.iter().all(|&ms| ms < 10.0),
-        "pre_ring_ms={:?}",
+        worst.pre_ring_ms.iter().all(|&ms| ms / 1000.0 * width_hz < 10.0),
+        "pre_ring_ms={:?} exceeds 10 periods of the {width_hz} Hz transition band",
         worst.pre_ring_ms
     );
 }
@@ -142,10 +145,10 @@ fn preset_fast_192000_to_48000_decimated_output_has_no_delay_offset() {
 }
 
 #[cfg(feature = "high_precision")]
-fn assert_high_precision_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(
+fn assert_high_precision_preset_high_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(
     high_precision: HighPrecisionVariant,
 ) {
-    let case = run_case(44_100, 48_000, Preset::Extreme, high_precision, false, 1_000.0, -1.0);
+    let case = run_case(44_100, 48_000, Preset::High, high_precision, false, 1_000.0, -1.0);
     assert!(
         case.thdn_broadband_db < -100.0,
         "thdn_broadband_db={}",
@@ -160,20 +163,20 @@ fn assert_high_precision_preset_extreme_44100_to_48000_1khz_is_well_below_zero_d
 
 #[cfg(feature = "high_precision")]
 #[test]
-fn double_double_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
-    assert_high_precision_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(
+fn double_double_preset_high_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
+    assert_high_precision_preset_high_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(
         HighPrecisionVariant::DoubleDouble,
     );
 }
 
 #[cfg(feature = "high_precision")]
 #[test]
-fn f128_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
-    assert_high_precision_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(HighPrecisionVariant::F128);
+fn f128_preset_high_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
+    assert_high_precision_preset_high_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(HighPrecisionVariant::F128);
 }
 
 #[cfg(feature = "high_precision")]
 #[test]
-fn f256_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
-    assert_high_precision_preset_extreme_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(HighPrecisionVariant::F256);
+fn f256_preset_high_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn() {
+    assert_high_precision_preset_high_44100_to_48000_1khz_is_well_below_zero_dbfs_thdn(HighPrecisionVariant::F256);
 }

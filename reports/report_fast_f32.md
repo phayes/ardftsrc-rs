@@ -1,15 +1,16 @@
 # ardftsrc Quality Report: Fast (f32)
 
-Revision: 054824c
+Version: 0.3.0
+Revision: 74b3157
 
 ## Preset Configuration
 
-| Field     |                               Value |
-|-----------|-------------------------------------|
-| Quality   |                                 512 |
-| Bandwidth |                              0.8600 |
-| Taper     | BetaCdf { alpha: 17.0, beta: 17.0 } |
-| Phase     |                                   0 |
+| Field     |        Value |
+|-----------|--------------|
+| Quality   |          512 |
+| Bandwidth |       0.9200 |
+| Taper     | Kaiser(30.0) |
+| Phase     |            0 |
 
 ## HydrogenAudio Test Suite
 
@@ -17,15 +18,15 @@ Local HydrogenAudio Test Suite run, `f32`, no high-precision backend. See <https
 
 | Metric               |      Score |
 |----------------------|------------|
-| Balanced score       |     70.54% |
-| Spectrogram          |     49.66% |
-| Bandwidth            |     90.33% |
-| Impulse frequency    |     50.75% |
-| Average impulse freq | -171.54 dB |
+| Balanced score       |     71.83% |
+| Spectrogram          |     51.73% |
+| Bandwidth            |     93.95% |
+| Impulse frequency    |     50.69% |
+| Average impulse freq | -171.35 dB |
 | Aliasing             |    100.00% |
-| Pre-ringing          |     25.87% |
+| Pre-ringing          |     21.63% |
 | Gapless              |    100.00% |
-| Intermodulation      |     35.67% |
+| Intermodulation      |     35.62% |
 | Delay                |    100.00% |
 
 ### Spectrogram of a sweep 1 to 22 kHz

@@ -105,9 +105,10 @@ Reads `thdn_<preset>_report.json`, `preringing_<preset>_report.json`, and
 `report_<variant>.md` combining them (for sharing), plus a `README.md` that links each
 generated report. A preset missing some of the JSON files still gets a report, with a
 note in place of each missing section, so `report` can be re-run at any point in the flow.
-Each report notes the repo's current git revision (preferring a `v*` tag pointing at
-`HEAD`, falling back to the short commit hash; omitted if `git` isn't installed or the
-working directory isn't inside a git repo).
+Each report notes the workspace version (shared by `ardftsrc`) and the repo's current git
+revision (preferring a `v*` tag pointing at `HEAD`, falling back to the short commit hash;
+omitted if `git` isn't installed, the working directory isn't inside a git repo, or the
+tag is just `v<version>`).
 
 ## Tests
 

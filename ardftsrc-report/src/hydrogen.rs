@@ -67,10 +67,6 @@ pub const VARIANTS: &[Variant] = &[
         preset: Preset::High,
         precision: Precision::F64,
     },
-    Variant {
-        preset: Preset::Extreme,
-        precision: Precision::F64,
-    },
 ];
 
 /// One preset's HydrogenAudio Test Suite scores. Mirrors [`LocalTestResults`] but

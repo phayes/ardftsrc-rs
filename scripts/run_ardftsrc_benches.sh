@@ -25,7 +25,7 @@ case "$arch" in
     ;;
 esac
 
-bench_tiers=(fast good high extreme)
+bench_tiers=(fast good high)
 bench_files=()
 
 for tier in "${bench_tiers[@]}"; do
