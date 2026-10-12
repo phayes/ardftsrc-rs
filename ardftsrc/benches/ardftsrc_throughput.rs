@@ -27,20 +27,30 @@ struct Preset {
     config: Config,
 }
 
-const PRESETS: &[Preset] = &[
-    Preset {
-        name: "fast",
-        config: PRESET_FAST,
-    },
-    Preset {
-        name: "good",
-        config: PRESET_GOOD,
-    },
-    Preset {
-        name: "high",
-        config: PRESET_HIGH,
-    },
-];
+fn presets() -> Vec<Preset> {
+    #[allow(unused_mut)]
+    let mut presets = vec![
+        Preset {
+            name: "fast",
+            config: PRESET_FAST,
+        },
+        Preset {
+            name: "good",
+            config: PRESET_GOOD,
+        },
+        Preset {
+            name: "high",
+            config: PRESET_HIGH,
+        },
+    ];
+    // Run with `--features high_precision` to include this preset.
+    #[cfg(feature = "high_precision")]
+    presets.push(Preset {
+        name: "high+dd",
+        config: PRESET_HIGH.with_high_precision(Some(ardftsrc::HighPrecision::DoubleDouble)),
+    });
+    presets
+}
 
 #[derive(Clone)]
 struct WavData {
@@ -149,9 +159,10 @@ fn benchmark_id(
 
 fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
     let mut group = c.benchmark_group("ardftsrc/process_all");
+    let presets = presets();
 
     for fixture in fixtures {
-        for preset in PRESETS {
+        for preset in &presets {
             for &output_sample_rate_hz in TARGET_SAMPLE_RATES {
                 benchmark_sample_type(
                     &mut group,

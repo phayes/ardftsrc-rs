@@ -84,6 +84,10 @@ name = "ardftsrc_chunk_time"
 harness = false
 
 [[bench]]
+name = "ardftsrc_latency"
+harness = false
+
+[[bench]]
 name = "rubato_sync"
 harness = false
 
