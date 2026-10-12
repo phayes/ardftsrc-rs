@@ -9,7 +9,7 @@ use crate::config::DerivedConfig;
 use crate::decimate::DecimationChain;
 use crate::window;
 
-pub struct CpuCore<T = f64>
+pub(crate) struct CpuCore<T = f64>
 where
     T: Float + FftNum,
 {
@@ -96,7 +96,7 @@ where
     /// Constructs a single-channel core resampler from [`derived`](DerivedConfig).
     ///
     /// Returns a ready-to-use core instance.
-    pub fn new(derived: DerivedConfig<T>) -> Self {
+    pub(crate) fn new(derived: DerivedConfig<T>) -> Self {
         let mut planner = RealFftPlanner::<T>::new();
         let forward = plan_forward(&mut planner, &derived);
         let inverse = plan_inverse(&mut planner, &derived);
@@ -173,7 +173,7 @@ where
     /// Shorter buffers are still valid: any missing start context falls back to
     /// [`Config::extrapolation`](crate::Config::extrapolation).
     #[inline]
-    pub fn pre(&mut self, pre: Vec<T>) {
+    pub(crate) fn pre(&mut self, pre: Vec<T>) {
         let pre = self.decimate_context(&pre);
         self.pre = self.normalize_context(pre);
     }
@@ -194,7 +194,7 @@ where
     /// Shorter buffers are still valid: any missing stop context falls back to
     /// [`Config::extrapolation`](crate::Config::extrapolation).
     #[inline]
-    pub fn post(&mut self, post: Vec<T>) {
+    pub(crate) fn post(&mut self, post: Vec<T>) {
         let post = self.decimate_context(&post);
         self.post = self.normalize_context(post);
     }
@@ -221,7 +221,7 @@ where
     ///
     /// Returns the ceil-rounded number of output samples expected for `input_samples`.
     #[inline]
-    pub fn output_sample_count_for_input(&self, input_samples: usize) -> usize {
+    pub(crate) fn output_sample_count_for_input(&self, input_samples: usize) -> usize {
         (input_samples * self.derived.output_sample_rate).div_ceil(self.derived.input_sample_rate)
     }
 
@@ -229,14 +229,14 @@ where
     ///
     /// This can be used to size the output buffer for the entire input stream.
     #[inline]
-    pub fn output_sample_count(&self, input_samples: usize) -> usize {
+    pub(crate) fn output_sample_count(&self, input_samples: usize) -> usize {
         self.output_sample_count_for_input(input_samples)
     }
 
     /// Resamples a complete single-channel input buffer and returns all output samples.
     ///
     /// This is a convenience wrapper around the chunked core API.
-    pub fn process_all<'a>(&mut self, input: &[T]) -> Result<Vec<T>, Error> {
+    pub(crate) fn process_all<'a>(&mut self, input: &[T]) -> Result<Vec<T>, Error> {
         let expected_samples = self.output_sample_count(input.len());
         let mut output = Vec::with_capacity(expected_samples);
 
@@ -262,7 +262,7 @@ where
     ///
     /// Call this between unrelated audio inputs (for example, between files) when reusing the
     /// same resampler instance, so edge/history state from one input cannot bleed into the next.
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         let zero = Complex::new(T::zero(), T::zero());
         self.scratch.rdft_in.fill(T::zero());
         self.scratch.spectrum.fill(zero);
@@ -291,7 +291,7 @@ where
     /// this treats the last accepted full chunk as terminal input.
     ///
     /// Returns a reference to the finalize output samples.
-    pub fn finalize<'a>(&'a mut self) -> Result<&'a [T], Error> {
+    pub(crate) fn finalize<'a>(&'a mut self) -> Result<&'a [T], Error> {
         if self.finalized {
             return Err(Error::AlreadyFinalized);
         }
@@ -327,7 +327,7 @@ where
     /// Check if this resampler is finalized.
     ///
     /// Once finalized, no more samples can be written. Samples can still be read until fully drained.
-    pub fn is_finalized(&self) -> bool {
+    pub(crate) fn is_finalized(&self) -> bool {
         self.finalized
     }
 

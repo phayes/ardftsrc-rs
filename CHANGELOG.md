@@ -21,6 +21,7 @@
 - `Kaiser` accepts `beta` in `(0, 300]` and otherwise fails validation with the new `Error::InvalidKaiserBeta`.
 - `TaperType::Kbd` and `TaperType::HalfKaiser` are removed.
 - `ardftsrc-rs`: `--taper-type bessel` is now `kaiser` and takes `--beta` (default `30`) instead of `--alpha`. `kbd` and `half_kaiser` are removed.
+- `CpuCore` is no longer exported. It could not be constructed outside the crate, since its constructor takes a crate-internal configuration type. Use `PlanarResampler` with `channels = 1` for single-channel resampling.
 
 ### Fixed
 

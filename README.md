@@ -343,8 +343,8 @@ Contributions are welcome!
 
 At a high level there are two layers:
 
-- `CpuCore<T>` is the single-channel DSP engine. It owns the FFT and runs the ARDFTSRC algorithm.
-- `PlanarResampler<T>` and `InterleavedResampler<T>` are fixed-size chunk resamplers. They own one `ArdftsrcCore` per channel and expose full-buffer, chunked, and batch processing APIs for planar or interleaved audio.
+- `CpuCore<T>` (crate-internal) is the single-channel DSP engine. It owns the FFT and runs the ARDFTSRC algorithm.
+- `PlanarResampler<T>` and `InterleavedResampler<T>` are fixed-size chunk resamplers. They own one `CpuCore` per channel and expose full-buffer, chunked, and batch processing APIs for planar or interleaved audio.
 - `AdapterResampler<T>` is optional behind the `audioadapter` feature and adapts generic audioadapter inputs and outputs onto the chunk resampling core. Right now there are performance issues with this.
 - `RealtimeResampler<T>` provides arbitrary-size sample buffering for live resampling.
 

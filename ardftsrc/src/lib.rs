@@ -36,7 +36,6 @@ pub use as_channels::{AsChannels, AsChannelsMut};
 #[cfg(feature = "high_precision")]
 pub use config::HighPrecision;
 pub use config::{AliasFloor, Config, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
-pub use cpu_core::CpuCore;
 pub use error::Error;
 pub use extrapolation::Extrapolation;
 pub use interleaved_resampler::InterleavedResampler;

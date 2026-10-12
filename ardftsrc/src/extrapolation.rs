@@ -9,8 +9,9 @@ use crate::lpc::{self, ExtrapolateFallback};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Extrapolation {
     /// Linear-predictive-coding based prediction (default). Adapts to the signal's own
-    /// spectral content, but can be ill-conditioned on some windows; see [`crate::lpc`]'s
-    /// divergence guard, which fades to silence rather than letting the recursion blow up.
+    /// spectral content, but can be ill-conditioned on some windows.
+    /// 
+    // see [`crate::lpc`]'s divergence guard, which fades to silence rather than letting the recursion blow up.
     #[default]
     Lpc,
     /// Point reflection through the edge sample: each synthetic sample is `2 * edge - x`, where
