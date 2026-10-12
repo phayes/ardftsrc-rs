@@ -1,17 +1,11 @@
 //! Shared FFT-window construction logic.
 //!
-//! [`CpuCore`](crate::cpu_core::CpuCore) and the GPU streaming core build the same overlap-add
-//! FFT windows (steady-state, start-edge priming, short-final-chunk, and finalize-tail), the
-//! only difference being what happens to the window afterward (an in-process CPU FFT vs. an
-//! upload to a GPU buffer). This module holds that window-construction logic once so the two
-//! cores cannot drift apart on it -- pulled out of what was originally `ArdftsrcCore`-only
-//! code, unchanged in behavior (every `cpu_core`/`spectral` test still exercises it exactly as
-//! before) *and* in allocation profile: every function writes into a caller-provided `window`
-//! buffer rather than returning an owned `Vec`, so [`write_normal_window`] -- called on every
-//! chunk, including on a realtime audio thread via `RealtimeResampler` -- allocates nothing,
-//! exactly like the original hand-inlined version did. The other functions here only run once
-//! per stream (start priming, a short final chunk, or finalize), where the small `Vec`s they
-//! allocate match what the original code already allocated in those same rare paths.
+//! Builds the overlap-add FFT windows [`CpuCore`](crate::cpu_core::CpuCore) transforms:
+//! steady-state, start-edge priming, short-final-chunk, and finalize-tail. Every function writes
+//! into a caller-provided `window` buffer rather than returning an owned `Vec`, so
+//! [`write_normal_window`] -- called on every chunk, including on a realtime audio thread via
+//! `RealtimeResampler` -- allocates nothing. The other functions here only run once per stream
+//! (start priming, a short final chunk, or finalize) and may allocate small scratch `Vec`s.
 
 use crate::dsp_float::DspFloat;
 

@@ -30,7 +30,3 @@ neon = ["ardftsrc/neon"]
 sse = ["ardftsrc/sse"]
 wasm_simd = ["ardftsrc/wasm_simd"]
 high_precision = ["ardftsrc/high_precision"]
-
-# GPU support is unreleased and is not included in the crates.io package.
-# To opt in, clone this repository, uncomment the GPU lines in ../ardftsrc/Cargo.toml, and uncomment the feature below.
-# gpu = ["ardftsrc/gpu"]

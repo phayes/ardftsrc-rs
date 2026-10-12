@@ -1,8 +1,4 @@
-#![cfg_attr(test, allow(unexpected_cfgs))]
-
 use ardftsrc::{AliasFloor, Config, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType};
-#[cfg(feature = "gpu")]
-use ardftsrc::{GpuContext, GpuDevice, GpuError, PlanarGpuResampler};
 use clap::{ArgGroup, Parser, ValueEnum};
 use flac_codec::encode::{FlacChannelWriter, Options as FlacOptions};
 use i24::i24;
@@ -11,8 +7,6 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-#[cfg(feature = "gpu")]
-use std::sync::Arc;
 use symphonia::core::audio::conv::ConvertibleSample;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
@@ -215,23 +209,6 @@ struct Args {
     #[arg(long = "f256", group = "precision")]
     use_f256: bool,
 
-    // GPU device selection is unreleased. Uncomment with the GPU lines in Cargo.toml.
-    // /// Force CPU resampling even when a compatible GPU is available.
-    // #[arg(long = "cpu")]
-    // #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
-    // force_cpu: bool,
-
-    // /// FFT chunks combined into each GPU submission. Default is 4. Use 1 for low latency;
-    // /// values above 4 may help large offline jobs. Ignored on CPU.
-    // #[cfg(feature = "gpu")]
-    // #[arg(long = "gpu-group-chunks")]
-    // gpu_group_chunks: Option<usize>,
-
-    // /// Reusable GPU work groups in the streaming ring. Default is 4 (also the effective
-    // /// minimum). 8 can help when host-to-GPU submission is starved. Ignored on CPU.
-    // #[cfg(feature = "gpu")]
-    // #[arg(long = "gpu-ring-slots")]
-    // gpu_ring_slots: Option<usize>,
     /// Output sample format. For .flac output, float formats are rejected.
     #[arg(long = "out-format", value_enum, default_value_t = OutFormatArg::Same)]
     out_format: OutFormatArg,
@@ -273,7 +250,6 @@ trait ProcessingSample: Copy + Default + Send + Sync + ConvertibleSample + 'stat
         inputs: Vec<PlanarVecs<Self>>,
         gapless: bool,
         precision: Precision,
-        #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
     ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>>;
 }
 
@@ -313,16 +289,9 @@ impl ProcessingSample for f32 {
         inputs: Vec<PlanarVecs<Self>>,
         gapless: bool,
         precision: Precision,
-        #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
     ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>> {
         debug_assert_eq!(precision, Precision::F32);
-        resample_f32(
-            config,
-            inputs,
-            gapless,
-            #[cfg(feature = "gpu")]
-            gpu,
-        )
+        resample_f32(config, inputs, gapless)
     }
 }
 
@@ -362,7 +331,6 @@ impl ProcessingSample for f64 {
         inputs: Vec<PlanarVecs<Self>>,
         gapless: bool,
         precision: Precision,
-        #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
     ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>> {
         match precision {
             #[cfg(feature = "high_precision")]
@@ -375,13 +343,7 @@ impl ProcessingSample for f64 {
             Precision::F256 => return resample_wide(config, inputs, gapless, ardftsrc::F256::to_f64),
             Precision::F32 | Precision::F64 => {}
         }
-        resample_f64(
-            config,
-            inputs,
-            gapless,
-            #[cfg(feature = "gpu")]
-            gpu,
-        )
+        resample_f64(config, inputs, gapless)
     }
 }
 
@@ -395,29 +357,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     validate_args(&args)?;
 
-    #[cfg(feature = "gpu")]
-    let gpu = select_gpu(&args);
-
     // High-precision types decode and encode as f64 and convert around the resampler.
     if args.precision() == Precision::F32 {
-        convert_all::<f32>(
-            &args,
-            #[cfg(feature = "gpu")]
-            gpu.as_ref(),
-        )
+        convert_all::<f32>(&args)
     } else {
-        convert_all::<f64>(
-            &args,
-            #[cfg(feature = "gpu")]
-            gpu.as_ref(),
-        )
+        convert_all::<f64>(&args)
     }
 }
 
-fn convert_all<T: ProcessingSample>(
-    args: &Args,
-    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
-) -> Result<(), Box<dyn Error>> {
+fn convert_all<T: ProcessingSample>(args: &Args) -> Result<(), Box<dyn Error>> {
     let tracks = args
         .input
         .iter()
@@ -435,31 +383,17 @@ fn convert_all<T: ProcessingSample>(
         return Err("--gapless requires all inputs to have matching channel count and sample rate".into());
     }
 
-    process_and_write_all_groups(
-        args,
-        grouped_jobs,
-        #[cfg(feature = "gpu")]
-        gpu,
-    )
+    process_and_write_all_groups(args, grouped_jobs)
 }
 
 #[cfg(feature = "rayon")]
 fn process_and_write_all_groups<T: ProcessingSample>(
     args: &Args,
     grouped_jobs: Vec<Vec<InputJob<T>>>,
-    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
 ) -> Result<(), Box<dyn Error>> {
     grouped_jobs
         .into_par_iter()
-        .map(|group| {
-            process_batch_group(
-                args,
-                group,
-                #[cfg(feature = "gpu")]
-                gpu,
-            )
-            .map_err(|err| err.to_string())
-        })
+        .map(|group| process_batch_group(args, group).map_err(|err| err.to_string()))
         .collect::<Result<Vec<_>, _>>()
         .map(|_| ())
         .map_err(|err: String| -> Box<dyn Error> { std::io::Error::other(err).into() })
@@ -469,24 +403,14 @@ fn process_and_write_all_groups<T: ProcessingSample>(
 fn process_and_write_all_groups<T: ProcessingSample>(
     args: &Args,
     grouped_jobs: Vec<Vec<InputJob<T>>>,
-    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
 ) -> Result<(), Box<dyn Error>> {
     for group in grouped_jobs {
-        process_batch_group(
-            args,
-            group,
-            #[cfg(feature = "gpu")]
-            gpu,
-        )?;
+        process_batch_group(args, group)?;
     }
     Ok(())
 }
 
-fn process_batch_group<T: ProcessingSample>(
-    args: &Args,
-    group: Vec<InputJob<T>>,
-    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
-) -> Result<(), Box<dyn Error>> {
+fn process_batch_group<T: ProcessingSample>(args: &Args, group: Vec<InputJob<T>>) -> Result<(), Box<dyn Error>> {
     let output_rate_hz = args.output_rate as u32;
     let out_format = args.out_format;
     let first = group.first().ok_or("batch group cannot be empty")?;
@@ -499,14 +423,7 @@ fn process_batch_group<T: ProcessingSample>(
         inputs.push(job.track.samples);
     }
 
-    let converted = T::resample(
-        config,
-        inputs,
-        args.gapless,
-        args.precision(),
-        #[cfg(feature = "gpu")]
-        gpu,
-    )?;
+    let converted = T::resample(config, inputs, args.gapless, args.precision())?;
 
     if metadata.len() != converted.len() {
         return Err(std::io::Error::other(format!(
@@ -734,14 +651,6 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if args.decimate {
         config.decimate = true;
     }
-    // #[cfg(feature = "gpu")]
-    // if let Some(gpu_group_chunks) = args.gpu_group_chunks {
-    //     config.gpu_group_chunks = gpu_group_chunks;
-    // }
-    // #[cfg(feature = "gpu")]
-    // if let Some(gpu_ring_slots) = args.gpu_ring_slots {
-    //     config.gpu_ring_slots = gpu_ring_slots;
-    // }
 
     if let Some(taper_type) = args.taper_type {
         config.taper_type = match taper_type {
@@ -795,65 +704,7 @@ impl Args {
     }
 }
 
-#[cfg(feature = "gpu")]
-fn gpu_config_supported(args: &Args) -> bool {
-    if args.decimate {
-        return false;
-    }
-    matches!(args.precision(), Precision::F32 | Precision::F64)
-}
-
-#[cfg(feature = "gpu")]
-fn select_gpu(args: &Args) -> Option<Arc<GpuDevice>> {
-    if !gpu_config_supported(args) {
-        return None;
-    }
-    match GpuDevice::auto_select_compatible(!args.use_f32) {
-        Ok(device) => {
-            eprintln!("ardftsrc-rs: using GPU ({})", device.device_name());
-            Some(Arc::new(device))
-        }
-        Err(_) => None,
-    }
-}
-
 fn resample_f64(
-    config: Config,
-    inputs: Vec<PlanarVecs<f64>>,
-    gapless: bool,
-    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
-) -> Result<Vec<PlanarVecs<f64>>, Box<dyn Error>> {
-    #[cfg(feature = "gpu")]
-    if let Some(device) = gpu {
-        match start_gpu_resampler_f64(device, config.clone()) {
-            Ok(processor) => return gpu_batch_f64(processor, inputs, gapless),
-            Err(err) => {
-                eprintln!("ardftsrc-rs: GPU resampler failed to start ({err}); using CPU");
-            }
-        }
-    }
-    resample_cpu_f64(config, inputs, gapless)
-}
-
-fn resample_f32(
-    config: Config,
-    inputs: Vec<PlanarVecs<f32>>,
-    gapless: bool,
-    #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
-) -> Result<Vec<PlanarVecs<f32>>, Box<dyn Error>> {
-    #[cfg(feature = "gpu")]
-    if let Some(device) = gpu {
-        match start_gpu_resampler_f32(device, config.clone()) {
-            Ok(processor) => return gpu_batch_f32(processor, inputs, gapless),
-            Err(err) => {
-                eprintln!("ardftsrc-rs: GPU resampler failed to start ({err}); using CPU");
-            }
-        }
-    }
-    resample_cpu_f32(config, inputs, gapless)
-}
-
-fn resample_cpu_f64(
     config: Config,
     inputs: Vec<PlanarVecs<f64>>,
     gapless: bool,
@@ -899,48 +750,12 @@ fn map_planar<A, B>(planar: PlanarVecs<A>, convert: impl Fn(A) -> B) -> Result<P
     Ok(PlanarVecs::new(channels)?)
 }
 
-fn resample_cpu_f32(
+fn resample_f32(
     config: Config,
     inputs: Vec<PlanarVecs<f32>>,
     gapless: bool,
 ) -> Result<Vec<PlanarVecs<f32>>, Box<dyn Error>> {
     let processor = PlanarResampler::<f32>::new(config)?;
-    if gapless {
-        Ok(processor.batch_gapless(inputs)?)
-    } else {
-        Ok(processor.batch(inputs)?)
-    }
-}
-
-#[cfg(feature = "gpu")]
-fn start_gpu_resampler_f64(device: &Arc<GpuDevice>, config: Config) -> Result<PlanarGpuResampler<f64>, GpuError> {
-    PlanarGpuResampler::new(GpuContext::<f64>::with_device(Arc::clone(device), config)?)
-}
-
-#[cfg(feature = "gpu")]
-fn start_gpu_resampler_f32(device: &Arc<GpuDevice>, config: Config) -> Result<PlanarGpuResampler<f32>, GpuError> {
-    PlanarGpuResampler::new(GpuContext::<f32>::with_device(Arc::clone(device), config)?)
-}
-
-#[cfg(feature = "gpu")]
-fn gpu_batch_f64(
-    processor: PlanarGpuResampler<f64>,
-    inputs: Vec<PlanarVecs<f64>>,
-    gapless: bool,
-) -> Result<Vec<PlanarVecs<f64>>, Box<dyn Error>> {
-    if gapless {
-        Ok(processor.batch_gapless(inputs)?)
-    } else {
-        Ok(processor.batch(inputs)?)
-    }
-}
-
-#[cfg(feature = "gpu")]
-fn gpu_batch_f32(
-    processor: PlanarGpuResampler<f32>,
-    inputs: Vec<PlanarVecs<f32>>,
-    gapless: bool,
-) -> Result<Vec<PlanarVecs<f32>>, Box<dyn Error>> {
     if gapless {
         Ok(processor.batch_gapless(inputs)?)
     } else {
@@ -1330,44 +1145,6 @@ mod tests {
         argv.extend(["--taper-type", "kaiser", "--alpha", "2"]);
         assert!(validate_args(&Args::try_parse_from(&argv).unwrap()).is_err());
     }
-
-    // #[test]
-    // fn cpu_flag_is_accepted() {
-    //     let args = Args::try_parse_from([
-    //         "ardftsrc-rs",
-    //         "--input",
-    //         "in.wav",
-    //         "--output",
-    //         "out.wav",
-    //         "--output-rate",
-    //         "48000",
-    //         "--cpu",
-    //     ])
-    //     .unwrap();
-    //     assert!(args.force_cpu);
-    // }
-
-    // #[cfg(feature = "gpu")]
-    // #[test]
-    // fn gpu_config_flags_apply_to_config() {
-    //     let args = Args::try_parse_from([
-    //         "ardftsrc-rs",
-    //         "--input",
-    //         "in.wav",
-    //         "--output",
-    //         "out.wav",
-    //         "--output-rate",
-    //         "48000",
-    //         "--gpu-group-chunks",
-    //         "8",
-    //         "--gpu-ring-slots",
-    //         "8",
-    //     ])
-    //     .unwrap();
-    //     let config = build_config(&args, 44_100, 2).unwrap();
-    //     assert_eq!(config.gpu_group_chunks, 8);
-    //     assert_eq!(config.gpu_ring_slots, 8);
-    // }
 
     #[test]
     fn f32_quality_limit_supports_every_preset() {
