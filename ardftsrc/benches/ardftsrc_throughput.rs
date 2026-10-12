@@ -1,4 +1,5 @@
-use std::path::Path;
+mod common;
+
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -9,15 +10,10 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 use ardftsrc::{Config, InterleavedResampler, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, Sample};
 use criterion::measurement::WallTime;
-use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use wavers::{Wav, read};
-
-const TARGET_SAMPLE_RATES: &[usize] = &[22_050, 48_000, 96_000];
-const FIXTURE_PATHS: &[&str] = &[
-    "../test_wavs/example-pcm16-44k1-stereo.wav",
-    "../test_wavs/sweep-pcm16-22k05.wav",
-    "../test_wavs/sweep-f32-96k.wav",
-];
+use common::{CHANNELS, INPUT_SAMPLE_RATES, INPUT_SECONDS, OUTPUT_SAMPLE_RATES};
+use criterion::{
+    BenchmarkGroup, BenchmarkId, Criterion, SamplingMode, Throughput, criterion_group, criterion_main,
+};
 const INTER_TEST_SLEEP: Duration = Duration::from_millis(100);
 
 struct Preset {
@@ -51,50 +47,27 @@ fn presets() -> Vec<Preset> {
     presets
 }
 
-#[derive(Clone)]
-struct WavData {
-    file: String,
+/// One input stream, in every sample type the bench runs.
+struct Input {
     sample_rate_hz: usize,
-    channels: usize,
     samples_f32: Vec<f32>,
     samples_f64: Vec<f64>,
     #[cfg(feature = "high_precision")]
     samples_dd: Vec<ardftsrc::DoubleDouble>,
 }
 
-fn read_wav(path: &Path) -> WavData {
-    let wav =
-        Wav::<f32>::from_path(path).unwrap_or_else(|err| panic!("failed to open fixture {}: {err}", path.display()));
-    let (samples, _) =
-        read::<f32, _>(path).unwrap_or_else(|err| panic!("failed to read samples {}: {err}", path.display()));
-    let samples_f32 = samples.to_vec();
-    let samples_f64: Vec<f64> = samples_f32.iter().map(|&sample| sample as f64).collect();
-    #[cfg(feature = "high_precision")]
-    let samples_dd = samples_f64
-        .iter()
-        .map(|&sample| ardftsrc::DoubleDouble::from(sample))
-        .collect();
-
-    WavData {
-        file: path
-            .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .unwrap_or("fixture.wav")
-            .to_string(),
-        sample_rate_hz: wav.sample_rate() as usize,
-        channels: wav.n_channels() as usize,
-        samples_f32,
-        samples_f64,
+fn make_input(sample_rate_hz: usize) -> Input {
+    let samples_f64 = common::track(sample_rate_hz);
+    Input {
+        sample_rate_hz,
+        samples_f32: samples_f64.iter().map(|&sample| sample as f32).collect(),
         #[cfg(feature = "high_precision")]
-        samples_dd,
+        samples_dd: samples_f64
+            .iter()
+            .map(|&sample| ardftsrc::DoubleDouble::from(sample))
+            .collect(),
+        samples_f64,
     }
-}
-
-fn load_fixtures() -> Vec<WavData> {
-    FIXTURE_PATHS
-        .iter()
-        .map(|rel_path| read_wav(Path::new(rel_path)))
-        .collect()
 }
 
 fn assert_supported_feature_combo() {
@@ -116,7 +89,7 @@ fn assert_supported_feature_combo() {
 fn benchmark_sample_type<T>(
     group: &mut BenchmarkGroup<'_, WallTime>,
     sample_type_flag: &str,
-    fixture: &WavData,
+    input: &Input,
     preset: &Preset,
     output_sample_rate_hz: usize,
     samples: &[T],
@@ -126,26 +99,24 @@ fn benchmark_sample_type<T>(
     let config = preset
         .config
         .clone()
-        .with_input_rate(fixture.sample_rate_hz)
+        .with_input_rate(input.sample_rate_hz)
         .with_output_rate(output_sample_rate_hz)
-        .with_channels(fixture.channels);
+        .with_channels(CHANNELS);
     let resampler = InterleavedResampler::<T>::new(config);
     if resampler.is_err() {
         return;
     }
     let mut resampler = resampler.expect("resampler construction checked above");
-    let input_frames = samples.len() / fixture.channels;
-    let output_frames = resampler.expected_output_size(input_frames);
-    let output_samples = output_frames * fixture.channels;
-
-    group.throughput(Throughput::Elements(output_samples as u64));
+    // Elements are input frames, so elements per second divided by the input rate is the
+    // realtime factor.
+    group.throughput(Throughput::Elements((samples.len() / CHANNELS) as u64));
     group.bench_with_input(
-        benchmark_id(sample_type_flag, fixture, preset.name, output_sample_rate_hz),
+        benchmark_id(sample_type_flag, input, preset.name, output_sample_rate_hz),
         samples,
-        |b, input| {
+        |b, samples| {
             b.iter(|| {
                 resampler.reset();
-                resampler.process_all(input).unwrap();
+                resampler.process_all(samples).unwrap();
             });
         },
     );
@@ -155,50 +126,55 @@ fn benchmark_sample_type<T>(
 
 fn benchmark_id(
     sample_type_flag: &str,
-    fixture: &WavData,
+    input: &Input,
     preset_name: &str,
     output_sample_rate_hz: usize,
 ) -> BenchmarkId {
     BenchmarkId::from_parameter(format!(
-        "{sample_type_flag} --preset={preset_name} --input={} --output={output_sample_rate_hz} --file={}",
-        fixture.sample_rate_hz, fixture.file
+        "{sample_type_flag} --preset={preset_name} --input={} --output={output_sample_rate_hz} --channels={CHANNELS} --seconds={INPUT_SECONDS}",
+        input.sample_rate_hz
     ))
 }
 
-fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
+fn benchmark_process_all(c: &mut Criterion) {
     let mut group = c.benchmark_group("ardftsrc/process_all");
+    // Each iteration resamples a whole track, so take few, flat samples.
+    group.sample_size(10);
+    group.sampling_mode(SamplingMode::Flat);
     let presets = presets();
 
-    for fixture in fixtures {
+    for &input_sample_rate_hz in INPUT_SAMPLE_RATES {
+        // Generated per rate so only one rate's samples are held at a time.
+        let input = make_input(input_sample_rate_hz);
         for preset in &presets {
-            for &output_sample_rate_hz in TARGET_SAMPLE_RATES {
+            for &output_sample_rate_hz in OUTPUT_SAMPLE_RATES {
                 if preset.name == "high+dd" {
                     #[cfg(feature = "high_precision")]
                     benchmark_sample_type(
                         &mut group,
                         "--dd",
-                        fixture,
+                        &input,
                         preset,
                         output_sample_rate_hz,
-                        &fixture.samples_dd,
+                        &input.samples_dd,
                     );
                     continue;
                 }
                 benchmark_sample_type(
                     &mut group,
                     "--f32",
-                    fixture,
+                    &input,
                     preset,
                     output_sample_rate_hz,
-                    &fixture.samples_f32,
+                    &input.samples_f32,
                 );
                 benchmark_sample_type(
                     &mut group,
                     "--f64",
-                    fixture,
+                    &input,
                     preset,
                     output_sample_rate_hz,
-                    &fixture.samples_f64,
+                    &input.samples_f64,
                 );
             }
         }
@@ -209,9 +185,7 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
 
 fn criterion_benchmark(c: &mut Criterion) {
     assert_supported_feature_combo();
-    // Preload and decode all WAV fixtures before any timed benchmark loops.
-    let fixtures = load_fixtures();
-    benchmark_process_all(c, &fixtures);
+    benchmark_process_all(c);
 }
 
 criterion_group!(benches, criterion_benchmark);

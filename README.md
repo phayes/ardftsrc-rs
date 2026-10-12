@@ -388,4 +388,4 @@ AI use is allowed for the following:
 
 1. Add bindings to other languages, python, cpp, c#, ts (wasm) etc.
 2. Investigate why the optional audioadapter interface appears to be much slower than other paths.
-3. Add an optional raised-cosine fade on extrapolated edge samples, ending where the synthetic span meets the FFT window's zero padding, then re-assess `Extrapolation::OddMirror` with fade as the default. Without a fade, `OddMirror` loses to `Lpc` at start edges, especially on tonal material. A short final chunk only gets `chunk - input_samples` synthetic samples before that padding, so the fade has to account for it.
+3. Add a fade option to Extrapolation.
