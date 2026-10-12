@@ -10,7 +10,7 @@ use num_traits::Float;
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md),
 /// [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md).
 ///
-/// **HydrogenAudio Test Suite (f32)**
+/// **[HydrogenAudio Test Suite (f32)](https://src.hydrogenaudio.org/compareresults?id1=1eff4cbe-15a6-454c-afd6-64987e0ac2e1&id2=0&adddb=1)**
 /// - Overall Score: 71.83%
 /// - Spectrogram Score: 51.73%
 /// - Aliasing Score: 100%
@@ -20,7 +20,7 @@ use num_traits::Float;
 /// - Pre-ringing Score: 21.63%
 /// - Gapless Sine Score: 100%
 ///
-/// **HydrogenAudio Test Suite (f64)**
+/// **[HydrogenAudio Test Suite (f64)](https://src.hydrogenaudio.org/compareresults?id1=0218934d-3d91-47cb-a46f-a0bd821f5ab1&id2=0&adddb=1)**
 /// - Overall Score: 97.69%
 /// - Spectrogram Score: 96.22%
 /// - Aliasing Score: 100%
@@ -52,7 +52,7 @@ pub const PRESET_FAST: Config = Config {
 ///
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md).
 ///
-/// **HydrogenAudio Test Suite (f64)**
+/// **[HydrogenAudio Test Suite (f64)](https://src.hydrogenaudio.org/compareresults?id1=4843d033-c163-42ad-85f7-1765192cf30a&id2=0&adddb=1)**
 /// - Overall Score: 99.26%
 /// - Spectrogram Score: 98.91%
 /// - Aliasing Score: 100%
@@ -86,7 +86,7 @@ pub const PRESET_GOOD: Config = Config {
 ///
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md).
 ///
-/// **HydrogenAudio Test Suite (f64)**
+/// **[HydrogenAudio Test Suite (f64)](https://src.hydrogenaudio.org/compareresults?id1=a22e9dbf-99f6-4161-9a8a-6905412f3324&id2=0&adddb=1)**
 /// - Overall Score: 99.86%
 /// - Spectrogram Score: 99.66%
 /// - Aliasing Score: 100%
@@ -96,7 +96,7 @@ pub const PRESET_GOOD: Config = Config {
 /// - Pre-ringing Score: 17.74%
 /// - Gapless Sine Score: 100%
 ///
-/// **HydrogenAudio Test Suite (f64 with `HighPrecision::DoubleDouble`)**
+/// **[HydrogenAudio Test Suite (f64 with `HighPrecision::DoubleDouble`)](https://src.hydrogenaudio.org/compareresults?id1=d1fc4c2c-be89-4d79-9e27-3d6691454584&id2=0&adddb=1)**
 /// - Overall Score: 99.92%
 /// - Spectrogram Score: 99.66%
 /// - Aliasing Score: 100%
