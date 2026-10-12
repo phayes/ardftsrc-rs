@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use num_traits::Float;
 use realfft::num_complex::Complex;
-use realfft::{ComplexToReal, FftNum, RealFftPlanner, RealToComplex};
+use realfft::{ComplexToReal, RealToComplex};
 
 use crate::Error;
 use crate::config::DerivedConfig;
 use crate::decimate::DecimationChain;
+use crate::dsp_float::Sample;
 use crate::window;
 
+/// Single-channel resampler that runs every stage in `T`.
 pub(crate) struct CpuCore<T = f64>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     /// Precomputed FFT/chunk/offset dimensions and taper.
     derived: DerivedConfig<T>,
@@ -57,7 +58,7 @@ where
 /// repeated heap allocation and keep a stable memory layout.
 struct Scratch<T>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     /// Time-domain window fed to forward FFT; receives input at configured offset.
     rdft_in: Vec<T>,
@@ -67,6 +68,10 @@ where
     resampled_spectrum: Vec<Complex<T>>,
     /// Time-domain iFFT output used both for immediate writeout and overlap accumulation.
     rdft_out: Vec<T>,
+    /// Working buffer for the forward FFT.
+    forward_fft: Vec<Complex<T>>,
+    /// Working buffer for the inverse FFT.
+    inverse_fft: Vec<Complex<T>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,7 +86,7 @@ enum TransformMode {
 
 impl<T> CpuCore<T>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     #[inline]
     fn input_chunk_len_samples(&self) -> usize {
@@ -97,15 +102,16 @@ where
     ///
     /// Returns a ready-to-use core instance.
     pub(crate) fn new(derived: DerivedConfig<T>) -> Self {
-        let mut planner = RealFftPlanner::<T>::new();
-        let forward = plan_forward(&mut planner, &derived);
-        let inverse = plan_inverse(&mut planner, &derived);
+        let forward = T::plan_fft_forward(derived.input_fft_size);
+        let inverse = T::plan_fft_inverse(derived.output_fft_size);
         let output_offset = derived.output_offset;
         let scratch = Scratch {
             rdft_in: forward.make_input_vec(),
             spectrum: forward.make_output_vec(),
             resampled_spectrum: inverse.make_input_vec(),
             rdft_out: inverse.make_output_vec(),
+            forward_fft: forward.make_scratch_vec(),
+            inverse_fft: inverse.make_scratch_vec(),
         };
         let overlap = vec![T::zero(); derived.output_chunk_frames];
         let output_block = vec![T::zero(); derived.output_chunk_frames];
@@ -307,8 +313,7 @@ where
 
             self.add_synthetic_finalize_tail_to_overlap()?;
 
-            let scale = T::from(self.output_chunk_len_samples()).unwrap_or(T::one())
-                / T::from(self.input_chunk_len_samples()).unwrap_or(T::one());
+            let scale = T::cast_usize(self.output_chunk_len_samples()) / T::cast_usize(self.input_chunk_len_samples());
             for (dst, src) in self.output_block[..written_samples]
                 .iter_mut()
                 .zip(self.overlap[..written_samples].iter())
@@ -566,7 +571,11 @@ where
     /// the backend.
     fn transform_chunk(&mut self, mode: TransformMode) -> Result<(), Error> {
         self.forward
-            .process(&mut self.scratch.rdft_in, &mut self.scratch.spectrum)
+            .process_with_scratch(
+                &mut self.scratch.rdft_in,
+                &mut self.scratch.spectrum,
+                &mut self.scratch.forward_fft,
+            )
             .map_err(|err| Error::Fft(err.to_string()))?;
 
         self.derived
@@ -574,12 +583,15 @@ where
             .apply(&self.scratch.spectrum, &mut self.scratch.resampled_spectrum);
 
         self.inverse
-            .process(&mut self.scratch.resampled_spectrum, &mut self.scratch.rdft_out)
+            .process_with_scratch(
+                &mut self.scratch.resampled_spectrum,
+                &mut self.scratch.rdft_out,
+                &mut self.scratch.inverse_fft,
+            )
             .map_err(|err| Error::Fft(err.to_string()))?;
 
-        let normalize = T::one() / T::from(self.derived.output_fft_size).unwrap_or(T::one());
-        let scale = T::from(self.output_chunk_len_samples()).unwrap_or(T::one())
-            / T::from(self.input_chunk_len_samples()).unwrap_or(T::one());
+        let normalize = T::one() / T::cast_usize(self.derived.output_fft_size);
+        let scale = T::cast_usize(self.output_chunk_len_samples()) / T::cast_usize(self.input_chunk_len_samples());
         let output_chunk_samples = self.output_chunk_len_samples();
 
         if matches!(mode, TransformMode::Normal) {
@@ -644,151 +656,143 @@ where
     }
 }
 
-/// Plans the forward real FFT for one [`CpuCore`] instance.
-///
-/// When the `high_precision` feature is compiled in, [`DerivedConfig::high_precision`] selects a
-/// high-precision engine for `f64`; otherwise the stock `realfft` planner is used. `T` is a
-/// compile-time generic parameter, so "is `T` `f64`" is checked with `TypeId`. The downcast is
-/// safe because it only runs after confirming that `T` and `f64` are the same type.
-///
-/// See [`plan_inverse`] for the inverse counterpart.
-fn plan_forward<T: Float + FftNum>(
-    planner: &mut RealFftPlanner<T>,
-    derived: &DerivedConfig<T>,
-) -> Arc<dyn RealToComplex<T>> {
-    let len = derived.input_fft_size;
-
-    #[cfg(feature = "high_precision")]
-    if let Some(precision) = derived.high_precision {
-        use std::any::{Any, TypeId};
-
-        if TypeId::of::<T>() == TypeId::of::<f64>() {
-            let fft: Arc<dyn RealToComplex<f64>> = crate::high_precision::plan_fft_forward(len, precision);
-            let fft: Box<dyn Any> = Box::new(fft);
-            return *fft
-                .downcast::<Arc<dyn RealToComplex<T>>>()
-                .expect("TypeId check above guarantees T == f64");
-        }
-    }
-
-    planner.plan_fft_forward(len)
-}
-
-/// Inverse counterpart of [`plan_forward`]. Plans the inverse real FFT for one [`CpuCore`] instance.
-///
-/// When the `high_precision` feature is compiled in, [`DerivedConfig::high_precision`] selects a
-/// high-precision engine for `f64`; otherwise the stock `realfft` planner is used. `T` is a
-/// compile-time generic parameter, so "is `T` `f64`" is checked with `TypeId`. The downcast is
-/// safe because it only runs after confirming that `T` and `f64` are the same type.
-fn plan_inverse<T: Float + FftNum>(
-    planner: &mut RealFftPlanner<T>,
-    derived: &DerivedConfig<T>,
-) -> Arc<dyn ComplexToReal<T>> {
-    let len = derived.output_fft_size;
-
-    #[cfg(feature = "high_precision")]
-    if let Some(precision) = derived.high_precision {
-        use std::any::{Any, TypeId};
-
-        if TypeId::of::<T>() == TypeId::of::<f64>() {
-            let fft: Arc<dyn ComplexToReal<f64>> = crate::high_precision::plan_fft_inverse(len, precision);
-            let fft: Box<dyn Any> = Box::new(fft);
-            return *fft
-                .downcast::<Arc<dyn ComplexToReal<T>>>()
-                .expect("TypeId check above guarantees T == f64");
-        }
-    }
-
-    planner.plan_fft_inverse(len)
-}
-
 #[cfg(test)]
 mod backend_wiring_tests {
     use super::*;
     use crate::Config;
 
+    /// Test-only narrowing back to `f64`, for comparing outputs across sample types.
+    trait ToF64: Sample {
+        fn to_f64_for_test(self) -> f64;
+    }
+
+    impl ToF64 for f64 {
+        fn to_f64_for_test(self) -> f64 {
+            self
+        }
+    }
+
+    #[cfg(feature = "high_precision")]
+    impl ToF64 for crate::DoubleDouble {
+        fn to_f64_for_test(self) -> f64 {
+            self.to_f64()
+        }
+    }
+
+    #[cfg(feature = "high_precision")]
+    impl ToF64 for crate::F128 {
+        fn to_f64_for_test(self) -> f64 {
+            self.to_f64()
+        }
+    }
+
+    #[cfg(feature = "high_precision")]
+    impl ToF64 for crate::F256 {
+        fn to_f64_for_test(self) -> f64 {
+            self.to_f64()
+        }
+    }
+
+    /// Resamples `input` with a [`CpuCore`] running in `T`, converting at the boundary.
+    fn resample_in<T: ToF64>(config: &Config, input: &[f64]) -> Vec<f64> {
+        let mut core = CpuCore::<T>::new(config.derive_config::<T>().unwrap());
+        let input: Vec<T> = input.iter().map(|&sample| T::cast_f64(sample)).collect();
+        core.process_all(&input)
+            .unwrap()
+            .into_iter()
+            .map(T::to_f64_for_test)
+            .collect()
+    }
+
+    fn test_signal(len: usize) -> Vec<f64> {
+        (0..len)
+            .map(|i| {
+                let t = i as f64 / 44_100.0;
+                let noise = ((i as f64 * 12.9898).sin() * 43_758.545_3).fract() - 0.5;
+                0.6 * (2.0 * std::f64::consts::PI * 1_000.0 * t).sin() + 1e-3 * noise
+            })
+            .collect()
+    }
+
+    fn max_abs_diff(a: &[f64], b: &[f64]) -> f64 {
+        assert_eq!(a.len(), b.len());
+        a.iter().zip(b).map(|(a, b)| (a - b).abs()).fold(0.0f64, f64::max)
+    }
+
     #[test]
     fn f64_core_resamples_a_sine_correctly() {
-        let config = Config::new(44_100, 48_000, 1);
-        assert_f64_core_resamples_a_sine_correctly(config);
+        assert_core_resamples_a_sine_correctly::<f64>();
     }
 
     #[cfg(feature = "high_precision")]
     #[test]
     fn double_double_core_resamples_a_sine_correctly() {
-        let config = Config::new(44_100, 48_000, 1).with_high_precision(Some(crate::HighPrecision::DoubleDouble));
-        assert_f64_core_resamples_a_sine_correctly(config);
+        assert_core_resamples_a_sine_correctly::<crate::DoubleDouble>();
     }
 
     #[cfg(feature = "high_precision")]
     #[test]
     fn f128_core_resamples_a_sine_correctly() {
-        let config = Config::new(44_100, 48_000, 1).with_high_precision(Some(crate::HighPrecision::F128));
-        assert_f64_core_resamples_a_sine_correctly(config);
+        assert_core_resamples_a_sine_correctly::<crate::F128>();
     }
 
     #[cfg(feature = "high_precision")]
     #[test]
     fn f256_core_resamples_a_sine_correctly() {
-        let config = Config::new(44_100, 48_000, 1).with_high_precision(Some(crate::HighPrecision::F256));
-        assert_f64_core_resamples_a_sine_correctly(config);
+        assert_core_resamples_a_sine_correctly::<crate::F256>();
     }
 
-    /// The plain `realfft` engine uses its input buffer as scratch, while the high-precision
-    /// wrapper leaves it untouched. Any state read back from `rdft_in` after a forward
-    /// transform (e.g. the history used for stop extrapolation) would make the two diverge at
-    /// the end of the stream, so require them to agree to near `f64` precision everywhere,
-    /// for both a full and a short final chunk.
+    /// A wide core must reproduce the `f64` core's stream handling exactly (start priming,
+    /// trimming, and both end-of-stream paths), so the two may differ only by `f64` rounding
+    /// error everywhere, for both a full and a short final chunk.
     #[cfg(feature = "high_precision")]
     #[test]
-    fn plain_f64_matches_high_precision_through_end_of_stream() {
+    fn f64_matches_double_double_through_end_of_stream() {
         let config = Config::new(44_100, 48_000, 1);
         let chunk_frames = config.derive_config::<f64>().unwrap().input_chunk_frames;
 
         for input_len in [chunk_frames * 4, chunk_frames * 4 + chunk_frames / 3] {
-            let input: Vec<f64> = (0..input_len)
-                .map(|i| {
-                    let t = i as f64 / 44_100.0;
-                    let noise = ((i as f64 * 12.9898).sin() * 43_758.545_3).fract() - 0.5;
-                    0.6 * (2.0 * std::f64::consts::PI * 1_000.0 * t).sin() + 1e-3 * noise
-                })
-                .collect();
-
-            let resample = |config: &Config| {
-                let derived = config.derive_config::<f64>().unwrap();
-                CpuCore::<f64>::new(derived).process_all(&input).unwrap()
-            };
-            let plain = resample(&config);
-            let precise = resample(
-                &config
-                    .clone()
-                    .with_high_precision(Some(crate::HighPrecision::DoubleDouble)),
-            );
-
-            assert_eq!(plain.len(), precise.len());
-            let max_diff = plain
-                .iter()
-                .zip(&precise)
-                .map(|(a, b)| (a - b).abs())
-                .fold(0.0f64, f64::max);
+            let input = test_signal(input_len);
+            let plain = resample_in::<f64>(&config, &input);
+            let precise = resample_in::<crate::DoubleDouble>(&config, &input);
+            let max_diff = max_abs_diff(&plain, &precise);
             assert!(
                 max_diff < 1e-12,
-                "input_len={input_len}: plain f64 and high-precision outputs differ by {max_diff:e}"
+                "input_len={input_len}: f64 and double-double outputs differ by {max_diff:e}"
             );
         }
     }
 
-    fn assert_f64_core_resamples_a_sine_correctly(config: Config) {
-        let derived = config.derive_config::<f64>().unwrap();
-        let mut core = CpuCore::<f64>::new(derived);
+    /// With every stage running in the wide type, the wide types' outputs differ only by the
+    /// final rounding to `f64`, far less than the `f64` pipeline's accumulated error.
+    #[cfg(feature = "high_precision")]
+    #[test]
+    fn wide_types_agree_more_closely_than_f64() {
+        let config = Config::new(44_100, 48_000, 1);
+        let input = test_signal(config.derive_config::<f64>().unwrap().input_chunk_frames * 3);
 
-        let input_hz = 1_000.0;
-        let input_rate = 44_100.0;
+        let reference = resample_in::<crate::F256>(&config, &input);
+        let f64_error = max_abs_diff(&resample_in::<f64>(&config, &input), &reference);
+        let dd_error = max_abs_diff(&resample_in::<crate::DoubleDouble>(&config, &input), &reference);
+        let f128_error = max_abs_diff(&resample_in::<crate::F128>(&config, &input), &reference);
+
+        // One ulp at the signal's peak magnitude (below 1).
+        let ulp = f64::EPSILON;
+        assert!(dd_error <= ulp, "double-double differs from f256 by {dd_error:e}");
+        assert!(f128_error <= ulp, "f128 differs from f256 by {f128_error:e}");
+        assert!(
+            f64_error > 4.0 * ulp,
+            "f64 is expected to accumulate visible error; differs from f256 by {f64_error:e}"
+        );
+    }
+
+    fn assert_core_resamples_a_sine_correctly<T: ToF64>() {
+        let config = Config::new(44_100, 48_000, 1);
         let input: Vec<f64> = (0..8192)
-            .map(|i| (2.0 * std::f64::consts::PI * input_hz * i as f64 / input_rate).sin())
+            .map(|i| (2.0 * std::f64::consts::PI * 1_000.0 * i as f64 / 44_100.0).sin())
             .collect();
 
-        let output = core.process_all(&input).unwrap();
+        let output = resample_in::<T>(&config, &input);
 
         assert!(!output.is_empty());
         assert!(
@@ -799,10 +803,8 @@ mod backend_wiring_tests {
         // A steady-state 1kHz sine resampled 44.1k -> 48k should still look like a bounded
         // sine, not silence or a blown-up/garbage signal: check the back half (past startup
         // transients) stays within a sane amplitude envelope around the original's.
-        let steady_state = &output[output.len() / 2..];
-        let peak = steady_state
+        let peak = output[output.len() / 2..]
             .iter()
-            .cloned()
             .fold(0.0f64, |acc, sample| acc.max(sample.abs()));
         assert!(
             peak > 0.5 && peak < 1.5,

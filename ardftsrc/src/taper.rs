@@ -1,7 +1,7 @@
 use crate::Error;
 use crate::beta_reg::beta_reg;
+use crate::dsp_float::DspFloat;
 use crate::kaiser::{KaiserSeries, MAX_KAISER_BETA};
-use num_traits::Float;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// Transition profile used to shape the cutoff edge of the frequency mask.
@@ -61,7 +61,7 @@ impl TaperType {
     ///
     /// Profiles are computed and trimmed in `f64` and converted last, so the layout is the same
     /// for every `T`.
-    pub(crate) fn build_taper<T: Float>(
+    pub(crate) fn build_taper<T: DspFloat>(
         &self,
         spectrum_fft_size: usize,
         cutoff_bin: usize,
@@ -79,10 +79,7 @@ impl TaperType {
         } else {
             trim_transition(&raw)
         };
-        let transition: Vec<T> = transition
-            .iter()
-            .map(|value| T::from(*value).expect("T should be f64 or f32 and be able to convert from f64"))
-            .collect();
+        let transition: Vec<T> = transition.iter().map(|&value| T::cast_f64(value)).collect();
         place_transition(len, cutoff_bin, &transition)
     }
 
@@ -152,7 +149,7 @@ impl TaperType {
 
 /// Lays out a mask of `len` bins: unity below the transition, `transition` ending just before
 /// `cutoff_bin`, and zeros from `cutoff_bin` on.
-fn place_transition<T: Float>(len: usize, cutoff_bin: usize, transition: &[T]) -> Vec<T> {
+fn place_transition<T: DspFloat>(len: usize, cutoff_bin: usize, transition: &[T]) -> Vec<T> {
     let taper_start = cutoff_bin.saturating_sub(transition.len());
 
     (0..len)

@@ -4,7 +4,7 @@
 //! core in `src/spectral.rs`; these tests check that every wrapper path picks up the alias floor
 //! and keeps stream length/timing unchanged.
 
-use ardftsrc::{Config, InterleavedResampler, PlanarResampler};
+use ardftsrc::{Config, InterleavedResampler, PlanarResampler, Sample};
 
 /// Pinned rather than the default so the near-Nyquist tones fold/image inside the -3 dB floor's
 /// band; a narrower transition would move the floor above them.
@@ -26,14 +26,27 @@ fn signal(rate: usize, channels: usize, near_nyquist_hz: f64) -> Vec<f64> {
 }
 
 fn run_interleaved(config: Config, input: &[f64], context: Option<(Vec<f64>, Vec<f64>)>) -> Vec<f64> {
-    let mut resampler = InterleavedResampler::<f64>::new(config).unwrap();
+    run_interleaved_as::<f64>(config, input, context, |sample| sample)
+}
+
+/// Runs `input` through an `InterleavedResampler<T>`, converting samples in with `From<f64>`
+/// and back out with `to_f64`.
+fn run_interleaved_as<T: Sample + From<f64>>(
+    config: Config,
+    input: &[f64],
+    context: Option<(Vec<f64>, Vec<f64>)>,
+    to_f64: fn(T) -> f64,
+) -> Vec<f64> {
+    let widen = |samples: &[f64]| samples.iter().map(|&sample| T::from(sample)).collect::<Vec<T>>();
+    let input = widen(input);
+    let mut resampler = InterleavedResampler::<T>::new(config).unwrap();
     if let Some((pre, post)) = context {
-        resampler.pre(pre).unwrap();
-        resampler.post(post).unwrap();
+        resampler.pre(widen(&pre)).unwrap();
+        resampler.post(widen(&post)).unwrap();
     }
 
     let input_size = resampler.input_buffer_size();
-    let mut buffer = vec![0.0; resampler.output_buffer_size()];
+    let mut buffer = vec![T::from(0.0); resampler.output_buffer_size()];
     let mut output = Vec::new();
     let mut offset = 0;
     while offset + input_size <= input.len() {
@@ -48,6 +61,7 @@ fn run_interleaved(config: Config, input: &[f64], context: Option<(Vec<f64>, Vec
     let written = resampler.finalize(&mut buffer).unwrap();
     output.extend_from_slice(&buffer[..written]);
 
+    let output: Vec<f64> = output.into_iter().map(to_f64).collect();
     assert!(output.iter().all(|sample| sample.is_finite()), "non-finite output");
     output
 }
@@ -162,18 +176,18 @@ fn gapless_context_keeps_length_with_alias_floor() {
 #[cfg(feature = "high_precision")]
 #[test]
 fn high_precision_applies_alias_floor() {
-    use ardftsrc::HighPrecision;
-
-    for precision in [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256] {
-        let strict = Config::new(96_000, 44_100, 1)
-            .with_bandwidth(BANDWIDTH)
-            .with_high_precision(Some(precision));
+    fn check<T: Sample + From<f64>>(to_f64: fn(T) -> f64) {
+        let strict = Config::new(96_000, 44_100, 1).with_bandwidth(BANDWIDTH);
         let aliased = strict.clone().with_alias_floor_db(-3.0);
         let input = signal(96_000, 1, 22_300.0);
 
         assert_alias_floor_applied(
-            &run_interleaved(strict, &input, None),
-            &run_interleaved(aliased, &input, None),
+            &run_interleaved_as::<T>(strict, &input, None, to_f64),
+            &run_interleaved_as::<T>(aliased, &input, None, to_f64),
         );
     }
+
+    check(ardftsrc::DoubleDouble::to_f64);
+    check(ardftsrc::F128::to_f64);
+    check(ardftsrc::F256::to_f64);
 }

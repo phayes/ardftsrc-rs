@@ -12,9 +12,9 @@ mod f128;
 mod f256;
 mod trig;
 
-pub(crate) use double_double::Dd;
-pub(crate) use f128::F128;
-pub(crate) use f256::F256;
+pub use double_double::DoubleDouble;
+pub use f128::F128;
+pub use f256::F256;
 
 use num_complex::Complex;
 
@@ -25,12 +25,15 @@ use super::vendor::rustfft::{FftDirection, FftNum};
 /// Method names are prefixed where they would otherwise collide with `num_traits` methods of the
 /// same name (`Signed::abs`, `FromPrimitive::from_f64`).
 pub(crate) trait HighPrecisionFloat: FftNum + PartialOrd {
+    /// Significand precision in bits, including the implicit leading bit.
+    const MANTISSA_DIGITS: u32;
     /// Widens an `f64` without rounding (every backend's mantissa is a superset of `f64`'s).
     fn from_f64_exact(value: f64) -> Self;
     /// Narrows to the nearest `f64` (ties to even).
     fn to_f64(self) -> f64;
     fn hp_abs(self) -> Self;
     fn hp_is_sign_negative(self) -> bool;
+    fn hp_is_finite(self) -> bool;
     /// Rounds to an integral value (the direction of halfway cases is unspecified).
     fn hp_round(self) -> Self;
     /// Sine and cosine at this type's full precision.
@@ -59,7 +62,16 @@ pub(crate) fn twiddle_factor<T: HighPrecisionFloat>(
     }
 }
 
-/// Implements arithmetic, `num_traits`, `Debug`, and `FftNum` for a single-field newtype whose
+/// Whether `value` is NaN (the only value unequal to itself).
+#[inline]
+#[allow(clippy::eq_op)]
+pub(crate) fn is_nan<T: PartialEq + Copy>(value: T) -> bool {
+    value != value
+}
+
+/// Implements arithmetic, `num_traits`, `Debug`, `FftNum`, [`DspFloat`](crate::dsp_float::DspFloat),
+/// [`Sample`](crate::Sample), and the public `f32`/`f64` conversions for a single-field newtype
+/// whose
 /// inner type supports `+ - * / %` and unary `-`, in terms of [`HighPrecisionFloat`].
 ///
 /// `$finish` maps the inner type's binary-operator output back to the inner type (identity for
@@ -188,6 +200,72 @@ macro_rules! impl_high_precision_newtype {
             }
         }
 
+        impl ::std::convert::From<f64> for $ty {
+            /// Converts exactly: every `f64` is representable.
+            #[inline]
+            fn from(value: f64) -> Self {
+                <$ty as $crate::high_precision::numeric::HighPrecisionFloat>::from_f64_exact(value)
+            }
+        }
+
+        impl ::std::convert::From<f32> for $ty {
+            /// Converts exactly: every `f32` is representable.
+            #[inline]
+            fn from(value: f32) -> Self {
+                <$ty as $crate::high_precision::numeric::HighPrecisionFloat>::from_f64_exact(f64::from(value))
+            }
+        }
+
+        impl $ty {
+            /// Rounds to the nearest `f64`.
+            #[inline]
+            pub fn to_f64(self) -> f64 {
+                <$ty as $crate::high_precision::numeric::HighPrecisionFloat>::to_f64(self)
+            }
+        }
+
+        impl $crate::dsp_float::DspFloat for $ty {
+            #[inline]
+            fn cast_f64(value: f64) -> Self {
+                <$ty as $crate::high_precision::numeric::HighPrecisionFloat>::from_f64_exact(value)
+            }
+            #[inline]
+            fn cast_usize(value: usize) -> Self {
+                <$ty as $crate::high_precision::numeric::HighPrecisionFloat>::from_f64_exact(value as f64)
+            }
+            #[inline]
+            fn machine_epsilon() -> f64 {
+                2f64.powi(
+                    1 - <$ty as $crate::high_precision::numeric::HighPrecisionFloat>::MANTISSA_DIGITS as i32,
+                )
+            }
+            #[inline]
+            fn abs(self) -> Self {
+                $crate::high_precision::numeric::HighPrecisionFloat::hp_abs(self)
+            }
+            #[inline]
+            fn max(self, other: Self) -> Self {
+                if self < other || $crate::high_precision::numeric::is_nan(self) { other } else { self }
+            }
+            #[inline]
+            fn is_finite(self) -> bool {
+                $crate::high_precision::numeric::HighPrecisionFloat::hp_is_finite(self)
+            }
+            #[inline]
+            fn is_sign_negative(self) -> bool {
+                $crate::high_precision::numeric::HighPrecisionFloat::hp_is_sign_negative(self)
+            }
+        }
+
+        impl $crate::dsp_float::Sample for $ty {
+            fn plan_fft_forward(len: usize) -> ::std::sync::Arc<dyn ::realfft::RealToComplex<Self>> {
+                $crate::high_precision::real::plan_fft_forward::<$ty>(len)
+            }
+            fn plan_fft_inverse(len: usize) -> ::std::sync::Arc<dyn ::realfft::ComplexToReal<Self>> {
+                $crate::high_precision::real::plan_fft_inverse::<$ty>(len)
+            }
+        }
+
         impl $crate::high_precision::vendor::rustfft::FftNum for $ty {
             fn twiddle(
                 numerator: usize,
@@ -308,35 +386,35 @@ mod tests {
 
     #[test]
     fn f64_roundtrip_is_exact() {
-        assert_f64_roundtrip_is_exact::<Dd>();
+        assert_f64_roundtrip_is_exact::<DoubleDouble>();
         assert_f64_roundtrip_is_exact::<F128>();
         assert_f64_roundtrip_is_exact::<F256>();
     }
 
     #[test]
     fn twiddle_matches_f64_to_within_f64_precision() {
-        assert_twiddle_matches_f64::<Dd>();
+        assert_twiddle_matches_f64::<DoubleDouble>();
         assert_twiddle_matches_f64::<F128>();
         assert_twiddle_matches_f64::<F256>();
     }
 
     #[test]
     fn sin_squared_plus_cos_squared_is_one() {
-        assert_sin_squared_plus_cos_squared_is_one::<Dd>(1e-30);
+        assert_sin_squared_plus_cos_squared_is_one::<DoubleDouble>(1e-30);
         assert_sin_squared_plus_cos_squared_is_one::<F128>(1e-32);
         assert_sin_squared_plus_cos_squared_is_one::<F256>(1e-65);
     }
 
     #[test]
     fn quarter_turn_is_exact() {
-        assert_quarter_turn_is_exact::<Dd>(1e-30);
+        assert_quarter_turn_is_exact::<DoubleDouble>(1e-30);
         assert_quarter_turn_is_exact::<F128>(1e-33);
         assert_quarter_turn_is_exact::<F256>(1e-65);
     }
 
     #[test]
     fn double_double_twiddles_match_f256() {
-        assert_twiddles_match_f256::<Dd>(1e-30);
+        assert_twiddles_match_f256::<DoubleDouble>(1e-30);
     }
 
     #[test]

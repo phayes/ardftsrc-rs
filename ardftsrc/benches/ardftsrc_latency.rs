@@ -17,7 +17,7 @@
 //! can get for each rate pair regardless of preset.
 //!
 //! Run with `cargo bench --bench ardftsrc_latency` (add `--features high_precision` to include
-//! the `HighPrecision::DoubleDouble` row). Output is a Markdown table.
+//! the `high+dd` rows, which run `PRESET_HIGH` in `DoubleDouble`). Output is a Markdown table.
 
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -27,9 +27,7 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use ardftsrc::{Config, InterleavedResampler, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, RealtimeResampler};
-use num_traits::Float;
-use realfft::FftNum;
+use ardftsrc::{Config, InterleavedResampler, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, RealtimeResampler, Sample};
 
 const CHANNELS: usize = 2;
 const RATE_PAIRS: &[(usize, usize)] = &[
@@ -74,7 +72,7 @@ fn presets() -> Vec<Preset> {
     #[cfg(feature = "high_precision")]
     presets.push(Preset {
         name: "high+dd",
-        config: PRESET_HIGH.with_high_precision(Some(ardftsrc::HighPrecision::DoubleDouble)),
+        config: PRESET_HIGH,
     });
     presets
 }
@@ -100,15 +98,52 @@ impl Row {
     }
 }
 
+/// Sample types the bench runs, with conversions to and from `f64`.
+trait BenchSample: Sample {
+    fn widen(value: f64) -> Self;
+    fn narrow(self) -> f64;
+}
+
+impl BenchSample for f32 {
+    fn widen(value: f64) -> Self {
+        value as f32
+    }
+
+    fn narrow(self) -> f64 {
+        f64::from(self)
+    }
+}
+
+impl BenchSample for f64 {
+    fn widen(value: f64) -> Self {
+        value
+    }
+
+    fn narrow(self) -> f64 {
+        self
+    }
+}
+
+#[cfg(feature = "high_precision")]
+impl BenchSample for ardftsrc::DoubleDouble {
+    fn widen(value: f64) -> Self {
+        Self::from(value)
+    }
+
+    fn narrow(self) -> f64 {
+        self.to_f64()
+    }
+}
+
 /// Deterministic white noise in `[-0.5, 0.5)`.
-fn noise<T: Float>(len: usize) -> Vec<T> {
+fn noise<T: BenchSample>(len: usize) -> Vec<T> {
     let mut state = 0x2545_f491_4f6c_dd1d_u64;
     (0..len)
         .map(|_| {
             state = state
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1_442_695_040_888_963_407);
-            T::from((state >> 11) as f64 / (1u64 << 53) as f64 - 0.5).unwrap()
+            T::widen((state >> 11) as f64 / (1u64 << 53) as f64 - 0.5)
         })
         .collect()
 }
@@ -125,12 +160,12 @@ fn config_for(preset: &Preset, input_rate: usize, output_rate: usize) -> Config 
 /// Times each `process_chunk()` call and returns `(chunk_frames, sorted durations in µs)`.
 fn time_chunks<T>(config: Config) -> (usize, Vec<f64>)
 where
-    T: Float + FftNum,
+    T: BenchSample,
 {
     let mut resampler = InterleavedResampler::<T>::new(config).expect("valid config");
     let input_len = resampler.input_buffer_size();
     let input = noise::<T>(input_len);
-    let mut output = vec![T::zero(); resampler.output_buffer_size()];
+    let mut output = vec![T::widen(0.0); resampler.output_buffer_size()];
 
     for _ in 0..WARMUP_CHUNKS {
         black_box(resampler.process_chunk(black_box(&input), &mut output).unwrap());
@@ -151,14 +186,14 @@ where
 /// worst case, over chunks, of the time a sample waits between arriving and its output existing.
 fn min_pipeline_latency<T>(config: Config) -> f64
 where
-    T: Float + FftNum,
+    T: BenchSample,
 {
     let input_rate = config.input_sample_rate as f64;
     let output_rate = config.output_sample_rate as f64;
     let mut resampler = InterleavedResampler::<T>::new(config).expect("valid config");
-    let input = vec![T::zero(); resampler.input_buffer_size()];
+    let input = vec![T::widen(0.0); resampler.input_buffer_size()];
     let chunk_frames = (input.len() / CHANNELS) as f64;
-    let mut output = vec![T::zero(); resampler.output_buffer_size()];
+    let mut output = vec![T::widen(0.0); resampler.output_buffer_size()];
 
     let mut output_frames = 0usize;
     let mut worst: f64 = 0.0;
@@ -183,7 +218,7 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 /// `(latency in ms, underruns after priming)`.
 fn measure_latency<T>(config: Config, chunk_frames: usize) -> (f64, usize)
 where
-    T: Float + FftNum,
+    T: BenchSample,
 {
     let input_rate = config.input_sample_rate;
     let output_rate = config.output_sample_rate;
@@ -191,15 +226,15 @@ where
 
     let impulse_frame = chunk_frames * IMPULSE_AFTER_CHUNKS + chunk_frames / 3;
     let total_input_frames = impulse_frame + chunk_frames * 6;
-    let mut input = vec![T::zero(); total_input_frames * CHANNELS];
-    input[impulse_frame * CHANNELS] = T::one();
+    let mut input = vec![T::widen(0.0); total_input_frames * CHANNELS];
+    input[impulse_frame * CHANNELS] = T::widen(1.0);
 
     let total_output_frames = total_input_frames * output_rate / input_rate;
-    let mut frame = [T::zero(); CHANNELS];
+    let mut frame = [T::widen(0.0); CHANNELS];
     let mut written_frames = 0;
     let mut primed = false;
     let mut underruns = 0;
-    let mut peak = (0usize, T::zero());
+    let mut peak = (0usize, 0.0f64);
 
     for out_frame in 0..total_output_frames {
         // Every input frame whose timestamp is at or before this output frame has arrived.
@@ -219,8 +254,9 @@ where
             continue;
         }
         primed = true;
-        if frame[0].abs() > peak.1 {
-            peak = (out_frame, frame[0].abs());
+        let magnitude = frame[0].narrow().abs();
+        if magnitude > peak.1 {
+            peak = (out_frame, magnitude);
         }
     }
 
@@ -230,7 +266,7 @@ where
 
 fn measure<T>(preset: &Preset, sample_type: &'static str, input_rate: usize, output_rate: usize) -> Option<Row>
 where
-    T: Float + FftNum,
+    T: BenchSample,
 {
     let config = config_for(preset, input_rate, output_rate);
     if InterleavedResampler::<T>::new(config.clone()).is_err() {
@@ -337,6 +373,13 @@ fn main() {
     print_header();
     for preset in presets() {
         for &(input_rate, output_rate) in RATE_PAIRS {
+            if preset.name == "high+dd" {
+                #[cfg(feature = "high_precision")]
+                if let Some(row) = measure::<ardftsrc::DoubleDouble>(&preset, "DoubleDouble", input_rate, output_rate) {
+                    print_row(&row);
+                }
+                continue;
+            }
             // f32 is only recommended for the fast preset.
             if preset.name == "fast"
                 && let Some(row) = measure::<f32>(&preset, "f32", input_rate, output_rate)

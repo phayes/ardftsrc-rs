@@ -286,7 +286,7 @@ It's a speed/memory optimization, not a way to reduce buffering or latency — f
 | `neon`           | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
 | `wasm_simd`      | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter`   | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
-| `high_precision` | Double-double, `f128` and `f256` FFT backends for extreme quality                 | No      |
+| `high_precision` | `DoubleDouble`, `F128`, and `F256` sample types for extreme quality               | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 
 
@@ -296,7 +296,7 @@ The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-r
 
 You can use this as a utility, or use it to benchmark this project.
 
-Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, which every preset is within). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. Pass `--high-precision double-double|f128|f256` to use a high-precision FFT backend (much slower; for extreme quality).
+Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, which every preset is within). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. Pass `--dd`, `--f128` or `--f256` to resample in a high-precision type (much slower; for extreme quality). These decode and encode in `f64`.
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
@@ -304,7 +304,7 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset high
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset good --f32
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset high \
-    --taper-type beta_cdf --alpha 10 --beta 10 --high-precision double-double --decimate --phase -0.5
+    --taper-type beta_cdf --alpha 10 --beta 10 --dd --decimate --phase -0.5
 ```
 
 ### Taper profiles

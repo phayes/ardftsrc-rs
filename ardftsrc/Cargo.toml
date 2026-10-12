@@ -62,8 +62,8 @@ rayon = ["dep:rayon"]
 audioadapter = ["dep:audio-core", "dep:audioadapter"]
 tracing = ["dep:tracing"]
 
-# Makes the optional high-precision FFT backends (double-double, f128, f256) available for
-# extreme quality. Select one per f64 resampler with `Config::with_high_precision`.
+# Adds the high-precision sample types `DoubleDouble`, `F128`, and `F256` for extreme quality.
+# Use one as a resampler's sample type, e.g. `InterleavedResampler::<F128>`.
 high_precision = [
     "dep:num-complex",
     "dep:num-integer",

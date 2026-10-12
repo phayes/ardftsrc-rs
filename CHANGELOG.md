@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- High precision is now a sample type instead of a config option. With the `high_precision` feature, the new public types `DoubleDouble`, `F128`, and `F256` can be used as any resampler's sample type, e.g. `InterleavedResampler::<F128>`. Convert samples in with `From<f64>`/`From<f32>` (exact) and out with `to_f64()`.
+- Every stage now runs in the sample type: decimation, edge extrapolation, both FFTs, the spectral taper and phase, overlap-add, and output scaling. Previously only the FFTs ran in the wide type, and the spectrum was rounded to `f64` between them, so high-precision output differs slightly from 0.3.1.
+- Removed `Config::high_precision`, `Config::with_high_precision`, `HighPrecision`, and `Error::HighPrecisionIncompatibleWithF32`.
+- `InterleavedResampler`, `PlanarResampler`, and `RealtimeResampler` are bounded by the new `Sample` trait instead of `num_traits::Float + realfft::FftNum`. Every `Float + FftNum` type implements `Sample`, so `f32` and `f64` code is unaffected unless it names the bounds.
+- `ardftsrc-rs` replaces `--high-precision double-double|f128|f256` with `--dd`, `--f128`, and `--f256`, alongside `--f32` and `--f64`. High-precision runs decode and encode in `f64`.
+
+### Changed
+
+- The CPU resampler now reuses per-core FFT scratch buffers instead of allocating them on every chunk.
+
 ## 0.3.1 - 2026-10-11
 
 Doc updates. No library changes.

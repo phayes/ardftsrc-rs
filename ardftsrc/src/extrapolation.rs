@@ -1,7 +1,7 @@
 //! Configurable strategies for synthesizing samples beyond the real edge of a stream, used by
 //! [`crate::window`] whenever `pre`/`post` context doesn't cover everything a window needs.
 
-use num_traits::Float;
+use crate::dsp_float::DspFloat;
 
 use crate::lpc::{self, ExtrapolateFallback};
 
@@ -32,7 +32,7 @@ pub enum Extrapolation {
 
 impl Extrapolation {
     /// Extrapolates `extra` samples forward, continuing on from the end of `input`.
-    pub(crate) fn forward<T: Float>(self, input: &[T], extra: usize) -> Vec<T> {
+    pub(crate) fn forward<T: DspFloat>(self, input: &[T], extra: usize) -> Vec<T> {
         if extra == 0 {
             return Vec::new();
         }
@@ -47,7 +47,7 @@ impl Extrapolation {
     /// Extrapolates `extra` samples backward, continuing before the start of `input`, by
     /// reversing `input`, running the forward extrapolation on that reversed sequence, then
     /// reversing the result back into chronological order.
-    pub(crate) fn reverse<T: Float>(self, input: &[T], extra: usize) -> Vec<T> {
+    pub(crate) fn reverse<T: DspFloat>(self, input: &[T], extra: usize) -> Vec<T> {
         let mut reversed_input = input.to_vec();
         reversed_input.reverse();
         let mut predicted = self.forward(&reversed_input, extra);
@@ -58,7 +58,7 @@ impl Extrapolation {
 
 /// Whole-sample mirror continuation: `input[n-2], input[n-3], ..., input[0], input[1], ...`,
 /// repeating with period `2 * (n - 1)` for spans longer than `input`.
-fn mirror_forward<T: Float>(input: &[T], extra: usize) -> Vec<T> {
+fn mirror_forward<T: DspFloat>(input: &[T], extra: usize) -> Vec<T> {
     let n = input.len();
     if n == 0 {
         return vec![T::zero(); extra];
@@ -81,7 +81,7 @@ fn mirror_forward<T: Float>(input: &[T], extra: usize) -> Vec<T> {
 /// where `e = input[n-1]`. Spans longer than that continue as a whole-sample [`mirror_forward`]
 /// of `input` followed by its reflection, which stays bounded instead of drifting by
 /// `2 * (e - input[0])` per further reflection.
-fn odd_mirror_forward<T: Float>(input: &[T], extra: usize) -> Vec<T> {
+fn odd_mirror_forward<T: DspFloat>(input: &[T], extra: usize) -> Vec<T> {
     let n = input.len();
     if n == 0 {
         return vec![T::zero(); extra];

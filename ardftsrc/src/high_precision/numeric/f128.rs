@@ -11,10 +11,17 @@ use rustc_apfloat::{Float, FloatConvert, Round, StatusAnd};
 use super::trig::{self, Coefficients};
 use super::{HighPrecisionFloat, impl_high_precision_newtype};
 
+/// IEEE 754 binary128 floating point (113-bit mantissa), for resampling at higher precision
+/// than `f64`. Correctly rounded software floating point.
+///
+/// Convert samples in with `From<f64>`/`From<f32>` (exact) and out with
+/// [`to_f64`](Self::to_f64).
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
-pub(crate) struct F128(pub(crate) Quad);
+pub struct F128(pub(crate) Quad);
 
 impl HighPrecisionFloat for F128 {
+    const MANTISSA_DIGITS: u32 = 113;
+
     #[inline]
     fn from_f64_exact(value: f64) -> Self {
         let double = Double::from_bits(value.to_bits() as u128);
@@ -35,6 +42,11 @@ impl HighPrecisionFloat for F128 {
     #[inline]
     fn hp_is_sign_negative(self) -> bool {
         self.0.is_negative()
+    }
+
+    #[inline]
+    fn hp_is_finite(self) -> bool {
+        self.0.is_finite()
     }
 
     #[inline]

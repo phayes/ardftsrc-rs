@@ -1,4 +1,4 @@
-use num_traits::Float;
+use crate::dsp_float::DspFloat;
 use std::collections::VecDeque;
 
 /// Minimum/maximum tap count for a decimation stage's FIR filter.
@@ -50,7 +50,7 @@ pub(crate) fn decimation_stage_count(input_sample_rate: usize, output_sample_rat
 /// end-of-stream the cascade's trailing state has to be flushed and fed into that one remaining
 /// chunk (see [`super::core`]'s finalize handling), so keeping the delay in the same ballpark as
 /// the chunk size keeps that flush effectively lossless instead of needing truncation.
-pub(crate) fn design_decimation_taps<T: Float>(bandwidth: f32, max_group_delay: usize) -> Vec<T> {
+pub(crate) fn design_decimation_taps<T: DspFloat>(bandwidth: f32, max_group_delay: usize) -> Vec<T> {
     let bandwidth = f64::from(bandwidth).clamp(0.0, 1.0);
 
     // Post-decimation Nyquist (Fs/4) expressed as a fraction of the full (pre-decimation) sample
@@ -87,9 +87,7 @@ pub(crate) fn design_decimation_taps<T: Float>(bandwidth: f32, max_group_delay: 
         }
     }
 
-    taps.into_iter()
-        .map(|value| T::from(value).unwrap_or_else(T::zero))
-        .collect()
+    taps.into_iter().map(T::cast_f64).collect()
 }
 
 fn blackman_window(n: usize, len: usize) -> f64 {
@@ -102,7 +100,7 @@ fn blackman_window(n: usize, len: usize) -> f64 {
 }
 
 /// A single linear-phase FIR lowpass filter followed by a 2:1 downsample.
-struct FirDecimator<T: Float> {
+struct FirDecimator<T: DspFloat> {
     taps: Vec<T>,
     delay_line: VecDeque<T>,
     /// `true` when the *next* sample pushed into the delay line should produce an output sample.
@@ -111,7 +109,7 @@ struct FirDecimator<T: Float> {
     last_sample: T,
 }
 
-impl<T: Float> FirDecimator<T> {
+impl<T: DspFloat> FirDecimator<T> {
     fn new(taps: Vec<T>) -> Self {
         let len = taps.len();
         Self {
@@ -161,7 +159,7 @@ impl<T: Float> FirDecimator<T> {
 ///
 /// Empty (zero-stage) chains are a transparent passthrough, so this type is cheap to keep around
 /// unconditionally on the hot path when decimation is disabled.
-pub(crate) struct DecimationChain<T: Float> {
+pub(crate) struct DecimationChain<T: DspFloat> {
     stages: Vec<FirDecimator<T>>,
     // Ping-pong scratch buffers for cascading through more than one stage without extra
     // allocation on the steady-state streaming path.
@@ -169,7 +167,7 @@ pub(crate) struct DecimationChain<T: Float> {
     buf_b: Vec<T>,
 }
 
-impl<T: Float> DecimationChain<T> {
+impl<T: DspFloat> DecimationChain<T> {
     pub(crate) fn new(num_stages: usize, taps: &[T]) -> Self {
         Self {
             stages: (0..num_stages).map(|_| FirDecimator::new(taps.to_vec())).collect(),

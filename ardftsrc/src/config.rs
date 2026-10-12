@@ -1,7 +1,7 @@
 use crate::TaperType;
+use crate::dsp_float::DspFloat;
 use crate::extrapolation::Extrapolation;
 use crate::spectral::SpectralPlan;
-use num_traits::Float;
 
 /// Low-latency, lower-quality preset.
 ///
@@ -96,7 +96,7 @@ pub const PRESET_GOOD: Config = Config {
 /// - Pre-ringing Score: 17.74%
 /// - Gapless Sine Score: 100%
 ///
-/// **[HydrogenAudio Test Suite (f64 with `HighPrecision::DoubleDouble`)](https://src.hydrogenaudio.org/compareresults?id1=b91d0f01-0e50-4967-90f4-68a86faa2312&id2=0)**
+/// **[HydrogenAudio Test Suite (`DoubleDouble`)](https://src.hydrogenaudio.org/compareresults?id1=b91d0f01-0e50-4967-90f4-68a86faa2312&id2=0)**
 /// - Overall Score: 99.92%
 /// - Spectrogram Score: 99.66%
 /// - Aliasing Score: 100%
@@ -282,45 +282,35 @@ pub struct Config {
     /// This setting is only for [`RodioResampler`](crate::RodioResampler), it has no effect on other resamplers.
     #[cfg(feature = "rodio")]
     pub rodio_fast_start: bool,
-
-    /// Number of FFT chunks combined into each GPU submission.
-    ///
-    /// Larger values usually improve throughput by amortizing submission overhead, but increase
-    /// buffering, memory use, and the time before a partially filled group is submitted.
-    ///
-    /// Value guide:
-    /// - `1`: Recommended for realtime resampling when low latency matters most.
-    /// - `4`: Recommended throughput-oriented starting point for offline resampling (default).
-    /// - Values above `4`: May help large offline jobs on some GPUs; benchmark them, since memory
-    ///   use grows and throughput may not improve.
-    ///
-    /// This setting only affects GPU resamplers.
+    // /// Number of FFT chunks combined into each GPU submission.
+    // ///
+    // /// Larger values usually improve throughput by amortizing submission overhead, but increase
+    // /// buffering, memory use, and the time before a partially filled group is submitted.
+    // ///
+    // /// Value guide:
+    // /// - `1`: Recommended for realtime resampling when low latency matters most.
+    // /// - `4`: Recommended throughput-oriented starting point for offline resampling (default).
+    // /// - Values above `4`: May help large offline jobs on some GPUs; benchmark them, since memory
+    // ///   use grows and throughput may not improve.
+    // ///
+    // /// This setting only affects GPU resamplers.
     // #[cfg(feature = "gpu")]
     // pub gpu_group_chunks: usize,
 
-    /// Number of reusable GPU work groups kept in the streaming ring.
-    ///
-    /// The effective minimum is `4`. Additional slots allow more work to queue while the GPU is
-    /// busy, at the cost of GPU and host memory.
-    ///
-    /// Value guide:
-    /// - `4`: Recommended for realtime resampling and as the default for offline work.
-    /// - `8`: Worth benchmarking for offline resampling when host-to-GPU submission is otherwise
-    ///   starved and the extra memory is acceptable.
-    /// - Values above `8`: Usually only useful after workload-specific benchmarking.
-    ///
-    /// This setting only affects GPU resamplers.
+    // /// Number of reusable GPU work groups kept in the streaming ring.
+    // ///
+    // /// The effective minimum is `4`. Additional slots allow more work to queue while the GPU is
+    // /// busy, at the cost of GPU and host memory.
+    // ///
+    // /// Value guide:
+    // /// - `4`: Recommended for realtime resampling and as the default for offline work.
+    // /// - `8`: Worth benchmarking for offline resampling when host-to-GPU submission is otherwise
+    // ///   starved and the extra memory is acceptable.
+    // /// - Values above `8`: Usually only useful after workload-specific benchmarking.
+    // ///
+    // /// This setting only affects GPU resamplers.
     // #[cfg(feature = "gpu")]
     // pub gpu_ring_slots: usize,
-
-    /// Selects a high-precision FFT backend, or `None` (the default) for the standard `realfft`
-    /// backend.
-    ///
-    /// The `high_precision` feature makes these backends available; this setting opts an `f64`
-    /// resampler into one of them. They are substantially slower and more memory intensive than
-    /// the default FFT backend, but can produce better results at extreme quality settings.
-    #[cfg(feature = "high_precision")]
-    pub high_precision: Option<HighPrecision>,
 }
 
 impl Config {
@@ -342,8 +332,6 @@ impl Config {
         // gpu_group_chunks: 4,
         // #[cfg(feature = "gpu")]
         // gpu_ring_slots: 4,
-        #[cfg(feature = "high_precision")]
-        high_precision: None,
     };
 
     /// Builds a config with explicit sample rates/channel count and default (PRESET_GOOD) quality settings.
@@ -549,18 +537,6 @@ impl Config {
         self
     }
 
-    /// Selects a high-precision FFT backend, or `None` for the standard `realfft` backend.
-    ///
-    /// These backends are substantially slower and more memory intensive than the default
-    /// `realfft` backend. They are intended for offline processing at extreme quality settings
-    /// and are only compatible with `f64` processing.
-    #[must_use]
-    #[cfg(feature = "high_precision")]
-    pub fn with_high_precision(mut self, high_precision: Option<HighPrecision>) -> Self {
-        self.high_precision = high_precision;
-        self
-    }
-
     /// Validates all user-facing configuration fields.
     ///
     /// Returns `Ok(())` when all values are in range, or a specific `Error` describing the first
@@ -627,21 +603,14 @@ impl Config {
     /// Returns [`DerivedConfig`] for processing, or an error if validation fails.
     pub(crate) fn derive_config<T>(&self) -> Result<DerivedConfig<T>, Error>
     where
-        T: Float,
+        T: DspFloat,
     {
         self.validate()?;
 
-        // Detect `T == f32` without specialization: only `f32` shares IEEE single max with `f32::MAX`.
-        if let Some(f32_max) = num_traits::NumCast::from(f32::MAX) {
-            if <T as Float>::max_value() == f32_max {
-                #[cfg(feature = "high_precision")]
-                if self.high_precision.is_some() {
-                    return Err(Error::HighPrecisionIncompatibleWithF32);
-                }
-                if self.quality > 8192 {
-                    return Err(Error::QualityTooHighForF32);
-                }
-            }
+        // Single precision can't resolve the FFT sizes above this quality; anything at least as
+        // precise as `f64` can.
+        if T::machine_epsilon() > f64::EPSILON && self.quality > 8192 {
+            return Err(Error::QualityTooHighForF32);
         }
 
         Ok(DerivedConfig::from_config(self))
@@ -652,24 +621,6 @@ impl Default for Config {
     fn default() -> Self {
         Self::DEFAULT
     }
-}
-
-/// High-precision FFT backend selected by [`Config::high_precision`].
-///
-/// Every backend runs the same scalar FFT algorithms with twiddle factors and internal
-/// accumulation computed in a wider numeric type, converting to and from `f64` only at the
-/// transform boundary. All are much slower than the default SIMD `f64` backend.
-#[cfg(feature = "high_precision")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum HighPrecision {
-    /// Double-double arithmetic (~106-bit mantissa). The fastest of the high-precision backends,
-    /// since it is built from hardware `f64` operations, but not correctly rounded.
-    DoubleDouble,
-    /// IEEE 754 binary128 (113-bit mantissa), correctly rounded software floating point.
-    F128,
-    /// IEEE 754 binary256 (237-bit mantissa), correctly rounded software floating point. The
-    /// most precise and slowest backend.
-    F256,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -693,9 +644,6 @@ pub struct DerivedConfig<T> {
     /// of `output_offset` at stream start. The rounding remainder is compensated by a matching
     /// fractional delay in `spectral`, so the two together are exact. Zero without decimation.
     pub(crate) decimator_output_delay: usize,
-    /// High-precision FFT backend selection; see [`Config::high_precision`].
-    #[cfg(feature = "high_precision")]
-    pub(crate) high_precision: Option<HighPrecision>,
     /// Strategy used to synthesize missing start/stop-edge samples; see [`Config::extrapolation`].
     pub(crate) extrapolation: Extrapolation,
 }
@@ -708,21 +656,11 @@ impl<T> DerivedConfig<T> {
     pub(crate) fn raw_input_chunk_frames(&self) -> usize {
         self.input_chunk_frames << self.decimation_stages
     }
-
-    // /// Whether a high-precision FFT backend is selected (always `false` without the `high_precision` feature).
-    //#[inline]
-    //#[cfg(feature = "gpu")]
-    //pub(crate) fn uses_high_precision(&self) -> bool {
-    //    #[cfg(feature = "high_precision")]
-    //    return self.high_precision.is_some();
-    //    #[cfg(not(feature = "high_precision"))]
-    //    return false;
-    //}
 }
 
 impl<T> DerivedConfig<T>
 where
-    T: Float,
+    T: DspFloat,
 {
     /// Expands user-facing configuration into internal chunk/FFT dimensions.
     ///
@@ -778,10 +716,10 @@ where
             output_chunk_frames,
             config.bandwidth,
             &config.taper_type,
-            T::from(config.phase).unwrap_or_else(T::zero),
-            T::from(config.phase_intensity).unwrap_or_else(T::zero),
+            f64::from(config.phase),
+            f64::from(config.phase_intensity),
             crate::spectral::resolve_alias_floor(config.alias_floor, config.bandwidth, &config.taper_type),
-            T::from(decimator_delay_remainder).unwrap_or_else(T::zero),
+            decimator_delay_remainder,
         );
 
         Self {
@@ -797,8 +735,6 @@ where
             decimation_stages,
             decimation_taps,
             decimator_output_delay,
-            #[cfg(feature = "high_precision")]
-            high_precision: config.high_precision,
             extrapolation: config.extrapolation,
         }
     }
@@ -1102,35 +1038,17 @@ mod tests {
     }
 
     #[cfg(feature = "high_precision")]
-    const ALL_HIGH_PRECISION: [HighPrecision; 3] =
-        [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256];
-
-    #[cfg(feature = "high_precision")]
     #[test]
-    fn rejects_high_precision_for_f32_derived_config() {
-        for precision in ALL_HIGH_PRECISION {
-            let config = Config::new(48_000, 48_000, 2).with_high_precision(Some(precision));
-            assert!(matches!(
-                config.derive_config::<f32>(),
-                Err(Error::HighPrecisionIncompatibleWithF32)
-            ));
-        }
-    }
-
-    #[cfg(feature = "high_precision")]
-    #[test]
-    fn allows_high_precision_for_f64_derived_config() {
-        for precision in ALL_HIGH_PRECISION {
-            let config = Config::new(48_000, 48_000, 2).with_high_precision(Some(precision));
-            assert_eq!(config.derive_config::<f64>().unwrap().high_precision, Some(precision));
-        }
-    }
-
-    #[cfg(feature = "high_precision")]
-    #[test]
-    fn leaves_high_precision_disabled_for_default_f64_derived_config() {
-        let config = Config::new(48_000, 48_000, 2);
-        assert_eq!(config.derive_config::<f64>().unwrap().high_precision, None);
+    fn allows_high_quality_for_high_precision_derived_config() {
+        let config = Config {
+            input_sample_rate: 48_000,
+            output_sample_rate: 48_000,
+            quality: 65_536,
+            ..Config::default()
+        };
+        assert!(config.derive_config::<crate::DoubleDouble>().is_ok());
+        assert!(config.derive_config::<crate::F128>().is_ok());
+        assert!(config.derive_config::<crate::F256>().is_ok());
     }
 
     #[test]

@@ -1,9 +1,7 @@
-use num_traits::Float;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
-use realfft::FftNum;
 
-use crate::{Config, Error, PlanarVecs, config::DerivedConfig, cpu_core::CpuCore};
+use crate::{Config, Error, PlanarVecs, Sample, config::DerivedConfig, cpu_core::CpuCore};
 
 /// Chunked sample-rate converter for planar audio buffers.
 ///
@@ -22,7 +20,7 @@ use crate::{Config, Error, PlanarVecs, config::DerivedConfig, cpu_core::CpuCore}
 /// This is the most direct chunked path because ardftsrc internally processes planar channels.
 pub struct PlanarResampler<T = f64>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     config: Config,
     derived: DerivedConfig<T>,
@@ -31,7 +29,7 @@ where
 
 impl<T> PlanarResampler<T>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     /// Constructs a resampler from [`config`](Config).
     ///

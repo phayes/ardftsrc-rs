@@ -3,7 +3,7 @@
 //!
 //! Licensed under MIT OR Apache-2.0 license.
 
-use num_traits::Float;
+use crate::dsp_float::DspFloat;
 
 /// Maximum LPC order used during extrapolation.
 pub(crate) const EXTRAPOLATION_MAX_ORDER: usize = 64;
@@ -35,7 +35,7 @@ pub(crate) enum ExtrapolateFallback {
 impl ExtrapolateFallback {
     fn value<T>(&self) -> T
     where
-        T: Float,
+        T: DspFloat,
     {
         match self {
             ExtrapolateFallback::Hold => -T::one(),
@@ -48,7 +48,7 @@ impl ExtrapolateFallback {
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn correlate<T>(a: &[T]) -> Vec<T>
 where
-    T: Float,
+    T: DspFloat,
 {
     let mut out = Vec::with_capacity(a.len());
     for lag in 0..a.len() {
@@ -67,7 +67,7 @@ where
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn calc_lpc_by_levinson_durbin<T>(a: &[T], depth: usize) -> Option<(Vec<T>, T)>
 where
-    T: Float,
+    T: DspFloat,
 {
     if depth == 0 {
         return Some((Vec::new(), T::zero()));
@@ -115,7 +115,7 @@ where
 /// Returns coefficient vector of length `depth`.
 pub(crate) fn calc_lpc_by_burg<T>(x: &[T], depth: usize) -> Option<Vec<T>>
 where
-    T: Float,
+    T: DspFloat,
 {
     if depth == 0 {
         return Some(Vec::new());
@@ -188,7 +188,7 @@ where
 /// down to zero.
 pub(crate) fn extrapolate_forward<T>(input: &[T], extra: usize, fallback: ExtrapolateFallback) -> Vec<T>
 where
-    T: Float,
+    T: DspFloat,
 {
     if extra == 0 {
         return Vec::new();
@@ -203,7 +203,7 @@ where
     let mut output = Vec::with_capacity(extra);
 
     let seed_peak = input.iter().fold(T::zero(), |acc, sample| acc.max(sample.abs()));
-    let headroom = T::from(EXTRAPOLATION_DIVERGENCE_HEADROOM).unwrap_or_else(T::one);
+    let headroom = T::cast_f64(EXTRAPOLATION_DIVERGENCE_HEADROOM);
     let divergence_bound = seed_peak * headroom;
 
     for _ in 0..extra {
@@ -220,7 +220,7 @@ where
             let fade_len = EXTRAPOLATION_DIVERGENCE_FADE_SAMPLES.min(output.len());
             let fade_start = output.len() - fade_len;
             for (step, sample) in output[fade_start..].iter_mut().enumerate() {
-                let t = T::from(step + 1).unwrap_or(T::one()) / T::from(fade_len).unwrap_or(T::one());
+                let t = T::cast_usize(step + 1) / T::cast_usize(fade_len);
                 *sample = *sample * (T::one() - t);
             }
             output.resize(extra, T::zero());
@@ -236,7 +236,7 @@ where
 /// Estimate damped LPC coefficients via Burg with finite guards.
 pub(crate) fn lpc_coefficients<T>(input: &[T], order: usize, fallback: ExtrapolateFallback) -> Vec<T>
 where
-    T: Float,
+    T: DspFloat,
 {
     if order == 0 {
         return Vec::new();
@@ -255,13 +255,13 @@ where
     }
 
     let mut lpc = coefficients;
-    let mut damp = T::from(LPC_DAMPING_FACTOR).unwrap_or(T::one());
+    let mut damp = T::cast_f64(LPC_DAMPING_FACTOR);
     for coeff in &mut lpc {
         *coeff = *coeff * damp;
         if !coeff.is_finite() {
             *coeff = T::zero();
         }
-        damp = damp * T::from(LPC_DAMPING_FACTOR).unwrap_or(T::one());
+        damp = damp * T::cast_f64(LPC_DAMPING_FACTOR);
     }
 
     lpc

@@ -2,7 +2,7 @@
 //! pair, and preset, computing THD+N via [`crate::sine_fit`] and
 //! [`crate::residual_spectrum`] for each combination.
 
-use ardftsrc::{Config, InterleavedResampler};
+use ardftsrc::{Config, InterleavedResampler, Sample};
 use dasp_signal::Signal;
 use serde::{Deserialize, Serialize};
 use tabled::builder::Builder;
@@ -29,9 +29,9 @@ pub const DEFAULT_RATE_PAIRS: &[(usize, usize)] = &[
 ];
 pub const DEFAULT_PRESETS: &[Preset] = &Preset::ALL;
 
-/// FFT backend a sweep case ran with: the default `realfft` backend or one of ardftsrc's
-/// high-precision backends. Always available (unlike `ardftsrc::HighPrecision`) so reports
-/// deserialize regardless of which features this build has.
+/// Sample type a sweep case resampled in: `f64` (`Off`) or one of ardftsrc's high-precision
+/// types. Always available (unlike the types themselves) so reports deserialize regardless of
+/// which features this build has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HighPrecisionVariant {
@@ -89,25 +89,37 @@ pub fn planned_case_count(
     decimate_cases * presets.len() * HIGH_PRECISION_VARIANTS.len() * frequencies_hz.len() * amplitudes_dbfs.len()
 }
 
-#[cfg(feature = "high_precision")]
-fn config_with_high_precision(config: Config, high_precision: HighPrecisionVariant) -> Config {
-    use ardftsrc::HighPrecision;
-    config.with_high_precision(match high_precision {
-        HighPrecisionVariant::Off => None,
-        HighPrecisionVariant::DoubleDouble => Some(HighPrecision::DoubleDouble),
-        HighPrecisionVariant::F128 => Some(HighPrecision::F128),
-        HighPrecisionVariant::F256 => Some(HighPrecision::F256),
-    })
+/// Resamples mono `input` in the sample type `high_precision` selects, converting at the
+/// boundary.
+fn resample(config: Config, input: &[f64], high_precision: HighPrecisionVariant) -> Vec<f64> {
+    match high_precision {
+        HighPrecisionVariant::Off => resample_as::<f64>(config, input, |sample| sample, |sample| sample),
+        #[cfg(feature = "high_precision")]
+        HighPrecisionVariant::DoubleDouble => resample_as(
+            config,
+            input,
+            ardftsrc::DoubleDouble::from,
+            ardftsrc::DoubleDouble::to_f64,
+        ),
+        #[cfg(feature = "high_precision")]
+        HighPrecisionVariant::F128 => resample_as(config, input, ardftsrc::F128::from, ardftsrc::F128::to_f64),
+        #[cfg(feature = "high_precision")]
+        HighPrecisionVariant::F256 => resample_as(config, input, ardftsrc::F256::from, ardftsrc::F256::to_f64),
+        #[cfg(not(feature = "high_precision"))]
+        other => panic!("high_precision={other} requested but this build has no `high_precision` feature"),
+    }
 }
 
-#[cfg(not(feature = "high_precision"))]
-fn config_with_high_precision(config: Config, high_precision: HighPrecisionVariant) -> Config {
-    assert_eq!(
-        high_precision,
-        HighPrecisionVariant::Off,
-        "high_precision requested but this build has no `high_precision` feature"
-    );
-    config
+fn resample_as<T: Sample>(config: Config, input: &[f64], widen: fn(f64) -> T, narrow: fn(T) -> f64) -> Vec<f64> {
+    let input: Vec<T> = input.iter().copied().map(widen).collect();
+    InterleavedResampler::<T>::new(config)
+        .expect("thdn sweep configs are always valid")
+        .process_all(&input)
+        .expect("resampling a clean sine should never fail")
+        .interleave()
+        .into_iter()
+        .map(narrow)
+        .collect()
 }
 
 /// THD+N and related measurements for one (rate pair, decimate, preset, high_precision,
@@ -157,12 +169,16 @@ pub fn run_case(
     freq_hz: f64,
     amplitude_dbfs: f64,
 ) -> CaseResult {
-    let config = config_with_high_precision(preset.base_config(), high_precision)
+    let config = preset
+        .base_config()
         .with_input_rate(input_rate)
         .with_output_rate(output_rate)
         .with_channels(1)
         .with_decimate(decimate);
-    let mut resampler = InterleavedResampler::<f64>::new(config).expect("thdn sweep configs are always valid");
+    // Output delay depends only on the config, not the sample type.
+    let delay_out = InterleavedResampler::<f64>::new(config.clone())
+        .expect("thdn sweep configs are always valid")
+        .output_delay_frames();
 
     let amplitude = 10f64.powf(amplitude_dbfs / 20.0);
 
@@ -170,7 +186,6 @@ pub fn run_case(
     // settling at the head; skip past the (much smaller) tail similarly. These are
     // deliberately generous multiples of output_delay_frames() since it's cheap to
     // generate a bit more input.
-    let delay_out = resampler.output_delay_frames();
     let head_skip = (delay_out * 3).max((0.25 * output_rate as f64).round() as usize);
     let tail_skip = delay_out.max((0.1 * output_rate as f64).round() as usize);
     let min_analysis_frames = output_rate; // >= 1 second, for reasonable FFT bin resolution.
@@ -186,10 +201,7 @@ pub fn run_case(
         .map(|s| s * amplitude)
         .collect();
 
-    let output = resampler
-        .process_all(&input)
-        .expect("resampling a clean sine should never fail")
-        .interleave();
+    let output = resample(config, &input, high_precision);
     assert!(
         output.len() > head_skip + tail_skip,
         "resampled output ({} frames) too short to skip {head_skip} head + {tail_skip} tail",

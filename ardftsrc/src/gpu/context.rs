@@ -767,9 +767,6 @@ where
         if derived.decimation_stages > 0 {
             return Err(GpuError::DecimationUnsupported);
         }
-        if derived.uses_high_precision() {
-            return Err(GpuError::HighPrecisionUnsupportedOnGpu);
-        }
         Ok(Self {
             device,
             config,

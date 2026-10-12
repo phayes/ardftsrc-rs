@@ -8,14 +8,14 @@ gets a separate `f32` report covering the HydrogenAudio SRC scores.
 ## Flow
 
 1. `run thdn` -- pure-Rust THD+N sweep across frequency, amplitude, sample-rate pair,
-   preset, and (opt-in, via `--features high_precision`) FFT backend. Writes
+   preset, and (opt-in, via `--features high_precision`) sample type. Writes
    `thdn_<preset>_report.json`.
 2. `run preringing` -- pure-Rust impulse pre-ringing and below-rolloff pre-echo
-   measurements across sample-rate pair and preset (`f64`, no high-precision backend).
+   measurements across sample-rate pair and preset (`f64`, no high-precision sample type).
    Writes `preringing_<preset>_report.json`.
 3. `run hydrogen-src` -- runs ardftsrc through the HydrogenAudio Test Suite's local
    Octave analysis once per preset in `f64`, plus `fast` in `f32` (no high-precision
-   backend). Writes `hydrogen_src_<variant>_report.json`, plus copies of that variant's
+   sample type). Writes `hydrogen_src_<variant>_report.json`, plus copies of that variant's
    figure PNGs (`<variant>_<figure>.png`) into `--out-dir` for the report to embed.
    `<variant>` is the preset name for `f64` and `<preset>_f32` for `f32`.
 4. `report` -- reads back whichever of the three JSON files are present per variant and
@@ -39,13 +39,13 @@ progress output on stderr.
 
 ```bash
 cargo run -p ardftsrc-report --release -- run thdn --out-dir reports
-# slower run that also covers the high-precision backends (double-double, f128, f256):
+# slower run that also covers the high-precision sample types (DoubleDouble, F128, F256):
 cargo run -p ardftsrc-report --release --features high_precision -- run thdn --out-dir reports
 ```
 
 `high_precision` is opt-in rather than on by default. Passing `--features high_precision`
-covers the default and all three high-precision FFT backends in one run -- expect it to
-take much longer, since the high-precision backends are far slower. Writes one machine-readable `thdn_<preset>_report.json` per preset (for
+covers `f64` and all three high-precision sample types in one run -- expect it to
+take much longer, since the high-precision types are far slower. Writes one machine-readable `thdn_<preset>_report.json` per preset (for
 regression testing -- diff it against a checked-in baseline).
 
 ### `run preringing`
@@ -77,7 +77,7 @@ cargo run -p ardftsrc-report --release -- run hydrogen-src --out-dir reports
 Runs the [HydrogenAudio Test Suite](https://src.hydrogenaudio.org/)'s own local
 Octave analysis toolbox (via the external
 [`hydrogen_src`](https://github.com/phayes/hydrogen_src) crate) once per preset in `f64`,
-plus `fast` in `f32`, with no high-precision backend. The `f32` run goes first: the
+plus `fast` in `f32`, with no high-precision sample type. The `f32` run goes first: the
 harness's shared workspace keeps every run's resampled outputs, and a leftover `f64`
 output would otherwise be scored in place of the `f32` one.
 
@@ -114,7 +114,7 @@ tag is just `v<version>`).
 
 ```bash
 cargo test -p ardftsrc-report --release
-# also exercises the high-precision backends:
+# also exercises the high-precision sample types:
 cargo test -p ardftsrc-report --release --features high_precision
 ```
 

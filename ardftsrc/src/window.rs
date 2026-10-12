@@ -13,13 +13,13 @@
 //! per stream (start priming, a short final chunk, or finalize), where the small `Vec`s they
 //! allocate match what the original code already allocated in those same rare paths.
 
-use num_traits::Float;
+use crate::dsp_float::DspFloat;
 
 use crate::extrapolation::Extrapolation;
 
 /// Copies up to `dst.len()` trailing samples from `pre` into `dst`'s tail. Returns the number
 /// of samples copied.
-pub(crate) fn copy_pre_tail<T: Float>(pre: Option<&[T]>, dst: &mut [T]) -> usize {
+pub(crate) fn copy_pre_tail<T: DspFloat>(pre: Option<&[T]>, dst: &mut [T]) -> usize {
     let Some(pre) = pre else {
         return 0;
     };
@@ -32,7 +32,7 @@ pub(crate) fn copy_pre_tail<T: Float>(pre: Option<&[T]>, dst: &mut [T]) -> usize
 
 /// Copies up to `dst.len()` leading samples from `post` into `dst`'s head. Returns the number
 /// of samples copied.
-pub(crate) fn copy_post_head<T: Float>(post: Option<&[T]>, dst: &mut [T]) -> usize {
+pub(crate) fn copy_post_head<T: DspFloat>(post: Option<&[T]>, dst: &mut [T]) -> usize {
     let Some(post) = post else {
         return 0;
     };
@@ -42,7 +42,7 @@ pub(crate) fn copy_post_head<T: Float>(post: Option<&[T]>, dst: &mut [T]) -> usi
 }
 
 /// Fills a synthetic forward tail from `post` first, then `extrapolation` fallback.
-pub(crate) fn build_tail_prediction<T: Float>(
+pub(crate) fn build_tail_prediction<T: DspFloat>(
     post: Option<&[T]>,
     base: &[T],
     needed: usize,
@@ -63,7 +63,7 @@ pub(crate) fn build_tail_prediction<T: Float>(
 /// Writes a steady-state FFT window into `window` (`input` placed at `input_offset`, zero
 /// elsewhere). Allocates nothing; this runs on every chunk, including on a realtime audio
 /// thread.
-pub(crate) fn write_normal_window<T: Float>(window: &mut [T], input_offset: usize, input: &[T]) {
+pub(crate) fn write_normal_window<T: DspFloat>(window: &mut [T], input_offset: usize, input: &[T]) {
     window.fill(T::zero());
     window[input_offset..input_offset + input.len()].copy_from_slice(input);
 }
@@ -75,7 +75,7 @@ pub(crate) fn write_normal_window<T: Float>(window: &mut [T], input_offset: usiz
 /// The synthetic predicted samples are placed at `input_chunk_frames..input_chunk_frames +
 /// input_offset` in `window` (length `fft_size`) -- the position that makes this window's
 /// second half land exactly where the real first chunk's overlap contribution belongs.
-pub(crate) fn write_start_window<T: Float>(
+pub(crate) fn write_start_window<T: DspFloat>(
     window: &mut [T],
     input_chunk_frames: usize,
     input_offset: usize,
@@ -105,7 +105,7 @@ pub(crate) fn write_start_window<T: Float>(
 /// `prev_input_window` must be `input_chunk_frames * 2` samples, matching
 /// [`save_current_window`]'s own buffer convention; `window` must be `fft_size` samples.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn write_short_final_window<T: Float>(
+pub(crate) fn write_short_final_window<T: DspFloat>(
     window: &mut [T],
     prev_input_window: &mut [T],
     input: &[T],
@@ -139,7 +139,7 @@ pub(crate) fn write_short_final_window<T: Float>(
 /// history. Must be called after every full (non-short-final) chunk.
 ///
 /// `prev_input_window` must be `input_chunk_frames * 2` samples.
-pub(crate) fn save_current_window<T: Float>(
+pub(crate) fn save_current_window<T: DspFloat>(
     prev_input_window: &mut [T],
     window: &[T],
     input_offset: usize,
@@ -160,7 +160,7 @@ pub(crate) fn save_current_window<T: Float>(
 /// [`save_current_window`] (or left as the identity/zero state [`write_short_final_window`]
 /// leaves it in, in which case this is a no-op tail of zeros); `window` must be `fft_size`
 /// samples.
-pub(crate) fn write_finalize_tail_window<T: Float>(
+pub(crate) fn write_finalize_tail_window<T: DspFloat>(
     window: &mut [T],
     prev_input_window: &mut [T],
     input_chunk_frames: usize,

@@ -1,6 +1,6 @@
-use num_traits::Float;
 use realfft::num_complex::Complex;
 
+use crate::dsp_float::DspFloat;
 use crate::{AliasFloor, TaperType};
 
 /// Resolves a user-facing [`AliasFloor`] into a fraction of the lower Nyquist frequency.
@@ -127,8 +127,10 @@ pub(crate) struct SpectralPlan<T> {
 
 impl<T> SpectralPlan<T>
 where
-    T: Float,
+    T: DspFloat,
 {
+    /// The gain and phase tables are designed in `f64` and converted to `T` once.
+    ///
     /// `output_delay` delays the output by that many output samples (a linear phase ramp), for
     /// compensating the fractional part of a pre-decimation stage's group delay. It must be
     /// zero when upsampling, where output bins above the input Nyquist are images rather than
@@ -139,10 +141,10 @@ where
         output_chunk_frames: usize,
         bandwidth: f32,
         taper_type: &TaperType,
-        phase: T,
-        phase_intensity: T,
+        phase: f64,
+        phase_intensity: f64,
         alias_floor: f64,
-        output_delay: T,
+        output_delay: f64,
     ) -> Self {
         let geometry = FilterGeometry::new(input_chunk_frames, output_chunk_frames, bandwidth, alias_floor);
         let direction = match input_chunk_frames.cmp(&output_chunk_frames) {
@@ -160,11 +162,15 @@ where
         );
 
         debug_assert!(
-            output_delay.is_zero() || direction != Direction::Up,
+            output_delay == 0.0 || direction != Direction::Up,
             "output delay is only supported when the output spectrum is the lower one"
         );
         let mut phase_table = build_phase(geometry.lower_nyquist_bin + 1, phase, phase_intensity);
         apply_delay_ramp(&mut phase_table, output_delay);
+        let phase_table = phase_table
+            .into_iter()
+            .map(|value| Complex::new(T::cast_f64(value.re), T::cast_f64(value.im)))
+            .collect();
 
         Self {
             direction,
@@ -172,7 +178,7 @@ where
             reflect_start_bin: geometry.reflect_start_bin(),
             gain,
             phase: phase_table,
-            phase_enabled: (!phase.is_zero() && !phase_intensity.is_zero()) || !output_delay.is_zero(),
+            phase_enabled: (phase != 0.0 && phase_intensity != 0.0) || output_delay != 0.0,
         }
     }
 
@@ -232,7 +238,7 @@ where
 
 /// Copies `src` into `dst` with per-bin gain and optional destination-domain phase rotation.
 #[inline]
-fn map_direct<T: Float>(dst: &mut [Complex<T>], src: &[Complex<T>], gain: &[T], phase: Option<&[Complex<T>]>) {
+fn map_direct<T: DspFloat>(dst: &mut [Complex<T>], src: &[Complex<T>], gain: &[T], phase: Option<&[Complex<T>]>) {
     match phase {
         Some(phase) => {
             for (((dst, src), gain), phase) in dst.iter_mut().zip(src).zip(gain).zip(phase) {
@@ -248,7 +254,7 @@ fn map_direct<T: Float>(dst: &mut [Complex<T>], src: &[Complex<T>], gain: &[T], 
 }
 
 #[inline(always)]
-fn rotate<T: Float>(value: Complex<T>, phase: Option<&[Complex<T>]>, bin: usize) -> Complex<T> {
+fn rotate<T: DspFloat>(value: Complex<T>, phase: Option<&[Complex<T>]>, bin: usize) -> Complex<T> {
     match phase {
         Some(phase) => value * phase[bin],
         None => value,
@@ -259,31 +265,31 @@ fn rotate<T: Float>(value: Complex<T>, phase: Option<&[Complex<T>]>, bin: usize)
 /// that delays the output by `delay` samples: `exp(-j pi k delay / N)` at bin `k`, with `N` the
 /// Nyquist bin. The Nyquist bin itself is left alone: it is real-valued, so it cannot carry a
 /// fractional delay, and the taper's gain there is effectively zero anyway.
-fn apply_delay_ramp<T: Float>(phase: &mut [Complex<T>], delay: T) {
-    if delay.is_zero() || phase.len() < 2 {
+fn apply_delay_ramp(phase: &mut [Complex<f64>], delay: f64) {
+    if delay == 0.0 || phase.len() < 2 {
         return;
     }
     let nyquist = phase.len() - 1;
-    let step = -T::from(std::f64::consts::PI).unwrap_or_else(T::zero) * delay / T::from(nyquist).unwrap_or_else(T::one);
+    let step = -std::f64::consts::PI * delay / nyquist as f64;
     for (k, value) in phase[..nyquist].iter_mut().enumerate() {
-        let angle = step * T::from(k).unwrap_or_else(T::zero);
-        *value = *value * Complex::new(angle.cos(), angle.sin());
+        let angle = step * k as f64;
+        *value *= Complex::new(angle.cos(), angle.sin());
     }
 }
 
 /// Builds the per-bin unit complex phase rotation.
-pub(crate) fn build_phase<T: Float>(bins: usize, phase: T, phase_intensity: T) -> Vec<Complex<T>> {
+pub(crate) fn build_phase(bins: usize, phase: f64, phase_intensity: f64) -> Vec<Complex<f64>> {
     if bins == 0 {
         return Vec::new();
     }
 
     let magnitude = phase.abs();
-    let sign = if phase < T::zero() { -T::one() } else { T::one() };
-    let denominator = T::from(bins).unwrap_or_else(T::one);
+    let sign = if phase < 0.0 { -1.0 } else { 1.0 };
+    let denominator = bins as f64;
 
     (0..bins)
         .map(|idx| {
-            let x = T::from(idx).unwrap_or_else(T::zero) / denominator;
+            let x = idx as f64 / denominator;
             let angle = (magnitude * x).asin() * phase_intensity * sign;
             Complex::new(angle.cos(), angle.sin())
         })
@@ -297,21 +303,21 @@ mod tests {
 
     #[test]
     fn phase_table_uses_c_rotation_formula() {
-        let phase_intensity = Config::DEFAULT.phase_intensity;
-        let identity = build_phase::<f32>(4, 0.0, phase_intensity);
+        let phase_intensity = f64::from(Config::DEFAULT.phase_intensity);
+        let identity = build_phase(4, 0.0, phase_intensity);
         assert_eq!(identity.len(), 4);
         assert!(identity.iter().all(|phase| phase.re == 1.0 && phase.im == 0.0));
 
-        let zero_intensity = build_phase::<f32>(4, 0.5, 0.0);
+        let zero_intensity = build_phase(4, 0.5, 0.0);
         assert!(zero_intensity.iter().all(|phase| phase.re == 1.0 && phase.im == 0.0));
 
-        let positive = build_phase::<f32>(4, 0.5, phase_intensity);
-        let negative = build_phase::<f32>(4, -0.5, phase_intensity);
+        let positive = build_phase(4, 0.5, phase_intensity);
+        let negative = build_phase(4, -0.5, phase_intensity);
 
         assert_eq!(positive[0].re, 1.0);
         assert_eq!(positive[0].im, 0.0);
 
-        let expected_angle = (0.5f32 * (1.0 / 4.0)).asin() * phase_intensity;
+        let expected_angle = (0.5f64 * (1.0 / 4.0)).asin() * phase_intensity;
         assert!((positive[1].re - expected_angle.cos()).abs() < 1e-6);
         assert!((positive[1].im - expected_angle.sin()).abs() < 1e-6);
 

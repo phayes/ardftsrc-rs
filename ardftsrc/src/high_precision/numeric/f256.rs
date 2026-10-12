@@ -4,10 +4,18 @@ use f256::f256;
 
 use super::{HighPrecisionFloat, impl_high_precision_newtype};
 
+/// IEEE 754 binary256 floating point (237-bit mantissa), for resampling at higher precision
+/// than `f64`. Correctly rounded software floating point; the most precise and slowest of the
+/// high-precision sample types.
+///
+/// Convert samples in with `From<f64>`/`From<f32>` (exact) and out with
+/// [`to_f64`](Self::to_f64).
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
-pub(crate) struct F256(pub(crate) f256);
+pub struct F256(pub(crate) f256);
 
 impl HighPrecisionFloat for F256 {
+    const MANTISSA_DIGITS: u32 = 237;
+
     #[inline]
     fn from_f64_exact(value: f64) -> Self {
         F256(f256::from(value))
@@ -26,6 +34,11 @@ impl HighPrecisionFloat for F256 {
     #[inline]
     fn hp_is_sign_negative(self) -> bool {
         self.0.is_sign_negative()
+    }
+
+    #[inline]
+    fn hp_is_finite(self) -> bool {
+        self.0.is_finite()
     }
 
     #[inline]

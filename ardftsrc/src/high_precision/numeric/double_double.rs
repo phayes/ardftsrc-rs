@@ -11,13 +11,21 @@ use twofloat::TwoFloat;
 use super::trig::{self, Coefficients};
 use super::{HighPrecisionFloat, impl_high_precision_newtype};
 
+/// Double-double floating point (an unevaluated sum of two `f64`s, ~106-bit mantissa), for
+/// resampling at higher precision than `f64`. The fastest of the high-precision sample types,
+/// since it is built from hardware `f64` operations, but not correctly rounded.
+///
+/// Convert samples in with `From<f64>`/`From<f32>` (exact) and out with
+/// [`to_f64`](Self::to_f64).
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
-pub(crate) struct Dd(pub(crate) TwoFloat);
+pub struct DoubleDouble(pub(crate) TwoFloat);
 
-impl HighPrecisionFloat for Dd {
+impl HighPrecisionFloat for DoubleDouble {
+    const MANTISSA_DIGITS: u32 = 106;
+
     #[inline]
     fn from_f64_exact(value: f64) -> Self {
-        Dd(TwoFloat::from(value))
+        DoubleDouble(TwoFloat::from(value))
     }
 
     #[inline]
@@ -27,7 +35,7 @@ impl HighPrecisionFloat for Dd {
 
     #[inline]
     fn hp_abs(self) -> Self {
-        Dd(self.0.abs())
+        DoubleDouble(self.0.abs())
     }
 
     #[inline]
@@ -36,22 +44,27 @@ impl HighPrecisionFloat for Dd {
     }
 
     #[inline]
+    fn hp_is_finite(self) -> bool {
+        self.0.hi().is_finite() && self.0.lo().is_finite()
+    }
+
+    #[inline]
     fn hp_round(self) -> Self {
-        Dd(self.0.round())
+        DoubleDouble(self.0.round())
     }
 
     fn sin_cos(self) -> (Self, Self) {
-        static COEFFICIENTS: LazyLock<Coefficients<Dd>> = LazyLock::new(Coefficients::new);
+        static COEFFICIENTS: LazyLock<Coefficients<DoubleDouble>> = LazyLock::new(Coefficients::new);
         trig::sin_cos(self, &COEFFICIENTS)
     }
 
     #[inline]
     fn tau() -> Self {
-        Dd(twofloat::consts::TAU)
+        DoubleDouble(twofloat::consts::TAU)
     }
 }
 
-impl_high_precision_newtype!(Dd, |value| value, div = div);
+impl_high_precision_newtype!(DoubleDouble, |value| value, div = div);
 
 /// Double-double division by Joldes et al. (2017) Algorithm 17 (relative error below `15u^2`).
 ///

@@ -18,7 +18,7 @@ measurements, see the per-preset [quality reports](reports/) and the HydrogenAud
    network sources that arrive in realtime. `fast` adds 21–27 ms and `good` 96–107 ms, around the
    100 ms limit. `high` adds 294–320 ms, which is too much.
 4. **Every preset suits offline work.** On one core, `high` converts 44.1 kHz → 48 kHz at 374× realtime,
-   about 0.6 s for a 4-minute stereo track. `high` with `HighPrecision::DoubleDouble` runs at 31–115×
+   about 0.6 s for a 4-minute stereo track. `high` in `DoubleDouble` runs at 31–115×
    realtime and gives the best quality.
 5. **CPU load is never the constraint for realtime use.** Median per-chunk compute is under 0.6% of the
    chunk's audio duration for every preset except `DoubleDouble` (2–6%).
@@ -42,9 +42,9 @@ The presets measured:
 | `fast` | 512 | 0.92 | Kaiser(30) | 71.83% (`f32`), 97.69% (`f64`) |
 | `good` | 2304 | 0.975 | Kaiser(30) | 99.26% |
 | `high` | 7056 | 0.996 | Kaiser(34), alias floor 0 dB | 99.86% |
-| `high+dd` | `high` with `HighPrecision::DoubleDouble` | | | 99.92% |
+| `high+dd` | `high` in `DoubleDouble` | | | 99.92% |
 
-`high+dd` requires the `high_precision` feature and `f64`.
+`high+dd` requires the `high_precision` feature.
 
 ## Use-case suitability
 

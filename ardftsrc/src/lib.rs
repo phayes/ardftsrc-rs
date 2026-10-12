@@ -5,6 +5,7 @@ mod beta_reg;
 mod config;
 mod cpu_core;
 mod decimate;
+mod dsp_float;
 mod error;
 mod extrapolation;
 mod interleaved_resampler;
@@ -20,6 +21,8 @@ mod window;
 // feature: high_precision
 #[cfg(feature = "high_precision")]
 mod high_precision;
+#[cfg(feature = "high_precision")]
+pub use high_precision::{DoubleDouble, F128, F256};
 
 // GPU support is unreleased and is not included in the crates.io package.
 // To opt in, clone this repository, uncomment the GPU lines in Cargo.toml, and uncomment the lines below.
@@ -33,9 +36,8 @@ mod high_precision;
 // };
 
 pub use as_channels::{AsChannels, AsChannelsMut};
-#[cfg(feature = "high_precision")]
-pub use config::HighPrecision;
 pub use config::{AliasFloor, Config, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+pub use dsp_float::Sample;
 pub use error::Error;
 pub use extrapolation::Extrapolation;
 pub use interleaved_resampler::InterleavedResampler;

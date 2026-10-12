@@ -3,7 +3,7 @@
 use ardftsrc::{AliasFloor, Config, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType};
 #[cfg(feature = "gpu")]
 use ardftsrc::{GpuContext, GpuDevice, GpuError, PlanarGpuResampler};
-use clap::{Parser, ValueEnum};
+use clap::{ArgGroup, Parser, ValueEnum};
 use flac_codec::encode::{FlacChannelWriter, Options as FlacOptions};
 use i24::i24;
 use mimalloc::MiMalloc;
@@ -119,6 +119,7 @@ enum AudioContainer {
 #[derive(Debug, Parser)]
 #[command(name = "ardftsrc-rs")]
 #[command(about = "General-purpose wav and flac sample-rate converter powered by ardftsrc.")]
+#[command(group(ArgGroup::new("precision").multiple(false)))]
 struct Args {
     /// One or more input audio paths (.wav or .flac).
     #[arg(long = "input", required = true)]
@@ -189,16 +190,30 @@ struct Args {
     #[arg(long)]
     decimate: bool,
 
-    /// Use a high-precision FFT backend. Much slower; intended for extreme quality.
-    /// double-double (~106-bit) is the fastest; f256 (~237-bit) is the most precise.
-    #[cfg(feature = "high_precision")]
-    #[arg(long = "high-precision", value_enum, conflicts_with = "use_f32")]
-    high_precision: Option<HighPrecisionArg>,
-
     /// Process as 32-bit floats instead of the default 64-bit. Quality above 8192 is not
     /// supported (every preset is within this limit).
-    #[arg(long = "f32")]
+    #[arg(long = "f32", group = "precision")]
     use_f32: bool,
+
+    /// Process as 64-bit floats (the default).
+    #[arg(long = "f64", group = "precision")]
+    use_f64: bool,
+
+    /// Process in double-double (~106-bit mantissa). Much slower than --f64; the fastest
+    /// high-precision type.
+    #[cfg(feature = "high_precision")]
+    #[arg(long = "dd", group = "precision")]
+    use_dd: bool,
+
+    /// Process in IEEE binary128 (113-bit mantissa). Much slower than --f64.
+    #[cfg(feature = "high_precision")]
+    #[arg(long = "f128", group = "precision")]
+    use_f128: bool,
+
+    /// Process in IEEE binary256 (237-bit mantissa). The most precise and slowest type.
+    #[cfg(feature = "high_precision")]
+    #[arg(long = "f256", group = "precision")]
+    use_f256: bool,
 
     // GPU device selection is unreleased. Uncomment with the GPU lines in Cargo.toml.
     // /// Force CPU resampling even when a compatible GPU is available.
@@ -240,7 +255,8 @@ struct InputJob<T> {
     track: InputTrack<T>,
 }
 
-/// Decode, resample, and encode sample type (`f32` or `f64`).
+/// Decode, resample, and encode sample type (`f32` or `f64`). High-precision processing decodes
+/// and encodes as `f64`.
 trait ProcessingSample: Copy + Default + Send + Sync + ConvertibleSample + 'static {
     fn read_wav_planar(path: &Path, channels: usize) -> Result<PlanarVecs<Self>, Box<dyn Error>>;
     fn to_i16(self) -> i16;
@@ -250,10 +266,13 @@ trait ProcessingSample: Copy + Default + Send + Sync + ConvertibleSample + 'stat
     fn to_f32(self) -> f32;
     fn to_f64(self) -> f64;
 
+    /// Resamples `inputs` in `precision`, which is `F32` for `f32` and any other precision for
+    /// `f64`.
     fn resample(
         config: Config,
         inputs: Vec<PlanarVecs<Self>>,
         gapless: bool,
+        precision: Precision,
         #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
     ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>>;
 }
@@ -293,8 +312,10 @@ impl ProcessingSample for f32 {
         config: Config,
         inputs: Vec<PlanarVecs<Self>>,
         gapless: bool,
+        precision: Precision,
         #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
     ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>> {
+        debug_assert_eq!(precision, Precision::F32);
         resample_f32(
             config,
             inputs,
@@ -340,8 +361,20 @@ impl ProcessingSample for f64 {
         config: Config,
         inputs: Vec<PlanarVecs<Self>>,
         gapless: bool,
+        precision: Precision,
         #[cfg(feature = "gpu")] gpu: Option<&Arc<GpuDevice>>,
     ) -> Result<Vec<PlanarVecs<Self>>, Box<dyn Error>> {
+        match precision {
+            #[cfg(feature = "high_precision")]
+            Precision::DoubleDouble => {
+                return resample_wide(config, inputs, gapless, ardftsrc::DoubleDouble::to_f64);
+            }
+            #[cfg(feature = "high_precision")]
+            Precision::F128 => return resample_wide(config, inputs, gapless, ardftsrc::F128::to_f64),
+            #[cfg(feature = "high_precision")]
+            Precision::F256 => return resample_wide(config, inputs, gapless, ardftsrc::F256::to_f64),
+            Precision::F32 | Precision::F64 => {}
+        }
         resample_f64(
             config,
             inputs,
@@ -365,7 +398,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "gpu")]
     let gpu = select_gpu(&args);
 
-    if args.use_f32 {
+    // High-precision types decode and encode as f64 and convert around the resampler.
+    if args.precision() == Precision::F32 {
         convert_all::<f32>(
             &args,
             #[cfg(feature = "gpu")]
@@ -469,6 +503,7 @@ fn process_batch_group<T: ProcessingSample>(
         config,
         inputs,
         args.gapless,
+        args.precision(),
         #[cfg(feature = "gpu")]
         gpu,
     )?;
@@ -699,10 +734,6 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     if args.decimate {
         config.decimate = true;
     }
-    #[cfg(feature = "high_precision")]
-    if let Some(high_precision) = args.high_precision {
-        config.high_precision = Some(high_precision.into());
-    }
     // #[cfg(feature = "gpu")]
     // if let Some(gpu_group_chunks) = args.gpu_group_chunks {
     //     config.gpu_group_chunks = gpu_group_chunks;
@@ -733,25 +764,34 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
     Ok(config)
 }
 
-#[cfg(feature = "high_precision")]
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum HighPrecisionArg {
-    /// Double-double (~106-bit mantissa).
+/// Sample type the resampler runs in, selected by the `precision` flag group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Precision {
+    F32,
+    F64,
+    #[cfg(feature = "high_precision")]
     DoubleDouble,
-    /// IEEE binary128 (113-bit mantissa).
+    #[cfg(feature = "high_precision")]
     F128,
-    /// IEEE binary256 (237-bit mantissa).
+    #[cfg(feature = "high_precision")]
     F256,
 }
 
-#[cfg(feature = "high_precision")]
-impl From<HighPrecisionArg> for ardftsrc::HighPrecision {
-    fn from(arg: HighPrecisionArg) -> Self {
-        match arg {
-            HighPrecisionArg::DoubleDouble => Self::DoubleDouble,
-            HighPrecisionArg::F128 => Self::F128,
-            HighPrecisionArg::F256 => Self::F256,
+impl Args {
+    fn precision(&self) -> Precision {
+        #[cfg(feature = "high_precision")]
+        {
+            if self.use_dd {
+                return Precision::DoubleDouble;
+            }
+            if self.use_f128 {
+                return Precision::F128;
+            }
+            if self.use_f256 {
+                return Precision::F256;
+            }
         }
+        if self.use_f32 { Precision::F32 } else { Precision::F64 }
     }
 }
 
@@ -760,11 +800,7 @@ fn gpu_config_supported(args: &Args) -> bool {
     if args.decimate {
         return false;
     }
-    #[cfg(feature = "high_precision")]
-    if args.high_precision.is_some() {
-        return false;
-    }
-    true
+    matches!(args.precision(), Precision::F32 | Precision::F64)
 }
 
 #[cfg(feature = "gpu")]
@@ -828,6 +864,39 @@ fn resample_cpu_f64(
     } else {
         Ok(processor.batch(inputs)?)
     }
+}
+
+/// Resamples `f64` tracks in the high-precision type `W`, converting each sample in exactly and
+/// rounding each output sample back to `f64` with `narrow`.
+#[cfg(feature = "high_precision")]
+fn resample_wide<W: ardftsrc::Sample + From<f64>>(
+    config: Config,
+    inputs: Vec<PlanarVecs<f64>>,
+    gapless: bool,
+    narrow: fn(W) -> f64,
+) -> Result<Vec<PlanarVecs<f64>>, Box<dyn Error>> {
+    let inputs = inputs
+        .into_iter()
+        .map(|track| map_planar(track, W::from))
+        .collect::<Result<Vec<_>, _>>()?;
+    let processor = PlanarResampler::<W>::new(config)?;
+    let outputs = if gapless {
+        processor.batch_gapless(inputs)?
+    } else {
+        processor.batch(inputs)?
+    };
+    outputs.into_iter().map(|track| map_planar(track, narrow)).collect()
+}
+
+/// Converts every sample of `planar` with `convert`.
+#[cfg(feature = "high_precision")]
+fn map_planar<A, B>(planar: PlanarVecs<A>, convert: impl Fn(A) -> B) -> Result<PlanarVecs<B>, Box<dyn Error>> {
+    let channels: Vec<Vec<A>> = planar.into();
+    let channels = channels
+        .into_iter()
+        .map(|channel| channel.into_iter().map(&convert).collect())
+        .collect();
+    Ok(PlanarVecs::new(channels)?)
 }
 
 fn resample_cpu_f32(

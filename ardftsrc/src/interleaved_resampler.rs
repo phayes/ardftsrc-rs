@@ -1,9 +1,7 @@
-use num_traits::Float;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
-use realfft::FftNum;
 
-use crate::{Config, Error, PlanarResampler, PlanarVecs, config::DerivedConfig, cpu_core::CpuCore};
+use crate::{Config, Error, PlanarResampler, PlanarVecs, Sample, config::DerivedConfig, cpu_core::CpuCore};
 
 /// Chunked sample-rate converter for interleaved audio buffers.
 ///
@@ -23,7 +21,7 @@ use crate::{Config, Error, PlanarResampler, PlanarVecs, config::DerivedConfig, c
 /// already work with interleaved audio and provides an optimized de-interleave/re-interleave path.
 pub struct InterleavedResampler<T = f64>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     config: Config,
     derived: DerivedConfig<T>,
@@ -38,7 +36,7 @@ where
 
 impl<T> InterleavedResampler<T>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     /// Constructs a resampler from [`config`](Config).
     ///

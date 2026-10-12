@@ -7,11 +7,9 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use ardftsrc::{Config, InterleavedResampler, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+use ardftsrc::{Config, InterleavedResampler, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, Sample};
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use num_traits::Float;
-use realfft::FftNum;
 use wavers::{Wav, read};
 
 const TARGET_SAMPLE_RATES: &[usize] = &[22_050, 48_000, 96_000];
@@ -43,11 +41,12 @@ fn presets() -> Vec<Preset> {
             config: PRESET_HIGH,
         },
     ];
-    // Run with `--features high_precision` to include this preset.
+    // Run with `--features high_precision` to include this preset, which runs `PRESET_HIGH` in
+    // `DoubleDouble`.
     #[cfg(feature = "high_precision")]
     presets.push(Preset {
         name: "high+dd",
-        config: PRESET_HIGH.with_high_precision(Some(ardftsrc::HighPrecision::DoubleDouble)),
+        config: PRESET_HIGH,
     });
     presets
 }
@@ -59,6 +58,8 @@ struct WavData {
     channels: usize,
     samples_f32: Vec<f32>,
     samples_f64: Vec<f64>,
+    #[cfg(feature = "high_precision")]
+    samples_dd: Vec<ardftsrc::DoubleDouble>,
 }
 
 fn read_wav(path: &Path) -> WavData {
@@ -67,7 +68,12 @@ fn read_wav(path: &Path) -> WavData {
     let (samples, _) =
         read::<f32, _>(path).unwrap_or_else(|err| panic!("failed to read samples {}: {err}", path.display()));
     let samples_f32 = samples.to_vec();
-    let samples_f64 = samples_f32.iter().map(|&sample| sample as f64).collect();
+    let samples_f64: Vec<f64> = samples_f32.iter().map(|&sample| sample as f64).collect();
+    #[cfg(feature = "high_precision")]
+    let samples_dd = samples_f64
+        .iter()
+        .map(|&sample| ardftsrc::DoubleDouble::from(sample))
+        .collect();
 
     WavData {
         file: path
@@ -79,6 +85,8 @@ fn read_wav(path: &Path) -> WavData {
         channels: wav.n_channels() as usize,
         samples_f32,
         samples_f64,
+        #[cfg(feature = "high_precision")]
+        samples_dd,
     }
 }
 
@@ -113,7 +121,7 @@ fn benchmark_sample_type<T>(
     output_sample_rate_hz: usize,
     samples: &[T],
 ) where
-    T: Float + FftNum + Send + Sync,
+    T: Sample,
 {
     let config = preset
         .config
@@ -164,6 +172,18 @@ fn benchmark_process_all(c: &mut Criterion, fixtures: &[WavData]) {
     for fixture in fixtures {
         for preset in &presets {
             for &output_sample_rate_hz in TARGET_SAMPLE_RATES {
+                if preset.name == "high+dd" {
+                    #[cfg(feature = "high_precision")]
+                    benchmark_sample_type(
+                        &mut group,
+                        "--dd",
+                        fixture,
+                        preset,
+                        output_sample_rate_hz,
+                        &fixture.samples_dd,
+                    );
+                    continue;
+                }
                 benchmark_sample_type(
                     &mut group,
                     "--f32",

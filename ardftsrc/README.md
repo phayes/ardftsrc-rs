@@ -303,6 +303,6 @@ It's a speed/memory optimization, not a way to reduce buffering or latency — f
 | `neon`           | FFT NEON SIMD for ARM / Mac                                                       | Yes     |
 | `wasm_simd`      | FFT WebAssembly SIMD                                                              | Yes     |
 | `audioadapter`   | Experimental [`audioadapter`](https://crates.io/crates/audioadapter) support      | No      |
-| `high_precision` | Double-double, `f128`, and `f256` precision FFT backends for extreme quality      | No      |
+| `high_precision` | `DoubleDouble`, `F128`, and `F256` sample types for extreme quality               | No      |
 
 Runtime feature detection is in place for all SIMD except webassembly. 

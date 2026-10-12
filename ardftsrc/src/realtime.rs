@@ -1,9 +1,7 @@
 use crate::{panic_err, panic_msg};
-use num_traits::Float;
-use realfft::FftNum;
 use std::collections::VecDeque;
 
-use crate::{Config, Error, InterleavedResampler};
+use crate::{Config, Error, InterleavedResampler, Sample};
 
 // This is sized to cover at least two chunks during priming:
 // - First partial chunk
@@ -118,7 +116,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 /// ```
 pub struct RealtimeResampler<T = f64>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     spans: SpanPool<T>,
     single_sample_read_buffer: [T; 1],
@@ -127,7 +125,7 @@ where
 
 impl<T> RealtimeResampler<T>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     /// Constructs a sample-streaming resampler from [`config`](Config).
     pub fn new(config: Config) -> Result<Self, Error> {
@@ -324,7 +322,7 @@ where
     ///
     /// Returns `None` if the resampler is done and no more output will be produced.
     ///
-    /// Returns `Some(T::neg_zero())` if the resampler is not primed and is producing negative-zero silence during initial priming delay.
+    /// Returns `Some(-0.0)` if the resampler is not primed and is producing negative-zero silence during initial priming delay.
     /// Query [`sample_is_underrun()`](Self::sample_is_underrun) to check if a sample is negative-zero silence emitted during initial delay.s
     #[inline]
     pub fn read_sample(&mut self) -> Option<T> {
@@ -333,7 +331,7 @@ where
         }
 
         if !self.is_primed() {
-            return Some(T::neg_zero());
+            return Some(-T::zero());
         }
 
         // Deconstruct self to avoid borrowing issues.
@@ -341,7 +339,7 @@ where
 
         let total_read = span_pool.read_samples(single_sample_read_buffer);
         if total_read == 0 {
-            return Some(T::neg_zero());
+            return Some(-T::zero());
         } else {
             Some(single_sample_read_buffer[0])
         }
@@ -490,7 +488,7 @@ impl SamplesLeftInSpan {
 /// RealtimeSpan is a single span of audio.
 struct RealtimeSpan<T = f64>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     inner: InterleavedResampler<T>,
     samples_pending_input: VecDeque<T>,
@@ -503,7 +501,7 @@ where
 
 impl<T> RealtimeSpan<T>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     fn new(config: Config) -> Result<Self, Error> {
         let inner = InterleavedResampler::new(config)?;
@@ -668,7 +666,7 @@ where
 /// SpanPool is a pool of spans that can be re-used, avoiding allocations.
 struct SpanPool<T = f64>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     spans: VecDeque<RealtimeSpan<T>>,
     pool: Vec<Option<RealtimeSpan<T>>>,
@@ -676,7 +674,7 @@ where
 
 impl<T> SpanPool<T>
 where
-    T: Float + FftNum,
+    T: Sample,
 {
     /// Creates a new span pool with the given config and number of spans.
     fn new(config: Config, num_spans: usize) -> Result<Self, Error> {
