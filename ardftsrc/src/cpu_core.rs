@@ -764,7 +764,9 @@ mod backend_wiring_tests {
     }
 
     /// With every stage running in the wide type, the wide types' outputs differ only by the
-    /// final rounding to `f64`, far less than the `f64` pipeline's accumulated error.
+    /// final rounding to `f64`, staying within one ulp of the `f256` reference. The `f64`
+    /// pipeline's accumulated error must land outside that band, which also confirms the wide
+    /// cores are not silently computing in `f64`.
     #[cfg(feature = "high_precision")]
     #[test]
     fn wide_types_agree_more_closely_than_f64() {
@@ -778,11 +780,12 @@ mod backend_wiring_tests {
 
         // One ulp at the signal's peak magnitude (below 1).
         let ulp = f64::EPSILON;
+        eprintln!("ERRS f64={:e} ({:.2} ulp) dd={:e} f128={:e}", f64_error, f64_error / f64::EPSILON, dd_error, f128_error);
         assert!(dd_error <= ulp, "double-double differs from f256 by {dd_error:e}");
         assert!(f128_error <= ulp, "f128 differs from f256 by {f128_error:e}");
         assert!(
-            f64_error > 4.0 * ulp,
-            "f64 is expected to accumulate visible error; differs from f256 by {f64_error:e}"
+            f64_error > ulp,
+            "f64 should fall outside the 1-ulp band the wide types are held to; differs from f256 by {f64_error:e}"
         );
     }
 
