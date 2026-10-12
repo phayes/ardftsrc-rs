@@ -8,31 +8,27 @@ use num_traits::Float;
 /// You may prefer using a sinc resampler (eg. rubato) instead.
 ///
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md),
-/// [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md),
-/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=5ac42856-5fbc-423c-88d6-3ca851e9e4f9&id2=0),
-/// [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=b0ef91cd-fbd7-4ee5-bbf3-f930b6b2f8f9&id2=0).
+/// [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md).
 ///
 /// **HydrogenAudio Test Suite (f32)**
-/// - Overall Score: 70.54%
-/// - Spectrogram Score: 49.66%
+/// - Overall Score: 71.83%
+/// - Spectrogram Score: 51.73%
 /// - Aliasing Score: 100%
-/// - Nyquist Filter Score: 90.33%
-/// - Intermodulation Distortion Score: 35.67%
-/// - Impulse Frequency Score: 50.75%
-/// - Pre-ringing Score: 25.87%
+/// - Nyquist Filter Score: 93.95%
+/// - Intermodulation Distortion Score: 35.62%
+/// - Impulse Frequency Score: 50.69%
+/// - Pre-ringing Score: 21.63%
 /// - Gapless Sine Score: 100%
-/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=b0ef91cd-fbd7-4ee5-bbf3-f930b6b2f8f9&id2=0>
 ///
 /// **HydrogenAudio Test Suite (f64)**
-/// - Overall Score: 96.12%
-/// - Spectrogram Score: 93.12%
+/// - Overall Score: 97.69%
+/// - Spectrogram Score: 96.22%
 /// - Aliasing Score: 100%
-/// - Nyquist Filter Score: 90.33%
+/// - Nyquist Filter Score: 93.95%
 /// - Intermodulation Distortion Score: 100%
-/// - Impulse Frequency Score: 99.44%
-/// - Pre-ringing Score: 25.87%
+/// - Impulse Frequency Score: 99.62%
+/// - Pre-ringing Score: 21.63%
 /// - Gapless Sine Score: 100%
-/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=5ac42856-5fbc-423c-88d6-3ca851e9e4f9&id2=0>
 ///
 /// # Example
 ///
@@ -54,19 +50,17 @@ pub const PRESET_FAST: Config = Config {
 
 /// Balanced preset for good realtime quality. ***You should probably use this one.***
 ///
-/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md),
-/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e782e63-56c1-4895-ab6b-67f97a4b31d0&id2=0).
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md).
 ///
 /// **HydrogenAudio Test Suite (f64)**
-/// - Overall Score: 98.67%
-/// - Spectrogram Score: 97.84%
+/// - Overall Score: 99.26%
+/// - Spectrogram Score: 98.91%
 /// - Aliasing Score: 100%
-/// - Nyquist Filter Score: 96.63%
+/// - Nyquist Filter Score: 98.14%
 /// - Intermodulation Distortion Score: 100%
-/// - Impulse Frequency Score: 99.56%
-/// - Pre-ringing Score: 19.16%
+/// - Impulse Frequency Score: 99.54%
+/// - Pre-ringing Score: 18.28%
 /// - Gapless Sine Score: 100%
-/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=8e782e63-56c1-4895-ab6b-67f97a4b31d0&id2=0>
 ///
 /// # Example
 /// ```rust
@@ -90,19 +84,27 @@ pub const PRESET_GOOD: Config = Config {
 /// The alias floor is `0` dB, so the transition is centred on the lower Nyquist: only content in the
 /// top ~0.4% of the band folds back, at -6 dB or less.
 ///
-/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md),
-/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0).
+/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md).
 ///
 /// **HydrogenAudio Test Suite (f64)**
-/// - Overall Score: 99.58%
-/// - Spectrogram Score: 99.43%
+/// - Overall Score: 99.86%
+/// - Spectrogram Score: 99.66%
 /// - Aliasing Score: 100%
-/// - Nyquist Filter Score: 99.07%
+/// - Nyquist Filter Score: 100%
 /// - Intermodulation Distortion Score: 100%
-/// - Impulse Frequency Score: 99.48%
-/// - Pre-ringing Score: 17.89%
+/// - Impulse Frequency Score: 99.57%
+/// - Pre-ringing Score: 17.74%
 /// - Gapless Sine Score: 100%
-/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0>
+///
+/// **HydrogenAudio Test Suite (f64 with `HighPrecision::DoubleDouble`)**
+/// - Overall Score: 99.92%
+/// - Spectrogram Score: 99.66%
+/// - Aliasing Score: 100%
+/// - Nyquist Filter Score: 100%
+/// - Intermodulation Distortion Score: 100%
+/// - Impulse Frequency Score: 100%
+/// - Pre-ringing Score: 17.74%
+/// - Gapless Sine Score: 100%
 ///
 /// # Example
 /// ```rust
