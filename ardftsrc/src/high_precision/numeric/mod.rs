@@ -239,7 +239,18 @@ mod tests {
     }
 
     fn assert_f64_roundtrip_is_exact<T: HighPrecisionFloat>() {
-        for value in [0.0, -0.0, 1.0, -1.0, 0.1, 123.456, 1e-300, 1e300, f64::MAX, f64::MIN_POSITIVE] {
+        for value in [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            0.1,
+            123.456,
+            1e-300,
+            1e300,
+            f64::MAX,
+            f64::MIN_POSITIVE,
+        ] {
             assert_eq!(T::from_f64_exact(value).to_f64(), value);
         }
     }
@@ -259,7 +270,10 @@ mod tests {
         for angle in [0.0f64, 0.5, 1.0, 2.5, -6.2, 6.283185307179586, 3.14159265358979] {
             let (s, c) = T::from_f64_exact(angle).sin_cos();
             let residual = (s * s + c * c - T::from_f64_exact(1.0)).to_f64();
-            assert!(residual.abs() < tolerance, "sin^2+cos^2 != 1 at {angle}: residual {residual:e}");
+            assert!(
+                residual.abs() < tolerance,
+                "sin^2+cos^2 != 1 at {angle}: residual {residual:e}"
+            );
         }
     }
 
@@ -269,7 +283,10 @@ mod tests {
         let re = quarter.re.to_f64();
         let im_plus_one = (quarter.im + T::from_f64_exact(1.0)).to_f64();
         assert!(re.abs() < tolerance, "cos(-pi/2) should be ~0, got {re:e}");
-        assert!(im_plus_one.abs() < tolerance, "sin(-pi/2) should be ~-1, off by {im_plus_one:e}");
+        assert!(
+            im_plus_one.abs() < tolerance,
+            "sin(-pi/2) should be ~-1, off by {im_plus_one:e}"
+        );
     }
 
     /// Checks every twiddle on a grid of FFT lengths against `F256`, whose trig comes from an

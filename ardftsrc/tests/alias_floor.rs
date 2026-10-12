@@ -131,7 +131,9 @@ fn interleaved_and_planar_apply_alias_floor_in_both_directions() {
 
 #[test]
 fn decimation_keeps_length_with_alias_floor() {
-    let strict = Config::new(192_000, 44_100, 1).with_bandwidth(BANDWIDTH).with_decimate(true);
+    let strict = Config::new(192_000, 44_100, 1)
+        .with_bandwidth(BANDWIDTH)
+        .with_decimate(true);
     let aliased = strict.clone().with_alias_floor_db(-3.0);
     let input = signal(192_000, 1, 22_300.0);
 
@@ -163,7 +165,9 @@ fn high_precision_applies_alias_floor() {
     use ardftsrc::HighPrecision;
 
     for precision in [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256] {
-        let strict = Config::new(96_000, 44_100, 1).with_bandwidth(BANDWIDTH).with_high_precision(Some(precision));
+        let strict = Config::new(96_000, 44_100, 1)
+            .with_bandwidth(BANDWIDTH)
+            .with_high_precision(Some(precision));
         let aliased = strict.clone().with_alias_floor_db(-3.0);
         let input = signal(96_000, 1, 22_300.0);
 

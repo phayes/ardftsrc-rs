@@ -10,7 +10,7 @@ use crate::lpc::{self, ExtrapolateFallback};
 pub enum Extrapolation {
     /// Linear-predictive-coding based prediction (default). Adapts to the signal's own
     /// spectral content, but can be ill-conditioned on some windows.
-    /// 
+    ///
     // see [`crate::lpc`]'s divergence guard, which fades to silence rather than letting the recursion blow up.
     #[default]
     Lpc,
@@ -114,7 +114,12 @@ mod tests {
     #[test]
     fn forward_and_reverse_return_empty_for_zero_extra() {
         let input = [1.0f64, 2.0, 3.0];
-        for strategy in [Extrapolation::Lpc, Extrapolation::OddMirror, Extrapolation::Mirror, Extrapolation::Zero] {
+        for strategy in [
+            Extrapolation::Lpc,
+            Extrapolation::OddMirror,
+            Extrapolation::Mirror,
+            Extrapolation::Zero,
+        ] {
             assert!(strategy.forward(&input, 0).is_empty());
             assert!(strategy.reverse(&input, 0).is_empty());
         }

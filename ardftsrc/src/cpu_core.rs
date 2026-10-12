@@ -652,7 +652,10 @@ where
 /// safe because it only runs after confirming that `T` and `f64` are the same type.
 ///
 /// See [`plan_inverse`] for the inverse counterpart.
-fn plan_forward<T: Float + FftNum>(planner: &mut RealFftPlanner<T>, derived: &DerivedConfig<T>) -> Arc<dyn RealToComplex<T>> {
+fn plan_forward<T: Float + FftNum>(
+    planner: &mut RealFftPlanner<T>,
+    derived: &DerivedConfig<T>,
+) -> Arc<dyn RealToComplex<T>> {
     let len = derived.input_fft_size;
 
     #[cfg(feature = "high_precision")]
@@ -677,7 +680,10 @@ fn plan_forward<T: Float + FftNum>(planner: &mut RealFftPlanner<T>, derived: &De
 /// high-precision engine for `f64`; otherwise the stock `realfft` planner is used. `T` is a
 /// compile-time generic parameter, so "is `T` `f64`" is checked with `TypeId`. The downcast is
 /// safe because it only runs after confirming that `T` and `f64` are the same type.
-fn plan_inverse<T: Float + FftNum>(planner: &mut RealFftPlanner<T>, derived: &DerivedConfig<T>) -> Arc<dyn ComplexToReal<T>> {
+fn plan_inverse<T: Float + FftNum>(
+    planner: &mut RealFftPlanner<T>,
+    derived: &DerivedConfig<T>,
+) -> Arc<dyn ComplexToReal<T>> {
     let len = derived.output_fft_size;
 
     #[cfg(feature = "high_precision")]
@@ -753,7 +759,11 @@ mod backend_wiring_tests {
                 CpuCore::<f64>::new(derived).process_all(&input).unwrap()
             };
             let plain = resample(&config);
-            let precise = resample(&config.clone().with_high_precision(Some(crate::HighPrecision::DoubleDouble)));
+            let precise = resample(
+                &config
+                    .clone()
+                    .with_high_precision(Some(crate::HighPrecision::DoubleDouble)),
+            );
 
             assert_eq!(plain.len(), precise.len());
             let max_diff = plain

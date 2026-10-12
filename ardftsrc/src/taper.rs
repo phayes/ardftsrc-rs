@@ -9,13 +9,13 @@ pub enum TaperType {
     /// Uses a Planck-taper transition
     Planck,
 
-    /// Cumulative distribution of a Kaiser window. 
+    /// Cumulative distribution of a Kaiser window.
     ///
     /// `beta` suggested default: `30.0`.
     Kaiser(f32),
 
-    /// Endpoint-normalized hyperbolic tangent transition. 
-    /// 
+    /// Endpoint-normalized hyperbolic tangent transition.
+    ///
     /// `alpha` suggested default: `3.0`.
     Tanh(f32),
 

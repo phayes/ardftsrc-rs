@@ -35,7 +35,11 @@ impl<T: HighPrecisionFloat> Coefficients<T> {
             if k == 0 {
                 continue;
             }
-            let signed = if k % 2 == 1 { -inverse_factorial } else { inverse_factorial };
+            let signed = if k % 2 == 1 {
+                -inverse_factorial
+            } else {
+                inverse_factorial
+            };
             if n % 2 == 0 {
                 cos[k - 1] = signed;
             } else {

@@ -16,23 +16,32 @@ use realfft::FftNum;
 /// If you experience crackling, try increasing the cpal buffer size. Marginal buffer capacity first shows up as small glitches on seek.
 ///
 /// # Example:
-/// ```rust
-/// let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
-/// let mixer = stream.mixer();
+/// ```rust,no_run
+/// #[cfg(feature = "rodio")]
+/// fn play_resampled_tone() -> Result<(), Box<dyn std::error::Error>> {
+///     use ardftsrc::{PRESET_FAST, RodioResampler};
+///     use rodio::Source;
+///     use std::num::NonZero;
+///     use std::time::Duration;
 ///
-/// let tone = rodio::source::SignalGenerator::new(
-///     NonZero::new(44_100 as u32).unwrap(),
-///     400, // 400 Hz
-///     rodio::source::Function::Sine,
-/// )
-/// .take_duration(Duration::from_secs(3.0));
+///     let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
+///     let mixer = stream.mixer();
 ///
-/// let config = PRESET_FAST.with_channels(1).with_input_rate(44_100).with_output_rate(48_000);
-/// let resampled_tone = RodioResampler::new(tone, config)?;
+///     let tone = rodio::source::SignalGenerator::new(
+///         NonZero::new(44_100).unwrap(),
+///         400.0, // 400 Hz
+///         rodio::source::Function::Sine,
+///     )
+///     .take_duration(Duration::from_secs(3));
 ///
-/// mixer.add(resampled_tone);
-/// thread::sleep(Duration::from_secs(4));
-///```
+///     let config = PRESET_FAST.with_channels(1).with_input_rate(44_100).with_output_rate(48_000);
+///     let resampled_tone = RodioResampler::new(tone, config)?;
+///
+///     mixer.add(resampled_tone);
+///     std::thread::sleep(Duration::from_secs(4));
+///     Ok(())
+/// }
+/// ```
 pub struct RodioResampler<S: rodio::Source, T = f64>
 where
     T: Float + FftNum,

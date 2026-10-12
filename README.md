@@ -173,24 +173,30 @@ Enable the `rodio` feature to use [`RodioResampler`](https://docs.rs/ardftsrc/la
 When playing from a buffered audio source such as a file or a buffered stream, it is recommended to use [`config.with_rodio_fast_start(true)`](https://docs.rs/ardftsrc/latest/ardftsrc/struct.Config.html#method.with_rodio_fast_start), which will 
 avoid initial output delay by pulling samples from the upstream source to prime the resampler. For very-realtime sources such as microphones or similar, do not enable fast-start.
 
-```rust
+```rust,no_run
 #[cfg(feature = "rodio")]
-{
+fn play_resampled_tone() -> Result<(), Box<dyn std::error::Error>> {
+    use ardftsrc::{PRESET_FAST, RodioResampler};
+    use rodio::Source;
+    use std::num::NonZero;
+    use std::time::Duration;
+
     let stream = rodio::DeviceSinkBuilder::open_default_sink()?;
     let mixer = stream.mixer();
 
     let tone = rodio::source::SignalGenerator::new(
-        NonZero::new(44_100 as u32).unwrap(),
-        400, // 400 Hz
+        NonZero::new(44_100).unwrap(),
+        400.0, // 400 Hz
         rodio::source::Function::Sine,
     )
-    .take_duration(Duration::from_secs(3.0));
+    .take_duration(Duration::from_secs(3));
 
     let config = PRESET_FAST.with_channels(1).with_input_rate(44_100).with_output_rate(48_000);
     let resampled_tone = RodioResampler::new(tone, config)?;
 
     mixer.add(resampled_tone);
     std::thread::sleep(Duration::from_secs(4));
+    Ok(())
 }
 ```
 

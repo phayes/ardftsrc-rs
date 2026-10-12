@@ -155,7 +155,10 @@ mod tests {
         // 1 + ulp/2 ties to the even neighbour 1.
         assert_eq!(nearest_f64(f(1.0) + half_ulp_of_one), 1.0);
         // (1 + ulp) + ulp/2 ties to the even neighbour 1 + 2ulp.
-        assert_eq!(nearest_f64(f(1.0 + f64::EPSILON) + half_ulp_of_one), 1.0 + 2.0 * f64::EPSILON);
+        assert_eq!(
+            nearest_f64(f(1.0 + f64::EPSILON) + half_ulp_of_one),
+            1.0 + 2.0 * f64::EPSILON
+        );
         // Just above the tie rounds up; the excess is far below f64's reach, so only sticky sees it.
         let tiny = f(f64::EPSILON) * f(2f64.powi(-100));
         assert_eq!(nearest_f64(f(1.0) + half_ulp_of_one + tiny), 1.0 + f64::EPSILON);
@@ -180,6 +183,9 @@ mod tests {
         assert_eq!(nearest_f64(min_subnormal * f(0.25)), 0.0);
         // Rounding the largest subnormal up carries into the smallest normal.
         let largest_subnormal = f(2.2250738585072009e-308);
-        assert_eq!(nearest_f64(largest_subnormal + min_subnormal * f(0.75)), f64::MIN_POSITIVE);
+        assert_eq!(
+            nearest_f64(largest_subnormal + min_subnormal * f(0.75)),
+            f64::MIN_POSITIVE
+        );
     }
 }
