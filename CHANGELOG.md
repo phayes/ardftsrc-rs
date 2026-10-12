@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 - 2026-10-11
+
+Doc updates. No library changes.
+
+### Documentation
+
+- `PERFORMANCE.md` is regenerated for the 0.3.0 presets, with throughput, latency and per-chunk compute measurements, and a comparison with rubato.
+- `PERFORMANCE.md` has a new section on which presets suit realtime monitoring (5 ms), playback (100 ms) and offline use. No preset suits monitoring. `PRESET_FAST` and `PRESET_GOOD` suit playback from sources that can't be read ahead; every preset suits playback from files and other buffered sources.
+- The READMEs link to `PERFORMANCE.md`.
+
+### Benchmarks
+
+- New `ardftsrc_latency` bench. It measures latency through `RealtimeResampler`, the per-chunk compute time distribution and CPU load, and the latency floor at minimum `quality`.
+- `ardftsrc_throughput` includes `PRESET_HIGH` with `HighPrecision::DoubleDouble` when built with `--features high_precision`.
+
 ## 0.3.0 - 2026-10-11
 
 ### Breaking
