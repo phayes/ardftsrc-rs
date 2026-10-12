@@ -20,7 +20,7 @@
 //!
 //! TODO: Generate golden hashes for x86_64 and remove the target_arch guard from test.
 //!
-use ardftsrc::{Config, InterleavedResampler, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs};
+use ardftsrc::{Config, InterleavedResampler, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarVecs};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -37,7 +37,7 @@ struct PresetSpec {
     base: Config,
 }
 
-const PRESETS: [PresetSpec; 4] = [
+const PRESETS: [PresetSpec; 3] = [
     PresetSpec {
         name: "fast",
         base: PRESET_FAST,
@@ -49,10 +49,6 @@ const PRESETS: [PresetSpec; 4] = [
     PresetSpec {
         name: "high",
         base: PRESET_HIGH,
-    },
-    PresetSpec {
-        name: "extreme",
-        base: PRESET_EXTREME,
     },
 ];
 

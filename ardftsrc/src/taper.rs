@@ -1,5 +1,6 @@
 use crate::Error;
 use crate::beta_reg::beta_reg;
+use crate::kaiser::{KaiserSeries, MAX_KAISER_BETA};
 use num_traits::Float;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -8,28 +9,11 @@ pub enum TaperType {
     /// Uses a Planck-taper transition
     Planck,
 
-    /// Cumulative distribution of a Kaiser window with shape parameter `beta` in `(0, 300]`.
+    /// Cumulative distribution of a Kaiser window
     ///
     /// `beta` follows the usual Kaiser window convention (MATLAB `kaiser`, SciPy
-    /// `scipy.signal.windows.kaiser`); texts that use `alpha` have `beta = pi * alpha`.
-    ///
-    /// The window is integrated exactly (the power series of I0 combined with the integral of
-    /// `(1 - v^2)^k`) and sampled at bin centres, so the profile is exactly
-    /// amplitude-complementary with -6 dB at the transition midpoint. When the transition
-    /// straddles the lower Nyquist (see [`Config::alias_floor`](crate::Config::alias_floor)),
-    /// the samples instead run from unity to zero inclusive, which puts the -6 dB sample on
-    /// Nyquist when the transition is mirrored about it. It is the square of
-    /// [`TaperType::KaiserBesselDerived`] with the same `beta`.
+    /// `scipy.signal.windows.kaiser`); `beta` must be in `(0, 300]`.
     Kaiser(f32),
-
-    /// Descending half of a Kaiser–Bessel-derived window with shape parameter `beta` in
-    /// `(0, 300]`.
-    ///
-    /// The square root of [`TaperType::Kaiser`] with the same `beta`, sampled the same way, so
-    /// it is exactly power-complementary with -3 dB at the transition midpoint. `beta` matches
-    /// SciPy's `kaiser_bessel_derived`; the AAC windows with alpha 4 and 6 are `beta = 4 * pi`
-    /// and `beta = 6 * pi`.
-    KaiserBesselDerived(f32),
 
     /// Endpoint-normalized hyperbolic tangent transition. Alpha controls steepness.
     Tanh(f32),
@@ -59,7 +43,7 @@ pub enum TaperType {
 
 impl Default for TaperType {
     fn default() -> Self {
-        Self::BetaCdf { alpha: 18.0, beta: 18.0 }
+        Self::Kaiser(30.0)
     }
 }
 
@@ -71,8 +55,8 @@ impl TaperType {
     /// about it), the transition is laid out exactly as sampled, so a symmetric profile stays
     /// centred on its span and mirrored bin pairs stay complementary. Otherwise leading unity
     /// and trailing zero samples are trimmed and the rest ends just before `cutoff_bin`, so
-    /// every transition bin carries a non-zero gain. The Kaiser tapers sample fixed bin positions
-    /// and are never trimmed.
+    /// every transition bin carries a non-zero gain. The Kaiser taper samples fixed bin positions
+    /// and is never trimmed.
     ///
     /// Profiles are computed and trimmed in `f64` and converted last, so the layout is the same
     /// for every `T`.
@@ -89,8 +73,7 @@ impl TaperType {
             return vec![T::one(); len];
         }
         let raw = self.build_transition(taper_bins, straddle_nyquist);
-        let fixed_positions = matches!(self, TaperType::Kaiser(_) | TaperType::KaiserBesselDerived(_));
-        let transition = if straddle_nyquist || fixed_positions {
+        let transition = if straddle_nyquist || matches!(self, TaperType::Kaiser(_)) {
             &raw[..]
         } else {
             trim_transition(&raw)
@@ -103,12 +86,11 @@ impl TaperType {
     }
 
     /// Builds the normalized descending transition shape sampled over `taper_bins` bins,
-    /// untrimmed. `straddle_nyquist` only changes the sampling of the Kaiser tapers.
+    /// untrimmed. `straddle_nyquist` only changes the sampling of the Kaiser taper.
     pub(crate) fn build_transition(&self, taper_bins: usize, straddle_nyquist: bool) -> Vec<f64> {
         match self {
             TaperType::Planck => planck_transition(taper_bins),
             TaperType::Kaiser(beta) => kaiser_transition(taper_bins, *beta, straddle_nyquist),
-            TaperType::KaiserBesselDerived(beta) => kbd_transition(taper_bins, *beta, straddle_nyquist),
             TaperType::Tanh(alpha) => tanh_transition(taper_bins, *alpha),
             TaperType::Cosine(alpha) => cosine_transition(taper_bins, *alpha),
             TaperType::BetaCdf { alpha, beta } => beta_cdf_transition(taper_bins, *alpha, *beta),
@@ -158,9 +140,7 @@ impl TaperType {
         };
         match self {
             TaperType::Planck => Ok(()),
-            TaperType::Kaiser(beta) | TaperType::KaiserBesselDerived(beta) => {
-                check(*beta, MAX_KAISER_BETA, Error::InvalidKaiserBeta)
-            }
+            TaperType::Kaiser(beta) => check(*beta, MAX_KAISER_BETA, Error::InvalidKaiserBeta),
             TaperType::Tanh(alpha) | TaperType::Cosine(alpha) => check(*alpha, f32::MAX, Error::InvalidAlpha),
             TaperType::BetaCdf { alpha, beta } => {
                 check(*alpha, f32::MAX, Error::InvalidAlpha).and(check(*beta, f32::MAX, Error::InvalidBeta))
@@ -197,50 +177,6 @@ fn trim_transition(raw: &[f64]) -> &[f64] {
     let active_end = raw.len().saturating_sub(trim_stop);
 
     &raw[trim_start..active_end]
-}
-
-/// Largest `beta` accepted by the Kaiser tapers.
-pub(crate) const MAX_KAISER_BETA: f32 = 300.0;
-
-/// Power series of the Kaiser window's I0 for one `beta`:
-/// `I0(beta * sqrt(w)) = sum_k c_k w^k` with `c_k = (beta/2)^(2k) / (k!)^2`.
-///
-/// With `beta` at most [`MAX_KAISER_BETA`] the largest coefficient is below 1e129, so the
-/// series is summed directly in `f64`.
-struct KaiserSeries {
-    coef: Vec<f64>,
-}
-
-impl KaiserSeries {
-    fn new(beta: f64) -> Self {
-        let q = beta * beta / 4.0;
-        let tiny = f64::EPSILON * 1.0e-4;
-        let mut coef = Vec::new();
-        let (mut c, mut cmax) = (1.0f64, 1.0f64);
-        for k in 1..100_000 {
-            coef.push(c);
-            cmax = cmax.max(c);
-            c *= q / (k as f64 * k as f64);
-            if k > 8 && c < cmax * tiny {
-                break;
-            }
-        }
-        Self { coef }
-    }
-
-    /// Integral of `I0(beta * sqrt(1 - v^2))` over `[0, u]` for `u` in `[0, 1]`, term by term
-    /// with `J_k` = integral of `(1 - v^2)^k`, from `(2k + 1) J_k = 2k J_(k-1) + u (1 - u^2)^k`.
-    fn half_integral(&self, u: f64) -> f64 {
-        let w = 1.0 - u * u;
-        let (mut jk, mut wk) = (u, 1.0);
-        let mut sum = self.coef[0] * jk;
-        for (k, c) in self.coef.iter().enumerate().skip(1) {
-            wk *= w;
-            jk = (2.0 * k as f64 * jk + u * wk) / (2 * k + 1) as f64;
-            sum += c * jk;
-        }
-        sum
-    }
 }
 
 /// Kaiser-window CDF from the exact integral of the window, sampled at the `taper_bins` bin
@@ -281,14 +217,6 @@ fn kaiser_transition(taper_bins: usize, beta: f32, straddle_nyquist: bool) -> Ve
         }
     }
     taper
-}
-
-/// Kaiser–Bessel-derived transition: the square root of [`kaiser_transition`].
-fn kbd_transition(taper_bins: usize, beta: f32, straddle_nyquist: bool) -> Vec<f64> {
-    kaiser_transition(taper_bins, beta, straddle_nyquist)
-        .into_iter()
-        .map(f64::sqrt)
-        .collect()
 }
 
 /// (1 - tanh(alpha * (2*x-1)) / tanh(alpha)) / 2.
@@ -464,16 +392,6 @@ mod tests {
         assert_eq!(taper.len(), 9);
         assert!(taper.iter().all(|value| *value == 1.0));
     }
-
-    #[test]
-    fn kaiser_series_integrates_the_window() {
-        // The integral of I0(beta * sqrt(1 - v^2)) over [0, 1] is sinh(beta) / beta.
-        for beta in [1.0e-3, 1.0, 2.0, 10.0, 50.0, 100.0, f64::from(MAX_KAISER_BETA)] {
-            let exact = beta.sinh() / beta;
-            let error = (KaiserSeries::new(beta).half_integral(1.0) - exact).abs() / exact;
-            assert!(error < 1e-13, "beta={beta}: relative error {error}");
-        }
-    }
 }
 
 #[cfg(test)]
@@ -486,8 +404,7 @@ mod new_taper_tests {
         let tapers = [f32::MIN_POSITIVE, 0.1, 3.0, 6.0, 200.0, f32::MAX]
             .map(TaperType::Tanh)
             .into_iter()
-            .chain(kaiser_betas.map(TaperType::Kaiser))
-            .chain(kaiser_betas.map(TaperType::KaiserBesselDerived));
+            .chain(kaiser_betas.map(TaperType::Kaiser));
         for taper in tapers {
             assert!(taper.validate().is_ok(), "{taper:?}");
             for n in [0, 1, 2, 3, 16, 63] {
@@ -516,12 +433,10 @@ mod new_taper_tests {
             assert!(matches!(TaperType::Tanh(alpha).validate(), Err(Error::InvalidAlpha(_))));
         }
         for beta in [0.0, -1.0, f32::NAN, f32::INFINITY, MAX_KAISER_BETA * 1.01] {
-            for taper in [TaperType::Kaiser(beta), TaperType::KaiserBesselDerived(beta)] {
-                assert!(
-                    matches!(taper.validate(), Err(Error::InvalidKaiserBeta(_))),
-                    "{taper:?}"
-                );
-            }
+            assert!(
+                matches!(TaperType::Kaiser(beta).validate(), Err(Error::InvalidKaiserBeta(_))),
+                "{beta}"
+            );
         }
     }
 
@@ -532,23 +447,6 @@ mod new_taper_tests {
         for (a, b) in shape.iter().zip(shape.iter().rev()) {
             assert!((a + b - 1.0).abs() < 1e-14);
         }
-    }
-
-    #[test]
-    fn kbd_is_root_of_kaiser_and_power_complementary() {
-        for straddle in [false, true] {
-            for n in [2, 9, 32, 101] {
-                let kaiser = kaiser_transition(n, 12.0, straddle);
-                let kbd = kbd_transition(n, 12.0, straddle);
-                for (k, d) in kaiser.iter().zip(&kbd) {
-                    assert!((k - d * d).abs() < 1e-15, "n={n}, straddle={straddle}");
-                }
-                for (a, b) in kbd.iter().zip(kbd.iter().rev()) {
-                    assert!((a * a + b * b - 1.0).abs() < 1e-15, "n={n}, straddle={straddle}");
-                }
-            }
-        }
-        assert_eq!(kbd_transition(9, 12.0, false)[4], 0.5f64.sqrt());
     }
 
     /// Modified Bessel function I0 by its power series.
@@ -629,7 +527,6 @@ mod new_taper_tests {
                 beta: 18.0,
             },
             TaperType::Kaiser(18.0),
-            TaperType::KaiserBesselDerived(18.0),
         ];
         for taper in tapers {
             for straddle in [false, true] {

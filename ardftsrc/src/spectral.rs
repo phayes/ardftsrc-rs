@@ -349,7 +349,6 @@ mod tests {
                 beta: 10.0,
             },
             TaperType::Kaiser(18.0),
-            TaperType::KaiserBesselDerived(18.0),
         ]
     }
 
@@ -391,31 +390,24 @@ mod tests {
 
     #[test]
     fn widest_floor_centres_transition_on_nyquist() {
-        // Amplitude-complementary profiles, plus whether the profile is power-complementary.
+        // Amplitude-complementary profiles.
         let tapers = [
-            (TaperType::Cosine(3.4375), false),
-            (TaperType::Planck, false),
-            (TaperType::Tanh(3.0), false),
-            (
-                TaperType::BetaCdf {
-                    alpha: 12.0,
-                    beta: 12.0,
-                },
-                false,
-            ),
-            (
-                TaperType::BetaCdf {
-                    alpha: 18.0,
-                    beta: 18.0,
-                },
-                false,
-            ),
-            (TaperType::Kaiser(18.0), false),
-            (TaperType::KaiserBesselDerived(18.0), true),
+            TaperType::Cosine(3.4375),
+            TaperType::Planck,
+            TaperType::Tanh(3.0),
+            TaperType::BetaCdf {
+                alpha: 12.0,
+                beta: 12.0,
+            },
+            TaperType::BetaCdf {
+                alpha: 18.0,
+                beta: 18.0,
+            },
+            TaperType::Kaiser(18.0),
         ];
 
         for (input, output) in [(4480, 2058), (2058, 4480)] {
-            for (taper, power) in tapers.iter().copied() {
+            for taper in tapers.iter().copied() {
                 let plan = SpectralPlan::<f64>::new(input, output, BW, &taper, 0.0, 0.0, f64::from(BW), 0.0);
                 let geometry = plan.geometry;
                 let n = geometry.lower_nyquist_bin;
@@ -425,11 +417,7 @@ mod tests {
                 // Every bin pair mirrored about Nyquist is complementary, including Nyquist itself.
                 for d in 0..=n - geometry.passband_end_bin + 1 {
                     let (below, above) = (plan.gain[n - d], plan.gain[n + d]);
-                    let sum = if power {
-                        below * below + above * above
-                    } else {
-                        below + above
-                    };
+                    let sum = below + above;
                     assert!(
                         (sum - 1.0).abs() < 1e-9,
                         "{taper:?} {input}->{output}: d={d}, sum {sum}"
@@ -519,8 +507,9 @@ mod tone_tests {
     use crate::cpu_core::CpuCore;
 
     const AMP: f64 = 0.5;
-    /// Default bandwidth; `AliasFloor::Fraction(BW)` is the widest floor for `config()`.
-    const BW: f32 = Config::DEFAULT.bandwidth;
+    /// Bandwidth for `config()`, so `AliasFloor::Fraction(BW)` is its widest floor. Pinned rather
+    /// than the default so the near-Nyquist probe tones stay well inside that floor's transition.
+    const BW: f32 = 0.95;
     /// Strict-mode suppression expected for content outside the passband/transition.
     const SUPPRESSED_DB: f64 = -100.0;
 
@@ -540,6 +529,7 @@ mod tone_tests {
     fn config(input_rate: usize, output_rate: usize, alias_floor: AliasFloor) -> Config {
         Config {
             alias_floor,
+            bandwidth: BW,
             ..Config::new(input_rate, output_rate, 1)
         }
     }
@@ -705,7 +695,6 @@ mod tone_tests {
                 beta: 10.0,
             },
             TaperType::Kaiser(18.0),
-            TaperType::KaiserBesselDerived(18.0),
         ];
 
         let input = tone(96_000, 22_300.0, 0.3);

@@ -4,25 +4,27 @@
 
 ### Breaking
 
-- All presets and the `Config` default have been retuned, so output differs from 0.2.0 for every preset. Each preset now scores higher on the HydrogenAudio SRC test suite and runs faster; `PRESET_HIGH` and `PRESET_EXTREME` are much faster.
+- All presets and the `Config` default have been retuned, so output differs from 0.2.0 for every preset. Each preset now scores higher on the HydrogenAudio SRC test suite and runs faster; `PRESET_HIGH` is much faster.
 
   | Preset | Quality | Bandwidth | Taper |
   | --- | ---: | ---: | --- |
-  | `PRESET_FAST` | `512` | `0.86` | `BetaCdf { alpha: 17.0, beta: 17.0 }` |
-  | `PRESET_GOOD` (default) | `2304` | `0.95` | `BetaCdf { alpha: 18.0, beta: 18.0 }` |
-  | `PRESET_HIGH` | `9216` | `0.986` | `BetaCdf { alpha: 19.0, beta: 19.0 }` |
-  | `PRESET_EXTREME` | `28224` | `0.9975` | `BetaCdf { alpha: 12.0, beta: 12.0 }`, alias floor `0` dB |
+  | `PRESET_FAST` | `512` | `0.92` | `Kaiser(30.0)` |
+  | `PRESET_GOOD` (default) | `2304` | `0.975` | `Kaiser(30.0)` |
+  | `PRESET_HIGH` | `7056` | `0.996` | `Kaiser(34.0)`, alias floor `0` dB |
 
-- `TaperType::default()` is now `BetaCdf { alpha: 18.0, beta: 18.0 }` (was `Cosine(3.4375)`).
-- The `bessel` feature is removed. The Kaiser tapers no longer depend on `pxfm` and are always available.
+- `PRESET_EXTREME` is removed, along with `ardftsrc-rs --preset extreme`. `PRESET_HIGH` now permits aliasing at the lower Nyquist (alias floor `0` dB) and scores higher than `PRESET_EXTREME` did, with a quarter of its FFT size. Use `PRESET_HIGH` instead.
+- `PRESET_HIGH` now supports `f32` processing (its quality is within the `f32` limit of 8192).
+
+- `TaperType::default()` is now `Kaiser(30.0)` (was `Cosine(3.4375)`).
+- The `bessel` feature is removed. The Kaiser taper no longer depends on `pxfm` and is always available.
 - `TaperType::Bessel(alpha)` is replaced by `TaperType::Kaiser(beta)`, which takes the Kaiser window's `beta` as MATLAB and SciPy do: `Bessel(alpha)` corresponds to `Kaiser(PI * alpha)`. It integrates the window exactly and samples it at bin centres, so it is exactly amplitude-complementary and centred on its transition. When the transition straddles Nyquist it samples from unity to zero inclusive, putting −6 dB on Nyquist.
-- `TaperType::Kbd(alpha)` is renamed to `TaperType::KaiserBesselDerived(beta)` and also takes `beta` (`Kbd(alpha)` corresponds to `KaiserBesselDerived(PI * alpha)`; AAC's alpha 4 and 6 are beta 4π and 6π). It is now the square root of `Kaiser`, exactly power-complementary.
-- Both Kaiser tapers accept `beta` in `(0, 300]` and otherwise fail validation with the new `Error::InvalidKaiserBeta`. `TaperType::HalfKaiser` is removed.
-- `ardftsrc-rs`: `--taper-type bessel` is now `kaiser`, `kbd` also accepts `kaiser_bessel_derived`, and both take `--beta` (default 6π ≈ 18.85) instead of `--alpha`. `half_kaiser` is removed.
+- `Kaiser` accepts `beta` in `(0, 300]` and otherwise fails validation with the new `Error::InvalidKaiserBeta`.
+- `TaperType::Kbd` and `TaperType::HalfKaiser` are removed.
+- `ardftsrc-rs`: `--taper-type bessel` is now `kaiser` and takes `--beta` (default `30`) instead of `--alpha`. `kbd` and `half_kaiser` are removed.
 
 ### Fixed
 
-- With a lowered alias floor, the transition is now centred on the lower Nyquist, so every pair of bins mirrored about it sums to unity gain and Nyquist sits at −6 dB. Taper samples that had underflowed to zero were trimmed, which pushed the transition above Nyquist: with the default taper and the widest floor at 44.1 kHz → 96 kHz, −6 dB sat 9 bins high and Nyquist was at −3.4 dB. This changes `PRESET_EXTREME` output. Without aliasing the layout is unchanged.
+- With a lowered alias floor, the transition is now centred on the lower Nyquist, so every pair of bins mirrored about it sums to unity gain and Nyquist sits at −6 dB. Taper samples that had underflowed to zero were trimmed, which pushed the transition above Nyquist: with the default taper and the widest floor at 44.1 kHz → 96 kHz, −6 dB sat 9 bins high and Nyquist was at −3.4 dB. This affects `PRESET_HIGH`, which now uses an alias floor of `0` dB. Without aliasing the layout is unchanged.
 - Taper profiles are now computed in `f64` for every sample type. In `f32`, `Cosine` and `Planck` tails underflowed earlier and shifted the transition toward Nyquist (by up to 280 bins for `Cosine(3.4375)` over 5000 transition bins).
 - End-of-stream stop extrapolation no longer reads its input history from a buffer the forward FFT had already used as scratch. With the default FFT backend, the synthesized tail was built from corrupted samples, degrading the final chunk; outputs now match the high-precision backends.
 - With `decimate` enabled, output is now exactly time-aligned with the input. The decimation cascade's group delay was rounded to whole output samples, leaving a fractional-sample offset; the remainder is now compensated in the spectral stage.

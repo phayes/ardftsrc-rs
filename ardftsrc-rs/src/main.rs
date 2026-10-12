@@ -1,8 +1,6 @@
 #![cfg_attr(test, allow(unexpected_cfgs))]
 
-use ardftsrc::{
-    AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType,
-};
+use ardftsrc::{AliasFloor, Config, PRESET_FAST, PRESET_GOOD, PRESET_HIGH, PlanarResampler, PlanarVecs, TaperType};
 #[cfg(feature = "gpu")]
 use ardftsrc::{GpuContext, GpuDevice, GpuError, PlanarGpuResampler};
 use clap::{Parser, ValueEnum};
@@ -34,21 +32,19 @@ static GLOBAL: MiMalloc = MiMalloc;
 const DEFAULT_ALPHA: f32 = 3.4375;
 const DEFAULT_BETA_CDF_ALPHA: f32 = 10.0;
 const DEFAULT_BETA_CDF_BETA: f32 = 10.0;
-const DEFAULT_KAISER_BETA: f32 = 6.0 * std::f32::consts::PI;
+const DEFAULT_KAISER_BETA: f32 = 30.0;
 const DEFAULT_ALLOW_ALIASING_DB: f32 = -3.0;
 const FLAC_WRITE_CHUNK_FRAMES: usize = 32768;
 const MAX_F32_QUALITY: usize = 8192;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum PresetArg {
-    /// Fastest preset; lowest quality (quality = 512, bandwidth = 0.86, beta_cdf alpha = 17, beta = 17).
+    /// Fastest preset; lowest quality (quality = 512, bandwidth = 0.92, kaiser beta = 30).
     Fast,
-    /// Balanced quality/speed preset (quality = 2304, bandwidth = 0.95, beta_cdf alpha = 18, beta = 18).
+    /// Balanced quality/speed preset (quality = 2304, bandwidth = 0.975, kaiser beta = 30).
     Good,
-    /// High quality preset for offline or quality-sensitive use (quality = 9216, bandwidth = 0.986, beta_cdf alpha = 19, beta = 19).
+    /// High quality preset for offline or quality-sensitive use (quality = 7056, bandwidth = 0.996, kaiser beta = 34, alias floor = 0 dB).
     High,
-    /// Maximum quality preset; slowest (quality = 28224, bandwidth = 0.9975, beta_cdf alpha = 12, beta = 12, alias floor = 0 dB).
-    Extreme,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -58,9 +54,6 @@ enum TaperTypeArg {
     /// Kaiser-window CDF transition (amplitude-complementary); --beta is the Kaiser beta.
     #[value(name = "kaiser")]
     Kaiser,
-    /// Descending Kaiser-Bessel-derived transition (power-complementary); --beta is the Kaiser beta.
-    #[value(name = "kbd", aliases = ["kaiser_bessel_derived", "kaiser-bessel-derived"])]
-    KaiserBesselDerived,
     /// Endpoint-normalized hyperbolic tangent transition.
     Tanh,
     /// Sigmoid-warped cosine taper transition.
@@ -75,7 +68,6 @@ impl TaperTypeArg {
         match self {
             Self::Planck => "planck",
             Self::Kaiser => "kaiser",
-            Self::KaiserBesselDerived => "kbd",
             Self::Tanh => "tanh",
             Self::Cosine => "cosine",
             Self::BetaCdf => "beta_cdf",
@@ -85,7 +77,7 @@ impl TaperTypeArg {
     fn accepts_alpha(self) -> bool {
         match self {
             Self::Cosine | Self::BetaCdf | Self::Tanh => true,
-            Self::Planck | Self::Kaiser | Self::KaiserBesselDerived => false,
+            Self::Planck | Self::Kaiser => false,
         }
     }
 
@@ -94,11 +86,11 @@ impl TaperTypeArg {
     }
 
     fn accepts_beta(self) -> bool {
-        matches!(self, Self::BetaCdf | Self::Kaiser | Self::KaiserBesselDerived)
+        matches!(self, Self::BetaCdf | Self::Kaiser)
     }
 
     fn compatible_beta_types() -> &'static str {
-        "beta_cdf, kaiser, kbd"
+        "beta_cdf, kaiser"
     }
 }
 
@@ -126,9 +118,7 @@ enum AudioContainer {
 
 #[derive(Debug, Parser)]
 #[command(name = "ardftsrc-rs")]
-#[command(
-    about = "General-purpose wav and flac sample-rate converter powered by ardftsrc."
-)]
+#[command(about = "General-purpose wav and flac sample-rate converter powered by ardftsrc.")]
 struct Args {
     /// One or more input audio paths (.wav or .flac).
     #[arg(long = "input", required = true)]
@@ -161,10 +151,10 @@ struct Args {
     #[arg(long)]
     alpha: Option<f32>,
 
-    /// Taper beta. Requires a compatible --taper-type (beta_cdf, kaiser, or kbd).
+    /// Taper beta. Requires a compatible --taper-type (beta_cdf or kaiser).
     ///
-    /// For beta_cdf it is the second Beta shape parameter (default 10.0). For kaiser and kbd it is
-    /// the Kaiser window beta, at most 300 (default 6 * pi, about 18.85).
+    /// For beta_cdf it is the second Beta shape parameter (default 10.0). For kaiser it is the
+    /// Kaiser window beta, at most 300 (default 30).
     #[arg(long)]
     beta: Option<f32>,
 
@@ -206,7 +196,7 @@ struct Args {
     high_precision: Option<HighPrecisionArg>,
 
     /// Process as 32-bit floats instead of the default 64-bit. Quality above 8192 is not
-    /// supported (`--preset high` and `--preset extreme` exceed this limit).
+    /// supported (every preset is within this limit).
     #[arg(long = "f32")]
     use_f32: bool,
 
@@ -227,7 +217,6 @@ struct Args {
     // #[cfg(feature = "gpu")]
     // #[arg(long = "gpu-ring-slots")]
     // gpu_ring_slots: Option<usize>,
-
     /// Output sample format. For .flac output, float formats are rejected.
     #[arg(long = "out-format", value_enum, default_value_t = OutFormatArg::Same)]
     out_format: OutFormatArg,
@@ -677,7 +666,6 @@ fn preset_config(preset: PresetArg) -> Config {
         PresetArg::Fast => PRESET_FAST,
         PresetArg::Good => PRESET_GOOD,
         PresetArg::High => PRESET_HIGH,
-        PresetArg::Extreme => PRESET_EXTREME,
     }
 }
 
@@ -728,9 +716,6 @@ fn build_config(args: &Args, input_sample_rate: usize, channels: usize) -> Resul
         config.taper_type = match taper_type {
             TaperTypeArg::Planck => TaperType::Planck,
             TaperTypeArg::Kaiser => TaperType::Kaiser(args.beta.unwrap_or(DEFAULT_KAISER_BETA)),
-            TaperTypeArg::KaiserBesselDerived => {
-                TaperType::KaiserBesselDerived(args.beta.unwrap_or(DEFAULT_KAISER_BETA))
-            }
             TaperTypeArg::Tanh => TaperType::Tanh(args.alpha.unwrap_or(3.0)),
             TaperTypeArg::Cosine => {
                 let alpha = args.alpha.unwrap_or(DEFAULT_ALPHA);
@@ -1223,9 +1208,7 @@ mod tests {
 
     #[test]
     fn new_taper_cli_options_apply_defaults_and_alpha() {
-        let cases = [
-            ("tanh", TaperType::Tanh(3.0), TaperType::Tanh(2.0)),
-        ];
+        let cases = [("tanh", TaperType::Tanh(3.0), TaperType::Tanh(2.0))];
         for (name, default, overridden) in cases {
             let mut argv = vec![
                 "ardftsrc-rs",
@@ -1258,30 +1241,25 @@ mod tests {
             "--output-rate",
             "48000",
         ];
-        let cases: [(&str, fn(f32) -> TaperType); 4] = [
-            ("kaiser", TaperType::Kaiser),
-            ("kbd", TaperType::KaiserBesselDerived),
-            ("kaiser_bessel_derived", TaperType::KaiserBesselDerived),
-            ("kaiser-bessel-derived", TaperType::KaiserBesselDerived),
-        ];
-        for (name, taper) in cases {
-            let mut argv = base.to_vec();
-            argv.extend(["--taper-type", name]);
-            let args = Args::try_parse_from(&argv).unwrap();
-            assert_eq!(
-                build_config(&args, 44_100, 2).unwrap().taper_type,
-                taper(DEFAULT_KAISER_BETA)
-            );
+        let mut argv = base.to_vec();
+        argv.extend(["--taper-type", "kaiser"]);
+        let args = Args::try_parse_from(&argv).unwrap();
+        assert_eq!(
+            build_config(&args, 44_100, 2).unwrap().taper_type,
+            TaperType::Kaiser(DEFAULT_KAISER_BETA)
+        );
 
-            argv.extend(["--beta", "12"]);
-            let args = Args::try_parse_from(&argv).unwrap();
-            assert!(validate_args(&args).is_ok());
-            assert_eq!(build_config(&args, 44_100, 2).unwrap().taper_type, taper(12.0));
+        argv.extend(["--beta", "12"]);
+        let args = Args::try_parse_from(&argv).unwrap();
+        assert!(validate_args(&args).is_ok());
+        assert_eq!(
+            build_config(&args, 44_100, 2).unwrap().taper_type,
+            TaperType::Kaiser(12.0)
+        );
 
-            let mut argv = base.to_vec();
-            argv.extend(["--taper-type", name, "--alpha", "2"]);
-            assert!(validate_args(&Args::try_parse_from(&argv).unwrap()).is_err());
-        }
+        let mut argv = base.to_vec();
+        argv.extend(["--taper-type", "kaiser", "--alpha", "2"]);
+        assert!(validate_args(&Args::try_parse_from(&argv).unwrap()).is_err());
     }
 
     // #[test]
@@ -1323,11 +1301,10 @@ mod tests {
     // }
 
     #[test]
-    fn f32_quality_limit_matches_supported_presets() {
+    fn f32_quality_limit_supports_every_preset() {
         assert!(preset_config(PresetArg::Fast).quality <= MAX_F32_QUALITY);
         assert!(preset_config(PresetArg::Good).quality <= MAX_F32_QUALITY);
-        assert!(preset_config(PresetArg::High).quality > MAX_F32_QUALITY);
-        assert!(preset_config(PresetArg::Extreme).quality > MAX_F32_QUALITY);
+        assert!(preset_config(PresetArg::High).quality <= MAX_F32_QUALITY);
     }
 
     #[test]

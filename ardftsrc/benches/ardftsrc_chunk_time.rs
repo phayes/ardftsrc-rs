@@ -8,7 +8,7 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use ardftsrc::{Config, InterleavedResampler, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+use ardftsrc::{Config, InterleavedResampler, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main};
 use num_traits::Float;
@@ -40,10 +40,6 @@ const PRESETS: &[Preset] = &[
     Preset {
         name: "high",
         config: PRESET_HIGH,
-    },
-    Preset {
-        name: "extreme",
-        config: PRESET_EXTREME,
     },
 ];
 

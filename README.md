@@ -253,10 +253,9 @@ let config = ardftsrc::PRESET_GOOD
 
 | Preset                                                                                    |  Quality | Bandwidth | Recommended use                            | Quality metrics                                                                                                                                                                                        |
 | ----------------------------------------------------------------------------------------- | -------: | --------: | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.860` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=5ac42856-5fbc-423c-88d6-3ca851e9e4f9&id2=0), [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=b0ef91cd-fbd7-4ee5-bbf3-f930b6b2f8f9&id2=0) |
-| [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `2304` |   `0.950` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e782e63-56c1-4895-ab6b-67f97a4b31d0&id2=0) |
-| [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |   `9216` |   `0.986` | High quality for realtime or offline use.  | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0) |
-| [`PRESET_EXTREME`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_EXTREME.html) |  `28224` |  `0.9975` | Maximum quality, intended for offline use. | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=40dfe66d-0af8-4597-9462-59093561184a&id2=0) |
+| [`PRESET_FAST`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_FAST.html)       |    `512` |   `0.920` | Fast preset for realtime workloads.        | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast.md), [f32](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_fast_f32.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=5ac42856-5fbc-423c-88d6-3ca851e9e4f9&id2=0), [HA-f32](https://src.hydrogenaudio.org/compareresults?id1=b0ef91cd-fbd7-4ee5-bbf3-f930b6b2f8f9&id2=0) |
+| [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html) †       |   `2304` |   `0.975` | Balanced preset for realtime quality.      | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_good.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=8e782e63-56c1-4895-ab6b-67f97a4b31d0&id2=0) |
+| [`PRESET_HIGH`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_HIGH.html)       |   `7056` |   `0.996` | High quality for realtime or offline use.  | [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md), [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0) |
 
 † You should probably use [`PRESET_GOOD`](https://docs.rs/ardftsrc/latest/ardftsrc/constant.PRESET_GOOD.html). It's fast and has very high quality metrics.
 
@@ -291,31 +290,30 @@ The workspace includes a small utility cli, `ardftsrc-rs`, for WAV/FLAC sample-r
 
 You can use this as a utility, or use it to benchmark this project.
 
-Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, so `--preset high` and `--preset extreme` are rejected). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. Pass `--high-precision double-double|f128|f256` to use a high-precision FFT backend (much slower; for extreme quality).
+Processing defaults to `f64`. Pass `--f32` for 32-bit float processing (quality is capped at 8192, which every preset is within). `--f32` decodes, resamples, and encodes in `f32` without an `f64` round-trip. Pass `--high-precision double-double|f128|f256` to use a high-precision FFT backend (much slower; for extreme quality).
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ./target/release/ardftsrc-rs --help
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset high
 ./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset good --f32
-./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset extreme \
+./target/release/ardftsrc-rs --input in.wav --output out.flac --output-rate 48000 --preset high \
     --taper-type beta_cdf --alpha 10 --beta 10 --high-precision double-double --decimate --phase -0.5
 ```
 
 ### Taper profiles
 
-`--taper-type` selects the cutoff transition. Omitting it keeps the selected preset's taper. `PRESET_GOOD`, which is also the `Config` default, uses `beta_cdf` with alpha `18` and beta `18`. `PRESET_FAST` uses `beta_cdf` with alpha `17` and beta `17`. `PRESET_HIGH` uses `beta_cdf` with alpha `19` and beta `19`. `PRESET_EXTREME` uses `beta_cdf` with alpha `12` and beta `12`, and an alias floor of `0` dB.
+`--taper-type` selects the cutoff transition. Omitting it keeps the selected preset's taper. `PRESET_GOOD`, which is also the `Config` default, and `PRESET_FAST` use `kaiser` with beta `30`. `PRESET_HIGH` uses `kaiser` with beta `34`, and an alias floor of `0` dB.
 
 | Taper | Parameters | Description |
 | --- | --- | --- |
 | `cosine` | `--alpha` (default `3.4375`) | Sigmoid-warped cosine. |
 | `planck` | — | Planck taper. |
 | `tanh` | `--alpha` (default `3`) | Endpoint-normalized hyperbolic tangent. |
-| `beta_cdf` (`beta-cdf`) | `--alpha` (default `10`), `--beta` (default `10`) | Beta cumulative distribution. `PRESET_GOOD` uses alpha `18` and beta `18`. `PRESET_FAST` uses alpha `17` and beta `17`. `PRESET_HIGH` uses alpha `19` and beta `19`. `PRESET_EXTREME` uses alpha `12` and beta `12`. Passing `--taper-type beta_cdf` without `--alpha` or `--beta` uses `10` and `10`. Equal `alpha` and `beta` are symmetric. |
-| `kaiser` | `--beta` (default 6π ≈ `18.85`) | Cumulative distribution of a Kaiser window, integrated exactly. Exactly amplitude-complementary (−6 dB at the transition midpoint); the square of `kbd`. |
-| `kbd` (`kaiser_bessel_derived`, `kaiser-bessel-derived`) | `--beta` (default 6π ≈ `18.85`) | Descending half of a Kaiser–Bessel-derived window: the square root of `kaiser`. Exactly power-complementary (−3 dB at the transition midpoint). |
+| `beta_cdf` (`beta-cdf`) | `--alpha` (default `10`), `--beta` (default `10`) | Beta cumulative distribution. Passing `--taper-type beta_cdf` without `--alpha` or `--beta` uses `10` and `10`. Equal `alpha` and `beta` are symmetric. |
+| `kaiser` | `--beta` (default `30`) | Cumulative distribution of a Kaiser window, integrated exactly. Exactly amplitude-complementary (−6 dB at the transition midpoint). `PRESET_GOOD` and `PRESET_FAST` use beta `30`; `PRESET_HIGH` uses beta `34`. |
 
-Higher `alpha` (or the Kaiser tapers' `--beta`) makes the transition steeper. `alpha` and `beta` must be finite and greater than zero. For `kaiser` and `kbd`, `--beta` is the Kaiser window's beta (as in MATLAB and SciPy; beta = π × alpha), at most `300`.
+Higher `alpha` (or `kaiser`'s `--beta`) makes the transition steeper. `alpha` and `beta` must be finite and greater than zero. For `kaiser`, `--beta` is the Kaiser window's beta (as in MATLAB and SciPy; beta = π × alpha), at most `300`.
 
 ## Quality Reporting
 
@@ -324,7 +322,6 @@ Detailed quality reports are available for each preset:
 - [Fast](reports/report_fast.md)
 - [Good](reports/report_good.md)
 - [High](reports/report_high.md)
-- [Extreme](reports/report_extreme.md)
 
 You can generate reports using the `ardftsrc-report` command, a CLI that generates per-preset quality
 reports combining two independent measurements:

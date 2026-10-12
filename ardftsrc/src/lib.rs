@@ -8,6 +8,7 @@ mod decimate;
 mod error;
 mod extrapolation;
 mod interleaved_resampler;
+mod kaiser;
 mod lpc;
 mod planar_resampler;
 mod planar_vecs;
@@ -34,7 +35,7 @@ mod high_precision;
 pub use as_channels::{AsChannels, AsChannelsMut};
 #[cfg(feature = "high_precision")]
 pub use config::HighPrecision;
-pub use config::{AliasFloor, Config, PRESET_EXTREME, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
+pub use config::{AliasFloor, Config, PRESET_FAST, PRESET_GOOD, PRESET_HIGH};
 pub use cpu_core::CpuCore;
 pub use error::Error;
 pub use extrapolation::Extrapolation;

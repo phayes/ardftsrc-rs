@@ -47,8 +47,8 @@ pub const PRESET_FAST: Config = Config {
     output_sample_rate: 0,
     channels: 0,
     quality: 512,
-    bandwidth: 0.86,
-    taper_type: TaperType::BetaCdf { alpha: 17.0, beta: 17.0 },
+    bandwidth: 0.92,
+    taper_type: TaperType::Kaiser(30.0),
     ..Config::DEFAULT
 };
 
@@ -80,12 +80,15 @@ pub const PRESET_GOOD: Config = Config {
     output_sample_rate: 0,
     channels: 0,
     quality: 2304,
-    bandwidth: 0.95,
-    taper_type: TaperType::BetaCdf { alpha: 18.0, beta: 18.0 },
+    bandwidth: 0.975,
+    taper_type: TaperType::Kaiser(30.0),
     ..Config::DEFAULT
 };
 
 /// High quality preset suitable for realtime applications where quality is critical, or for offline processing.
+///
+/// The alias floor is `0` dB, so the transition is centred on the lower Nyquist: only content in the
+/// top ~0.4% of the band folds back, at -6 dB or less.
 ///
 /// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_high.md),
 /// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=ef45bf27-1010-4965-bc93-f6aa68ea2f8d&id2=0).
@@ -112,44 +115,9 @@ pub const PRESET_HIGH: Config = Config {
     input_sample_rate: 0,
     output_sample_rate: 0,
     channels: 0,
-    quality: 9216,
-    bandwidth: 0.986,
-    taper_type: TaperType::BetaCdf { alpha: 19.0, beta: 19.0 },
-    ..Config::DEFAULT
-};
-
-/// Maximum quality preset, optimized for offline processing. Not recommended for realtime applications.
-///
-/// The alias floor is `0` dB, so the transition extends to the passband edge.
-///
-/// Quality reports: [f64](https://github.com/phayes/ardftsrc-rs/blob/master/reports/report_extreme.md),
-/// [HA-f64](https://src.hydrogenaudio.org/compareresults?id1=40dfe66d-0af8-4597-9462-59093561184a&id2=0).
-///
-/// **HydrogenAudio Test Suite (f64)**
-/// - Overall Score: 99.84%
-/// - Spectrogram Score: 99.65%
-/// - Aliasing Score: 100%
-/// - Nyquist Filter Score: 100%
-/// - Intermodulation Distortion Score: 100%
-/// - Impulse Frequency Score: 99.41%
-/// - Pre-ringing Score: 17.73%
-/// - Gapless Sine Score: 100%
-/// - Link with more details: <https://src.hydrogenaudio.org/compareresults?id1=40dfe66d-0af8-4597-9462-59093561184a&id2=0>
-///
-/// # Example
-/// ```rust
-/// let config = ardftsrc::PRESET_EXTREME
-///     .with_input_rate(44_100)
-///     .with_output_rate(48_000)
-///     .with_channels(2);
-/// ```
-pub const PRESET_EXTREME: Config = Config {
-    input_sample_rate: 0,
-    output_sample_rate: 0,
-    channels: 0,
-    quality: 28224,
-    bandwidth: 0.9975,
-    taper_type: TaperType::BetaCdf { alpha: 12.0, beta: 12.0 },
+    quality: 7056,
+    bandwidth: 0.996,
+    taper_type: TaperType::Kaiser(34.0),
     alias_floor: AliasFloor::Decibels(0.0),
     ..Config::DEFAULT
 };
@@ -204,33 +172,30 @@ pub struct Config {
     /// Value guide:
     ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
     ///  - `2304` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
-    ///  - `9216` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling.
-    ///  - `28224` (PRESET_EXTREME):  Extreme quality, good for offline resampling. Not recommended for realtime applications. Alias floor is `0` dB.
+    ///  - `7056` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling. Alias floor is `0` dB.
     pub quality: usize,
 
     /// Normalized filter bandwidth in the range `[0.0, 1.0]`.
     ///
     /// Higher values preserve more high-frequency content but shorten the transition band.
     ///
-    /// Default value is `0.95` (same bandwidth as [`PRESET_GOOD`]).
+    /// Default value is `0.975` (same bandwidth as [`PRESET_GOOD`]).
     ///
     /// Value guide:
-    /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    /// - `0.95`: Balanced high-end retention for most cases.
-    /// - `0.97`: More aggressive high-end retention; Use with a higher "quality" setting.
-    /// - `0.99`: Very aggressive high-end retention; Only recommended when using a very high "quality" setting.
+    /// - `0.92`: Fast and low quality, great for realtime applications ([`PRESET_FAST`]). At this quality you may prefer using a sinc resampler (eg. rubato) instead.
+    /// - `0.975`: Balanced high-end retention for most cases ([`PRESET_GOOD`]).
+    /// - `0.99`: Very aggressive high-end retention; Only recommended when using a higher "quality" setting.
     pub bandwidth: f32,
 
     /// Frequency taper profile used around the cutoff region.
     ///
     /// - `Planck`: Uses a Planck taper transition.
     /// - `Kaiser(beta)`: Exactly integrated Kaiser-window CDF; -6 dB at the midpoint (Kaiser `beta` at most 300).
-    /// - `KaiserBesselDerived(beta)`: Descending half of a KBD window, the square root of `Kaiser`; -3 dB at the midpoint.
     /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
-    /// Default value is `BetaCdf { alpha: 18.0, beta: 18.0 }` (same taper as [`PRESET_GOOD`]).
+    /// Default value is `Kaiser(30.0)` (same taper as [`PRESET_GOOD`]).
     ///
     /// Lower `alpha` values result in a smoother transition, while higher values
     /// produce a sharper transition.
@@ -362,8 +327,8 @@ impl Config {
         output_sample_rate: 0,
         channels: 2,
         quality: 2304,
-        bandwidth: 0.95,
-        taper_type: TaperType::BetaCdf { alpha: 18.0, beta: 18.0 },
+        bandwidth: 0.975,
+        taper_type: TaperType::Kaiser(30.0),
         phase: 0.0,
         phase_intensity: 50.0,
         alias_floor: AliasFloor::Fraction(1.0),
@@ -421,8 +386,7 @@ impl Config {
     /// Value guide:
     ///  - `512` (PRESET_FAST):       Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
     ///  - `2304` (PRESET_GOOD):      Good balanced quality - you should probably use this. (Default)
-    ///  - `9216` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling.
-    ///  - `28224` (PRESET_EXTREME):  Extreme quality, good for offline resampling. Not recommended for realtime applications. Alias floor is `0` dB.
+    ///  - `7056` (PRESET_HIGH):      High quality, good for realtime applications where quality is critical, or for offline resampling. Alias floor is `0` dB.
     #[must_use]
     pub fn with_quality(mut self, quality: usize) -> Self {
         self.quality = quality;
@@ -433,13 +397,12 @@ impl Config {
     ///
     /// Higher values preserve more high-frequency content but shorten the transition band.
     ///
-    /// Default value is `0.95` (same bandwidth as [`PRESET_GOOD`]).
+    /// Default value is `0.975` (same bandwidth as [`PRESET_GOOD`]).
     ///
     /// Value guide:
-    /// - `0.82`: Fast and low quality, great for realtime applications. At this quality you may prefer using a sinc resampler (eg. rubato) instead.
-    /// - `0.95`: Balanced high-end retention for most cases.
-    /// - `0.97`: More aggressive high-end retention; Use with a higher "quality" setting.
-    /// - `0.99`: Very aggressive high-end retention; Only recommended when using a very high "quality" setting.
+    /// - `0.92`: Fast and low quality, great for realtime applications ([`PRESET_FAST`]). At this quality you may prefer using a sinc resampler (eg. rubato) instead.
+    /// - `0.975`: Balanced high-end retention for most cases ([`PRESET_GOOD`]).
+    /// - `0.99`: Very aggressive high-end retention; Only recommended when using a higher "quality" setting.
     #[must_use]
     pub fn with_bandwidth(mut self, bandwidth: f32) -> Self {
         self.bandwidth = bandwidth;
@@ -450,12 +413,11 @@ impl Config {
     ///
     /// - `Planck`: Uses a Planck taper transition.
     /// - `Kaiser(beta)`: Exactly integrated Kaiser-window CDF; -6 dB at the midpoint (Kaiser `beta` at most 300).
-    /// - `KaiserBesselDerived(beta)`: Descending half of a KBD window, the square root of `Kaiser`; -3 dB at the midpoint.
     /// - `Tanh(alpha)`: Endpoint-normalized hyperbolic tangent transition.
     /// - `Cosine(alpha)`: Uses a sigmoid-warped cosine transition.
     /// - `BetaCdf(alpha, beta)`: Beta-CDF taper from the regularized lower incomplete beta function.
     ///
-    /// Default value is `BetaCdf { alpha: 18.0, beta: 18.0 }` (same taper as [`PRESET_GOOD`]).
+    /// Default value is `Kaiser(30.0)` (same taper as [`PRESET_GOOD`]).
     ///
     /// Lower `alpha` values result in a smoother transition, while higher values
     /// produce a sharper transition.
@@ -867,7 +829,7 @@ mod tests {
         assert_eq!(derived.input_offset, 1176);
         assert_eq!(derived.output_offset, 1280);
         assert_eq!(derived.spectral.geometry.stopband_end_bin, 2353);
-        assert_eq!(derived.spectral.geometry.transition_bins(), 118);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 59);
     }
 
     #[test]
@@ -884,7 +846,7 @@ mod tests {
         assert_eq!(derived.input_offset, 1176);
         assert_eq!(derived.output_offset, 2560);
         assert_eq!(derived.spectral.geometry.stopband_end_bin, 2353);
-        assert_eq!(derived.spectral.geometry.transition_bins(), 118);
+        assert_eq!(derived.spectral.geometry.transition_bins(), 59);
     }
 
     #[test]
@@ -1138,7 +1100,8 @@ mod tests {
     }
 
     #[cfg(feature = "high_precision")]
-    const ALL_HIGH_PRECISION: [HighPrecision; 3] = [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256];
+    const ALL_HIGH_PRECISION: [HighPrecision; 3] =
+        [HighPrecision::DoubleDouble, HighPrecision::F128, HighPrecision::F256];
 
     #[cfg(feature = "high_precision")]
     #[test]

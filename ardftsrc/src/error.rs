@@ -59,7 +59,7 @@ pub enum Error {
     InvalidBeta(f32),
 
     /// Kaiser taper beta is not in `(0, 300]`.
-    #[error("Kaiser taper beta must be greater than zero and at most {max}, got {0}", max = crate::taper::MAX_KAISER_BETA)]
+    #[error("Kaiser taper beta must be greater than zero and at most {max}, got {0}", max = crate::kaiser::MAX_KAISER_BETA)]
     InvalidKaiserBeta(f32),
 
     /// Wrong channel count.
