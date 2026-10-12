@@ -9,18 +9,19 @@ pub enum TaperType {
     /// Uses a Planck-taper transition
     Planck,
 
-    /// Cumulative distribution of a Kaiser window
+    /// Cumulative distribution of a Kaiser window. 
     ///
-    /// `beta` follows the usual Kaiser window convention (MATLAB `kaiser`, SciPy
-    /// `scipy.signal.windows.kaiser`); `beta` must be in `(0, 300]`.
+    /// `beta` suggested default: `30.0`.
     Kaiser(f32),
 
-    /// Endpoint-normalized hyperbolic tangent transition. Alpha controls steepness.
+    /// Endpoint-normalized hyperbolic tangent transition. 
+    /// 
+    /// `alpha` suggested default: `3.0`.
     Tanh(f32),
 
     /// Uses a sigmoid-warped cosine transition.
     ///
-    /// `alpha` controls the sharpness of the transition.
+    /// `alpha` controls the sharpness of the transition. Suggested default: `3.5`.
     ///
     /// Value guide for `Cosine(alpha)`:
     /// - `1.5`: Very smooth transition; may increase near-Nyquist artifacts.
@@ -32,7 +33,7 @@ pub enum TaperType {
     /// Beta-CDF taper.
     ///
     /// `alpha` and `beta` are the two Beta distribution shape parameters.
-    /// Symmetric:
+    /// Symmetric suggested default:
     ///     BetaCdf { alpha: 10.0, beta: 10.0 }
     ///
     /// Asymmetric:
