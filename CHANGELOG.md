@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 - 2026-10-12
+
+### Added
+
+- `RealtimeResampler::is_input_span_primed()` reports whether the span being written has been fed enough input to produce output. Unlike `is_primed()`, it goes `false` again after `new_span()`, so callers that fast-start can re-prime at a format change.
+
+### Fixed
+
+- `RodioResampler` no longer drops out for up to ~27 ms (at `PRESET_GOOD`) when the inner source changes sample rate or channel count mid-stream. Input pacing is now counted in frames, so a channel-count change no longer under-feeds the new span while the previous one drains, and with fast-start the new span is primed as soon as it starts.
+- `RealtimeResampler::estimate_priming_duration()` divides by the channel count, so it is no longer twice too long for stereo. `RodioResampler::total_duration()` without fast-start, which adds it, is corrected too.
+- The MIT licence names its copyright year and holder, and both licence files are now included in the published `ardftsrc` and `ardftsrc-rs` crates.
+
 ## 0.4.0 - 2026-10-12
 
 ### Breaking

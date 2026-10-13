@@ -14,6 +14,10 @@ use realfft::FftNum;
 /// To discard buffered audio without seeking, for example when a queue the resampler wraps is cleared, call
 /// [`reset()`](RodioResampler::reset).
 ///
+/// When the inner source changes sample rate or channel count, a new resampler span starts. With fast-start enabled, the
+/// new span is primed as soon as its first sample is pulled, which also decodes and resamples two chunks on the audio thread.
+/// Without fast-start, a format change can be followed by a short gap while the new span primes.
+///
 /// Be aware that because RodioResampler resamples on the audio thread, your cpal buffer size should be at least 2048 to 4096.
 /// If you experience crackling, try increasing the cpal buffer size. Marginal buffer capacity first shows up as small glitches on seek.
 ///
@@ -53,7 +57,7 @@ where
     config: Config,
     stream_input_ended: bool,
     samples_this_span: u64,
-    output_samples_this_span: u64,
+    output_frames_this_span: u64,
     span_ratio: f64,
     /// Length of the current inner span in samples, or `None` when the next pull starts a new inner span.
     /// Sources without span boundaries are tracked as `u64::MAX`.
@@ -90,7 +94,7 @@ where
             config,
             stream_input_ended: false,
             samples_this_span: 0,
-            output_samples_this_span: 0,
+            output_frames_this_span: 0,
             span_ratio,
             inner_span_len: None,
             inner_span_samples: 0,
@@ -123,7 +127,7 @@ where
                 .new_span(input_sample_rate, input_channels)
                 .unwrap_or_else(|err| panic_err("failed to create new input span", err));
             self.samples_this_span = 0;
-            self.output_samples_this_span = 0;
+            self.output_frames_this_span = 0;
             self.input_frame_offset = 0;
             self.set_span_ratio();
 
@@ -140,7 +144,7 @@ where
         }
     }
 
-    /// Estimate the number of input samples to pull this tick.
+    /// Estimate the number of input samples to pull for the output frame about to start.
     fn calculate_inner_pulls(&mut self) -> u64 {
         // If the inner stream is ended, return zero.
         if self.stream_input_ended {
@@ -148,8 +152,10 @@ where
         }
 
         // Otherwise, calculate the number of input samples to pull to keep output production approximately aligned with input consumption given the current span ratio.
-        self.output_samples_this_span = self.output_samples_this_span.saturating_add(1);
-        let target_input_samples = (self.output_samples_this_span as f64 * self.span_ratio).ceil() as u64;
+        // Pacing is counted in frames because, while a previous span drains, output frames can have a different channel count than input frames.
+        self.output_frames_this_span = self.output_frames_this_span.saturating_add(1);
+        let target_input_frames = (self.output_frames_this_span as f64 * self.span_ratio).ceil() as u64;
+        let target_input_samples = target_input_frames * self.resampler.input_channels() as u64;
         target_input_samples.saturating_sub(self.samples_this_span)
     }
 
@@ -207,7 +213,7 @@ where
         self.resampler.reset();
         self.stream_input_ended = false;
         self.samples_this_span = 0;
-        self.output_samples_this_span = 0;
+        self.output_frames_this_span = 0;
         self.inner_span_len = None;
 
         // The inner source carries on from the channel it was positioned at, after a seek or not, so pad the
@@ -226,9 +232,9 @@ where
         }
     }
 
-    // Fast-start the resampler by pulling samples from the inner source until the resampler is primed.
+    // Fast-start the resampler by pulling samples from the inner source until the input-active span is primed.
     fn fast_start(&mut self) {
-        while !self.resampler.is_primed() {
+        while !self.resampler.is_input_span_primed() {
             if self.stream_input_ended {
                 break;
             }
@@ -243,15 +249,21 @@ where
             return None;
         }
 
-        // Keep input consumption approximately aligned with output production:
-        // pull 0 or multiple input samples depending on span_ratio and current drift.
-        let inner_pulls = self.calculate_inner_pulls();
-
-        for _ in 0..inner_pulls {
-            self.pull_inner_sample(true);
-        }
-
         if starts_output_frame {
+            // Keep input consumption approximately aligned with output production:
+            // pull 0 or more input frames depending on span_ratio and current drift.
+            let inner_pulls = self.calculate_inner_pulls();
+
+            for _ in 0..inner_pulls {
+                self.pull_inner_sample(true);
+            }
+
+            // A new input span starts empty, and the previous span's buffered output may run out before the new
+            // span has processed enough input to produce any. With fast-start, prime the new span as soon as it starts.
+            if self.config.rodio_fast_start && !self.resampler.is_input_span_primed() {
+                self.fast_start();
+            }
+
             if self.resampler.is_done() {
                 return None;
             }
@@ -948,5 +960,58 @@ mod tests {
     #[test]
     fn seek_with_fast_start_discards_buffered_audio_and_reprimes() {
         assert_seek_discards_buffered_audio(true);
+    }
+
+    /// Returns how many silent frames play after the first audible frame.
+    fn dropout_frames_across_format_change(rate_and_channels: [(u32, u16); 2]) -> usize {
+        let segment = |(sample_rate, channels)| PacketSegment {
+            sample_rate,
+            channels,
+            packet_frames: 1152,
+            packets: 64,
+        };
+        let source = PacketSource::new(rate_and_channels.map(segment).into());
+        let (sample_rate, channels) = rate_and_channels[0];
+        let config = crate::PRESET_GOOD
+            .with_input_rate(sample_rate as usize)
+            .with_output_rate(48_000)
+            .with_channels(usize::from(channels))
+            .with_rodio_fast_start(true);
+        let mut resampler = RodioResampler::new(source, config).expect("resampler should construct");
+
+        let mut observed_audio = false;
+        let mut dropout_frames = 0;
+        while resampler.current_span_len().is_some_and(|len| len > 0) {
+            let channels = usize::from(resampler.channels().get());
+            let frame: Vec<f32> = (0..channels)
+                .map(|_| resampler.next().expect("output should not end mid-frame"))
+                .collect();
+            let is_silence = frame.iter().all(|&sample| sample == 0.0 && sample.is_sign_negative());
+            if is_silence && observed_audio {
+                dropout_frames += 1;
+            }
+            observed_audio |= !is_silence;
+        }
+        dropout_frames
+    }
+
+    #[test]
+    fn fast_start_format_change_does_not_drop_out() {
+        for formats in [
+            [(44_100, 2), (48_000, 2)],
+            [(48_000, 2), (44_100, 2)],
+            [(44_100, 2), (44_100, 1)],
+            [(44_100, 1), (44_100, 2)],
+            [(44_100, 1), (96_000, 2)],
+            [(32_000, 1), (44_100, 2)],
+            [(44_100, 1), (32_000, 1)],
+            [(96_000, 2), (32_000, 1)],
+        ] {
+            assert_eq!(
+                dropout_frames_across_format_change(formats),
+                0,
+                "output dropped out across the format change {formats:?}"
+            );
+        }
     }
 }

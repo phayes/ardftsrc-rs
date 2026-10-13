@@ -279,6 +279,9 @@ pub struct Config {
     ///
     /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
     ///
+    /// When the inner source changes sample rate or channel count, the new span is primed the same way, so the format change
+    /// plays without a gap.
+    ///
     /// This setting is only for [`RodioResampler`](crate::RodioResampler), it has no effect on other resamplers.
     #[cfg(feature = "rodio")]
     pub rodio_fast_start: bool,
@@ -443,6 +446,9 @@ impl Config {
     ///   - Set to `false` if the inner source is very realtime (e.g. a live microphone).
     ///
     /// If set to `true` for an inner source that cannot handle this, you will experience crackling at the start of the stream as the inner source fails to keep up.
+    ///
+    /// When the inner source changes sample rate or channel count, the new span is primed the same way, so the format change
+    /// plays without a gap.
     ///
     /// This setting is only for [`RodioResampler`](crate::RodioResampler), it has no effect on other resamplers.
     #[must_use]

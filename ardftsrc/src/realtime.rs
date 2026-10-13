@@ -8,6 +8,9 @@ use crate::{Config, Error, InterleavedResampler, Sample};
 // - Second full chunk
 const BUFFER_SIZE_MULTIPLIER: usize = 2;
 
+/// Number of processed chunks after which a span's output is ready for realtime reads.
+const PRIMING_CHUNKS: usize = 2;
+
 /// Number of concurrent spans that can be playing at the same time before we allocate.
 const DEFAULT_CONCURRENT_SPANS: usize = 4;
 
@@ -27,6 +30,7 @@ const DEFAULT_CONCURRENT_SPANS: usize = 4;
 /// You can also check [`RealtimeResampler::sample_is_underrun()`] to see if a produced sample is negative-zero silence emitted during initial delay.
 ///
 /// If the upstream source can handle it, on stream startup it is recommended to prime the resampler by pulling samples from the upstream source rapidly, then fast-forwarding until [`RealtimeResampler::is_primed()`] returns `true`.
+/// Do the same after each [`RealtimeResampler::new_span()`], pulling until [`RealtimeResampler::is_input_span_primed()`] returns `true`, to avoid a gap at the format change.
 /// See the [RodioResampler::fast_start() source code](https://github.com/phayes/ardftsrc-rs/blob/master/ardftsrc/src/rodio.rs) for an example on how to do this.
 ///
 /// # Pacing
@@ -160,8 +164,21 @@ where
 
         let chunks_processed: usize = self.spans.spans.iter().map(|span| span.chunks_processed).sum();
 
-        self.is_primed = chunks_processed >= 2;
+        self.is_primed = chunks_processed >= PRIMING_CHUNKS;
         self.is_primed
+    }
+
+    /// Returns true when the input-active span has processed enough input to produce output on its own.
+    ///
+    /// Unlike [`is_primed()`](Self::is_primed), which stays `true` once the stream has started, this is checked per span:
+    /// it goes `false` again when [`new_span()`](Self::new_span) starts a span that has not yet been fed enough input.
+    /// If the upstream source can handle rapid reads, pull samples into the new span until this returns `true`, so
+    /// output does not run out while the previous span drains.
+    #[must_use]
+    #[inline]
+    pub fn is_input_span_primed(&self) -> bool {
+        let span = self.active_input_span();
+        span.samples_finalized || span.chunks_processed >= PRIMING_CHUNKS
     }
 
     /// Estimates the number of input samples required to prime the resampler.
@@ -169,7 +186,7 @@ where
     /// This can be inaccurate if there is a span transition during the priming process.
     #[must_use]
     pub fn estimate_priming_samples(&self) -> usize {
-        self.active_input_span().input_buffer_size() * 2
+        self.active_input_span().input_buffer_size() * PRIMING_CHUNKS
     }
 
     /// Estimates the duration required to prime the resampler.
@@ -177,7 +194,8 @@ where
     /// This can be inaccurate if there is a span transition during the priming process.
     #[must_use]
     pub fn estimate_priming_duration(&self) -> std::time::Duration {
-        std::time::Duration::from_secs_f64(self.estimate_priming_samples() as f64 / self.input_sample_rate() as f64)
+        let priming_frames = self.estimate_priming_samples() / self.input_channels();
+        std::time::Duration::from_secs_f64(priming_frames as f64 / self.input_sample_rate() as f64)
     }
 
     /// Resets internal streaming state so the next input is treated as a new, independent stream.
@@ -1420,6 +1438,26 @@ mod tests {
         assert_eq!(
             with_decimation.estimate_priming_duration(),
             without_decimation.estimate_priming_duration()
+        );
+    }
+
+    #[test]
+    fn estimate_priming_duration_counts_frames_not_interleaved_samples() {
+        let config = Config {
+            input_sample_rate: 44_100,
+            output_sample_rate: 48_000,
+            quality: 64,
+            bandwidth: 0.95,
+            ..Config::default()
+        };
+        let mono = RealtimeResampler::<f32>::new(config.clone().with_channels(1)).unwrap();
+        let stereo = RealtimeResampler::<f32>::new(config.with_channels(2)).unwrap();
+
+        assert_eq!(stereo.estimate_priming_samples(), mono.estimate_priming_samples() * 2);
+        assert_eq!(stereo.estimate_priming_duration(), mono.estimate_priming_duration());
+        assert_eq!(
+            mono.estimate_priming_duration(),
+            std::time::Duration::from_secs_f64(mono.estimate_priming_samples() as f64 / 44_100.0)
         );
     }
 }
