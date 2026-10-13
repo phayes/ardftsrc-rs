@@ -27,7 +27,7 @@ measurements, see the per-preset [quality reports](reports/) and the HydrogenAud
 | --- | --- |
 | Machine | Apple M1 Max (10 cores), 64 GB, macOS 26 (Darwin 25.5) |
 | Toolchain | rustc 1.95.0, `release`/`bench` profile (`opt-level = 3`, `lto = "fat"`, `codegen-units = 1`) |
-| ardftsrc | 0.3.1, default features (SIMD), `rayon` off, single thread, `mimalloc` |
+| ardftsrc | 0.4.0, default features (SIMD), `rayon` off, single thread, `mimalloc` |
 | rubato | 2.0.0, `Fft` synchronous resampler, `chunk_size = 512`, `sub_chunks = 1`, `FixedSync::Input` |
 | Input | Deterministic stereo white noise for every benchmark; 4 minutes per input rate for throughput |
 

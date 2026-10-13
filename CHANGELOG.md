@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-12
 
 ### Breaking
 
@@ -17,6 +17,14 @@
 ### Changed
 
 - The CPU resampler now reuses per-core FFT scratch buffers instead of allocating them on every chunk.
+
+### Documentation
+
+- `PERFORMANCE.md` is regenerated. On one core, `PRESET_HIGH` converts 44.1 kHz → 48 kHz at 662× realtime (was 374×). rubato and `PRESET_FAST` are now within 3% of each other when upsampling.
+
+### Benchmarks
+
+- The throughput, chunk-time, and rubato benches share one input: 4 minutes of deterministic stereo white noise per input rate, replacing the `test_wavs` fixtures, which differed in length and channel count between rates.
 
 ## 0.3.1 - 2026-10-11
 
