@@ -10,6 +10,10 @@
 - `InterleavedResampler`, `PlanarResampler`, and `RealtimeResampler` are bounded by the new `Sample` trait instead of `num_traits::Float + realfft::FftNum`. Every `Float + FftNum` type implements `Sample`, so `f32` and `f64` code is unaffected unless it names the bounds.
 - `ardftsrc-rs` replaces `--high-precision double-double|f128|f256` with `--dd`, `--f128`, and `--f256`, alongside `--f32` and `--f64`. High-precision runs decode and encode in `f64`.
 
+### Added
+
+- `RodioResampler::reset()` discards buffered audio and resamples afresh from wherever the inner source is, without seeking it. Use it when the inner source jumps on its own, such as a cleared queue. With fast-start enabled it re-primes at once. `try_seek()` now calls it after seeking the inner source.
+
 ### Changed
 
 - The CPU resampler now reuses per-core FFT scratch buffers instead of allocating them on every chunk.

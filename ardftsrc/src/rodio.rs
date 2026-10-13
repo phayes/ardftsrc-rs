@@ -11,6 +11,8 @@ use realfft::FftNum;
 /// Seeking discards all audio buffered from before the seek. With fast-start enabled, the resampler is re-primed inside
 /// `try_seek()` so post-seek audio plays immediately; this decodes and resamples two chunks on the audio thread, which takes
 /// noticeably longer at high quality settings. Without fast-start, output is silent until the resampler is primed again.
+/// To discard buffered audio without seeking, for example when a queue the resampler wraps is cleared, call
+/// [`reset()`](RodioResampler::reset).
 ///
 /// Be aware that because RodioResampler resamples on the audio thread, your cpal buffer size should be at least 2048 to 4096.
 /// If you experience crackling, try increasing the cpal buffer size. Marginal buffer capacity first shows up as small glitches on seek.
@@ -195,6 +197,35 @@ where
         }
     }
 
+    /// Discards all buffered audio and resamples afresh from wherever the inner source is now, without seeking it.
+    ///
+    /// Use this when the inner source jumps on its own, such as a queue that was cleared or a stream that was
+    /// retuned, so the up to two resampler chunks of stale audio it holds are not played. [`try_seek()`](rodio::Source::try_seek)
+    /// calls this after seeking the inner source. With fast-start enabled, the resampler is re-primed here from the inner
+    /// source; without it, output is silent until the resampler is primed again.
+    pub fn reset(&mut self) {
+        self.resampler.reset();
+        self.stream_input_ended = false;
+        self.samples_this_span = 0;
+        self.output_samples_this_span = 0;
+        self.inner_span_len = None;
+
+        // The inner source carries on from the channel it was positioned at, after a seek or not, so pad the
+        // discarded leading samples of a partial input frame to keep the channels aligned.
+        for _ in 0..self.input_frame_offset {
+            self.resampler
+                .write_samples(&[T::zero()])
+                .unwrap_or_else(|err| panic_err("failed to write sample", err));
+        }
+
+        // Finish an output frame that is already underway with silence so downstream channels stay aligned.
+        self.output_frame_is_startup_silence = self.output_frame_samples_remaining > 0;
+
+        if self.config.rodio_fast_start {
+            self.fast_start();
+        }
+    }
+
     // Fast-start the resampler by pulling samples from the inner source until the resampler is primed.
     fn fast_start(&mut self) {
         while !self.resampler.is_primed() {
@@ -347,29 +378,7 @@ where
 
     fn try_seek(&mut self, time: core::time::Duration) -> Result<(), rodio::source::SeekError> {
         self.inner.try_seek(time)?;
-
-        // Discard everything buffered from before the seek. Otherwise up to two resampler chunks of stale
-        // audio would play first, which is several seconds at high quality settings.
-        self.resampler.reset();
-        self.stream_input_ended = false;
-        self.samples_this_span = 0;
-        self.output_samples_this_span = 0;
-        self.inner_span_len = None;
-
-        // Rodio sources resume a seek on the channel they were positioned at, so pad the discarded
-        // leading samples of a partial input frame to keep the channels aligned.
-        for _ in 0..self.input_frame_offset {
-            self.resampler
-                .write_samples(&[T::zero()])
-                .unwrap_or_else(|err| panic_err("failed to write sample", err));
-        }
-
-        // Finish an output frame that is already underway with silence so downstream channels stay aligned.
-        self.output_frame_is_startup_silence = self.output_frame_samples_remaining > 0;
-
-        if self.config.rodio_fast_start {
-            self.fast_start();
-        }
+        self.reset();
         Ok(())
     }
 }
