@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2 - Unreleased
+
+### Added
+
+- `RealtimeResampler::write_rodio_buffer()` and `RealtimeResampler::read_rodio_buffer()`, with the `rodio` feature, for push-style pipelines that resample finished packets as they are decoded and queue what comes out. A packet in another rate or channel count starts a new span by itself, and a read never straddles two spans, so each buffer has one channel count.
+- `RealtimeResampler::is_empty()` reports whether the resampler holds any audio, including the delayed tail of a stream not yet finalized, so a caller can send audio around it without reordering.
+- `RealtimeResampler::pre()` and `RealtimeResampler::post()` set previous- and next-track edge context for gapless material, as `InterleavedResampler` and `PlanarResampler` already do.
+
 ## 0.4.1 - 2026-10-12
 
 ### Added

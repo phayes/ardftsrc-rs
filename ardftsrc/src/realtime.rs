@@ -2,6 +2,8 @@ use crate::{panic_err, panic_msg};
 use std::collections::VecDeque;
 
 use crate::{Config, Error, InterleavedResampler, Sample};
+#[cfg(feature = "rodio")]
+use rodio::Source as _;
 
 // This is sized to cover at least two chunks during priming:
 // - First partial chunk
@@ -398,6 +400,163 @@ where
         self.active_input_span_mut().finalize_samples()
     }
 
+    /// Returns true when the resampler holds no audio: every span is either untouched since it was
+    /// created or reset, or finalized and fully drained.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.spans
+            .spans
+            .iter()
+            .all(|span| span.is_untouched() || span.is_drained())
+    }
+
+    /// Sets previous-track context for the span being written.
+    ///
+    /// Use this when resampling gapless material, for example an album where tracks are played
+    /// back-to-back. In that case, pass the last samples of the previous track, interleaved, so the
+    /// start edge of this stream is resampled from real audio instead of extrapolated. Context
+    /// longer than one input chunk is trimmed to its last chunk.
+    ///
+    /// It must be set before the span's first chunk is processed: after [`new()`](Self::new),
+    /// [`reset()`](Self::reset) or [`new_span()`](Self::new_span), and before the first write fills
+    /// a chunk. Set later, it has no effect. After [`finalize()`](Self::finalize), drain the stream
+    /// first, and the context applies to the next stream. [`reset()`](Self::reset) clears it.
+    ///
+    /// Shorter buffers are still valid: any missing start context falls back to
+    /// [`Config::extrapolation`](crate::Config::extrapolation).
+    ///
+    /// Returns [`Error::MalformedInputLength`] if `pre` is not a whole number of frames, and
+    /// [`Error::AlreadyFinalized`] if the span is finalized and still has output to read.
+    pub fn pre(&mut self, pre: Vec<T>) -> Result<(), Error> {
+        let span = self.active_input_span_mut();
+        if span.samples_finalized {
+            if !span.is_drained() {
+                return Err(Error::AlreadyFinalized);
+            }
+            // a write after finalizing resets the span, which would wipe the context set here
+            span.reset();
+        }
+        span.inner.pre(pre)
+    }
+
+    /// Sets next-track context for the span being written.
+    ///
+    /// Use this when resampling gapless material, for example an album where tracks are played
+    /// back-to-back. In that case, pass the first samples of the next track, interleaved, so the
+    /// stop edge of this stream is resampled from real audio instead of extrapolated. Context
+    /// longer than one input chunk is trimmed to its first chunk.
+    ///
+    /// It can be set any time before [`finalize()`](Self::finalize). If set more than once, the
+    /// latest is used. [`reset()`](Self::reset) clears it.
+    ///
+    /// Shorter buffers are still valid: any missing stop context falls back to
+    /// [`Config::extrapolation`](crate::Config::extrapolation).
+    ///
+    /// Returns [`Error::MalformedInputLength`] if `post` is not a whole number of frames.
+    pub fn post(&mut self, post: Vec<T>) -> Result<(), Error> {
+        if self.is_finalized() {
+            return Err(Error::AlreadyFinalized);
+        }
+        self.active_input_span_mut().inner.post(post)
+    }
+
+    /// Accepts interleaved samples from an iterator, without collecting them first.
+    pub fn write_iter(&mut self, input: impl IntoIterator<Item = T>) -> Result<(), Error> {
+        self.active_input_span_mut().write_iter(input)
+    }
+
+    /// Writes a packet of interleaved samples. If the packet's rate or channel count differs from
+    /// the span being written, a new span starts first, so a format change mid-stream needs no
+    /// handling by the caller. Writing a packet after [`finalize()`](Self::finalize) starts a new,
+    /// independent stream.
+    #[cfg(feature = "rodio")]
+    pub fn write_rodio_buffer(&mut self, buffer: rodio::buffer::SamplesBuffer) -> Result<(), Error>
+    where
+        T: num_traits::NumCast,
+    {
+        let rate = buffer.sample_rate().get() as usize;
+        let channels = usize::from(buffer.channels().get());
+        if self.input_sample_rate() != rate || self.input_channels() != channels {
+            self.new_span(rate, channels)?;
+        }
+        self.write_iter(buffer.map(|sample| {
+            num_traits::cast(sample)
+                .unwrap_or_else(|| panic_msg("rodio sample should be representable as resampler sample"))
+        }))
+    }
+
+    /// Reads `frames` frames of output as a buffer at the output rate, or `None` until that many are
+    /// ready.
+    ///
+    /// At the end of a span, either at a format change or after [`finalize()`](Self::finalize), it
+    /// hands back whatever is left even when that is fewer than `frames`, so one buffer never
+    /// straddles two channel counts and the end of a stream is never held back. Once the stream is
+    /// drained it returns `None`.
+    ///
+    /// Note: This allocates for each read, so is best used for large bursty buffers. Don't use it
+    /// as part of tight-loop audio callback chain.
+    #[cfg(feature = "rodio")]
+    pub fn read_rodio_buffer(&mut self, frames: usize) -> Option<rodio::buffer::SamplesBuffer>
+    where
+        T: num_traits::NumCast,
+    {
+        let (channels, rate, ready, finalized) = self.output_span_ready();
+        let wanted = frames.max(1) * channels;
+        let count = match ready >= wanted {
+            true => wanted,
+            false if finalized => ready - ready % channels,
+            false => return None,
+        };
+        if count == 0 {
+            return None;
+        }
+        let samples: Vec<rodio::Sample> = self
+            .drain_output_span(count)
+            .map(|sample| {
+                num_traits::cast(sample)
+                    .unwrap_or_else(|| panic_msg("resampler sample should be representable as rodio sample"))
+            })
+            .collect();
+        Some(rodio::buffer::SamplesBuffer::new(
+            std::num::NonZero::new(channels as u16)?,
+            std::num::NonZero::new(rate as u32)?,
+            samples,
+        ))
+    }
+
+    /// Drops drained spans, then reports the span reads come from: its channel count, its output
+    /// rate, the samples ready in it, and whether it is finalized, in which case those samples are
+    /// all it will produce.
+    #[cfg(feature = "rodio")]
+    pub(crate) fn output_span_ready(&mut self) -> (usize, usize, usize, bool) {
+        self.spans.drop_drained_front_spans();
+        let span = self
+            .spans
+            .spans
+            .front()
+            .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"));
+        let config = span.config();
+        (
+            config.channels,
+            config.output_sample_rate,
+            span.samples_pending_output.len(),
+            span.samples_finalized,
+        )
+    }
+
+    /// Takes up to `count` ready samples from the span reads come from, never crossing into the
+    /// next one.
+    #[cfg(feature = "rodio")]
+    pub(crate) fn drain_output_span(&mut self, count: usize) -> impl Iterator<Item = T> + '_ {
+        let span = self
+            .spans
+            .spans
+            .front_mut()
+            .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"));
+        let count = count.min(span.samples_pending_output.len());
+        span.samples_pending_output.drain(..count)
+    }
+
     /// Returns the input-active span (write side).
     ///
     /// This is always the newest queued span (`back`).
@@ -585,12 +744,16 @@ where
     }
 
     fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
+        self.write_iter(input.iter().copied())
+    }
+
+    fn write_iter(&mut self, input: impl IntoIterator<Item = T>) -> Result<(), Error> {
         // A write after sample finalization starts a new independent stream.
         if self.samples_finalized {
             self.reset();
         }
 
-        self.samples_pending_input.extend(input.iter().copied());
+        self.samples_pending_input.extend(input);
         self.process_pending_samples(false)
     }
 
@@ -1459,5 +1622,113 @@ mod tests {
             mono.estimate_priming_duration(),
             std::time::Duration::from_secs_f64(mono.estimate_priming_samples() as f64 / 44_100.0)
         );
+    }
+
+    fn sine(frames: usize, step: f32) -> Vec<f32> {
+        (0..frames).map(|frame| (frame as f32 * step).sin() * 0.25).collect()
+    }
+
+    /// Writes `input`, finalizes and drains, returning everything the stream produced.
+    fn run_stream(stream: &mut RealtimeResampler<f32>, input: &[f32]) -> Vec<f32> {
+        stream.write_samples(input).unwrap();
+        stream.finalize().unwrap();
+        drain_stream(stream, 97)
+    }
+
+    #[test]
+    fn is_empty_tracks_held_audio() {
+        let mut stream = RealtimeResampler::new(mono_config(44_100, 48_000)).unwrap();
+        assert!(stream.is_empty());
+
+        // less than a chunk, so nothing is ready, but the span still holds it
+        stream.write_samples(&[0.1f32; 7]).unwrap();
+        assert_eq!(stream.num_samples_ready(), 0);
+        assert!(!stream.is_empty());
+
+        stream.finalize().unwrap();
+        assert!(!stream.is_empty());
+        let _ = drain_stream(&mut stream, 11);
+        assert!(stream.is_empty());
+
+        stream.write_samples(&[0.1f32; 7]).unwrap();
+        stream.reset();
+        assert!(stream.is_empty());
+    }
+
+    #[test]
+    fn realtime_pre_and_post_reject_partial_frame() {
+        let mut stream = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        assert!(matches!(
+            stream.pre(vec![0.0; 9]),
+            Err(Error::MalformedInputLength {
+                channels: 2,
+                samples: 9
+            })
+        ));
+        assert!(matches!(
+            stream.post(vec![0.0; 9]),
+            Err(Error::MalformedInputLength {
+                channels: 2,
+                samples: 9
+            })
+        ));
+    }
+
+    #[test]
+    fn realtime_pre_context_changes_first_output() {
+        let mut with_zero_pre = RealtimeResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_one_pre = RealtimeResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let chunk = input_chunk_frames(&with_zero_pre);
+        let input = sine(chunk * 2 + 7, 0.01);
+        with_zero_pre.pre(vec![0.0; chunk]).unwrap();
+        with_one_pre.pre(vec![1.0; chunk]).unwrap();
+
+        let out_zero = run_stream(&mut with_zero_pre, &input);
+        let out_one = run_stream(&mut with_one_pre, &input);
+
+        assert_eq!(out_zero.len(), out_one.len());
+        assert!(out_zero.iter().zip(&out_one).any(|(a, b)| (a - b).abs() > 1e-6));
+    }
+
+    #[test]
+    fn realtime_post_context_changes_finalized_tail() {
+        let mut with_zero_post = RealtimeResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut with_one_post = RealtimeResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let chunk = input_chunk_frames(&with_zero_post);
+        let input = sine(chunk * 2 + 7, 0.015);
+        with_zero_post.post(vec![0.0; chunk]).unwrap();
+        with_one_post.post(vec![1.0; chunk]).unwrap();
+
+        let out_zero = run_stream(&mut with_zero_post, &input);
+        let out_one = run_stream(&mut with_one_post, &input);
+
+        assert_eq!(out_zero.len(), out_one.len());
+        let tail = out_zero.len() / 2;
+        assert!(
+            out_zero[tail..]
+                .iter()
+                .zip(&out_one[tail..])
+                .any(|(a, b)| (a - b).abs() > 1e-6)
+        );
+    }
+
+    #[test]
+    fn pre_after_finalize_applies_to_the_next_stream() {
+        let mut reused = RealtimeResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let mut fresh = RealtimeResampler::new(mono_config(44_100, 48_000)).unwrap();
+        let chunk = input_chunk_frames(&reused);
+        let first = sine(chunk * 2 + 7, 0.02);
+        let second = sine(chunk * 2 + 3, 0.01);
+
+        reused.write_samples(&first).unwrap();
+        reused.finalize().unwrap();
+        // the first stream's output has not been read yet
+        assert!(matches!(reused.pre(vec![1.0; chunk]), Err(Error::AlreadyFinalized)));
+        let _ = drain_stream(&mut reused, 97);
+
+        reused.pre(vec![1.0; chunk]).unwrap();
+        fresh.pre(vec![1.0; chunk]).unwrap();
+
+        assert_eq!(run_stream(&mut reused, &second), run_stream(&mut fresh, &second));
     }
 }
