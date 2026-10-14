@@ -452,7 +452,8 @@ where
     /// Shorter buffers are still valid: any missing stop context falls back to
     /// [`Config::extrapolation`](crate::Config::extrapolation).
     ///
-    /// Returns [`Error::MalformedInputLength`] if `post` is not a whole number of frames.
+    /// Returns [`Error::MalformedInputLength`] if `post` is not a whole number of frames, and
+    /// [`Error::AlreadyFinalized`] if the stream is finalized.
     pub fn post(&mut self, post: Vec<T>) -> Result<(), Error> {
         if self.is_finalized() {
             return Err(Error::AlreadyFinalized);
