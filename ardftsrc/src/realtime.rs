@@ -408,6 +408,17 @@ where
             .all(|span| span.is_untouched() || span.is_drained())
     }
 
+    /// Returns the interleaved output samples that the input written so far has yet to hand out,
+    /// ready or not, across every span.
+    ///
+    /// Added to the samples a caller has read, it is where the next sample written will come out,
+    /// to within a frame. That lets a caller place a boundary in what it writes, such as the join
+    /// between two gapless tracks, without finalizing the stream to find it.
+    #[must_use]
+    pub fn samples_outstanding(&self) -> usize {
+        self.spans.spans.iter().map(RealtimeSpan::samples_outstanding).sum()
+    }
+
     /// Sets previous-track context for the span being written.
     ///
     /// Use this when resampling gapless material, for example an album where tracks are played
@@ -540,6 +551,7 @@ where
             .front_mut()
             .unwrap_or_else(|| panic_msg("StreamingResampler always has at least one span"));
         let count = count.min(span.samples_pending_output.len());
+        span.samples_read += count;
         span.samples_pending_output.drain(..count)
     }
 
@@ -698,6 +710,10 @@ where
     samples_output_chunk_buffer: Vec<T>,
     samples_finalized: bool,
     chunks_processed: usize,
+    /// Interleaved input samples written since the span was created or reset.
+    samples_written: usize,
+    /// Interleaved output samples read out since the span was created or reset.
+    samples_read: usize,
 }
 
 impl<T> RealtimeSpan<T>
@@ -718,6 +734,8 @@ where
             samples_output_chunk_buffer: vec![T::zero(); output_buffer_size],
             samples_finalized: false,
             chunks_processed: 0,
+            samples_written: 0,
+            samples_read: 0,
         })
     }
 
@@ -765,6 +783,8 @@ where
         self.samples_pending_output.clear();
         self.samples_finalized = false;
         self.chunks_processed = 0;
+        self.samples_written = 0;
+        self.samples_read = 0;
     }
 
     fn write_samples(&mut self, input: &[T]) -> Result<(), Error> {
@@ -777,7 +797,9 @@ where
             self.reset();
         }
 
+        let pending = self.samples_pending_input.len();
         self.samples_pending_input.extend(input);
+        self.samples_written += self.samples_pending_input.len() - pending;
         self.process_pending_samples(false)
     }
 
@@ -791,6 +813,7 @@ where
             *dst = src;
         }
 
+        self.samples_read += drain_count;
         drain_count
     }
 
@@ -821,6 +844,18 @@ where
 
     fn is_drained(&self) -> bool {
         self.samples_finalized && self.samples_pending_input.is_empty() && self.samples_pending_output.is_empty()
+    }
+
+    /// Interleaved output samples the input written to this span has yet to hand out. A finalized
+    /// span has produced all of it already; an open one owes what its input maps to at the output
+    /// rate, less what has been read.
+    fn samples_outstanding(&self) -> usize {
+        if self.samples_finalized {
+            return self.samples_pending_output.len();
+        }
+        let channels = self.config().channels;
+        let frames = self.inner.expected_output_size(self.samples_written / channels);
+        (frames * channels).saturating_sub(self.samples_read)
     }
 
     fn process_pending_samples(&mut self, finalize: bool) -> Result<(), Error> {
@@ -2011,5 +2046,102 @@ mod tests {
 
         stream.write_sample(0.2).unwrap();
         assert!(stream.finalize().is_ok());
+    }
+
+    /// Writes `frames` frames of stereo silence at `first`, then an impulse followed by a second of
+    /// silence at `second`, reading as it goes. Returns the output frame the impulse peaks at, and
+    /// the frame `samples_outstanding()` said the impulse would come out at when it was written.
+    fn impulse_after_silence(output_rate: usize, first: usize, frames: usize, second: usize) -> (usize, usize) {
+        let mut stream = RealtimeResampler::<f64>::new(stereo_config(first, output_rate)).unwrap();
+        let mut output = Vec::new();
+        let read = |stream: &mut RealtimeResampler<f64>, output: &mut Vec<f64>| {
+            while let Some(span) = stream.read_span(256) {
+                output.extend(span);
+            }
+        };
+
+        let silence = vec![0.0; frames * 2];
+        for packet in silence.chunks(2 * 1_000) {
+            stream.write_span(first, 2, packet.iter().copied()).unwrap();
+            read(&mut stream, &mut output);
+        }
+        let predicted = (output.len() + stream.samples_outstanding()) / 2;
+
+        let mut impulse = vec![0.0; second * 2];
+        impulse[..2].fill(1.0);
+        for packet in impulse.chunks(2 * 1_000) {
+            stream.write_span(second, 2, packet.iter().copied()).unwrap();
+            read(&mut stream, &mut output);
+        }
+        stream.finalize().unwrap();
+        read(&mut stream, &mut output);
+
+        let peak = output
+            .chunks(2)
+            .enumerate()
+            .max_by(|a, b| a.1[0].abs().total_cmp(&b.1[0].abs()))
+            .unwrap()
+            .0;
+        (peak, predicted)
+    }
+
+    #[test]
+    fn samples_outstanding_places_a_join_within_one_stream() {
+        for (input, output) in [(44_100, 48_000), (48_000, 44_100), (96_000, 48_000), (48_000, 48_000)] {
+            for frames in [1, 4_410, 123_457] {
+                let (peak, predicted) = impulse_after_silence(output, input, frames, input);
+                assert!(
+                    peak.abs_diff(predicted) <= 1,
+                    "{input} -> {output} after {frames} frames: peak at {peak}, predicted {predicted}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn samples_outstanding_places_a_join_across_a_span_change() {
+        for (first, second, output) in [
+            (44_100, 48_000, 48_000),
+            (96_000, 48_000, 48_000),
+            (48_000, 44_100, 44_100),
+        ] {
+            for frames in [1, 4_410, 123_457] {
+                let (peak, predicted) = impulse_after_silence(output, first, frames, second);
+                assert!(
+                    peak.abs_diff(predicted) <= 1,
+                    "{first} then {second} -> {output} after {frames} frames: peak at {peak}, predicted {predicted}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn samples_outstanding_matches_what_a_finalized_stream_hands_out() {
+        let mut stream = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        assert_eq!(stream.samples_outstanding(), 0);
+
+        stream.write_samples(&noise_like(2 * 9_001, 0.007)).unwrap();
+        stream.new_span(32_000, 1).unwrap();
+        stream.write_samples(&noise_like(5_003, 0.011)).unwrap();
+        stream.finalize().unwrap();
+        let outstanding = stream.samples_outstanding();
+
+        let mut read = 0;
+        while let Some(len) = stream.read_span(256).map(|span| span.len()) {
+            read += len;
+            assert_eq!(stream.samples_outstanding(), outstanding - read);
+        }
+        assert_eq!(read, outstanding);
+        assert_eq!(stream.samples_outstanding(), 0);
+    }
+
+    #[test]
+    fn samples_outstanding_is_zero_after_reset() {
+        let mut stream = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        stream.write_samples(&noise_like(2 * 9_001, 0.007)).unwrap();
+        assert!(stream.samples_outstanding() > 0);
+
+        stream.reset();
+        assert_eq!(stream.samples_outstanding(), 0);
     }
 }

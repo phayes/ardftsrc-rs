@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `RealtimeResampler::samples_outstanding()` reports how many output samples the input written so far has yet to hand out, ready or not. Added to what a caller has read, it is where the next written sample will come out, to within a frame, so a caller can place a boundary such as a gapless track join without finalizing the stream.
+
 ## 0.4.3 - 2026-10-14
 
 ### Added
