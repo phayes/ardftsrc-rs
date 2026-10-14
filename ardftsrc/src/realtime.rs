@@ -2,8 +2,6 @@ use crate::{panic_err, panic_msg};
 use std::collections::VecDeque;
 
 use crate::{Config, Error, InterleavedResampler, Sample};
-#[cfg(feature = "rodio")]
-use rodio::Source as _;
 
 // This is sized to cover at least two chunks during priming:
 // - First partial chunk
@@ -466,42 +464,38 @@ where
         self.active_input_span_mut().write_iter(input)
     }
 
-    /// Writes a packet of interleaved samples. If the packet's rate or channel count differs from
-    /// the span being written, a new span starts first, so a format change mid-stream needs no
-    /// handling by the caller. Writing a packet after [`finalize()`](Self::finalize) starts a new,
+    /// Writes interleaved samples in `channels` channels at `input_sample_rate`. If that differs
+    /// from the span being written, a new span starts first, so a format change mid-stream needs
+    /// no handling by the caller. Writing after [`finalize()`](Self::finalize) starts a new,
     /// independent stream.
-    #[cfg(feature = "rodio")]
-    pub fn write_rodio_buffer(&mut self, buffer: rodio::buffer::SamplesBuffer) -> Result<(), Error>
-    where
-        T: num_traits::NumCast,
-    {
-        let rate = buffer.sample_rate().get() as usize;
-        let channels = usize::from(buffer.channels().get());
-        if self.input_sample_rate() != rate || self.input_channels() != channels {
-            self.new_span(rate, channels)?;
+    ///
+    /// The samples are taken from the iterator as they are buffered, so writing from a caller's
+    /// own buffer, converting each sample on the way, allocates nothing.
+    pub fn write_span(
+        &mut self,
+        input_sample_rate: usize,
+        channels: usize,
+        samples: impl IntoIterator<Item = T>,
+    ) -> Result<(), Error> {
+        if self.input_sample_rate() != input_sample_rate || self.input_channels() != channels {
+            self.new_span(input_sample_rate, channels)?;
         }
-        self.write_iter(buffer.map(|sample| {
-            num_traits::cast(sample)
-                .unwrap_or_else(|| panic_msg("rodio sample should be representable as resampler sample"))
-        }))
+        self.write_iter(samples)
     }
 
-    /// Reads `frames` frames of output as a buffer at the output rate, or `None` until that many are
-    /// ready.
+    /// Takes `frames` frames of output, or `None` until that many are ready, as an iterator that
+    /// knows the channel count and rate they are in.
     ///
     /// At the end of a span, either at a format change or after [`finalize()`](Self::finalize), it
-    /// hands back whatever is left even when that is fewer than `frames`, so one buffer never
+    /// hands back whatever is left even when that is fewer than `frames`, so one read never
     /// straddles two channel counts and the end of a stream is never held back. Once the stream is
     /// drained it returns `None`.
     ///
-    /// Note: This allocates for each read, so is best used for large bursty buffers. Don't use it
-    /// as part of tight-loop audio callback chain.
-    #[cfg(feature = "rodio")]
-    pub fn read_rodio_buffer(&mut self, frames: usize) -> Option<rodio::buffer::SamplesBuffer>
-    where
-        T: num_traits::NumCast,
-    {
-        let (channels, rate, ready, finalized) = self.output_span_ready();
+    /// The samples are drained from the resampler as the iterator is built, and any it is dropped
+    /// without handing out are discarded. Nothing is allocated, so a caller can collect them into
+    /// a buffer it reuses.
+    pub fn read_span(&mut self, frames: usize) -> Option<SpanSamples<'_, T>> {
+        let (channels, sample_rate, ready, finalized) = self.output_span_ready();
         let wanted = frames.max(1) * channels;
         let count = match ready >= wanted {
             true => wanted,
@@ -511,25 +505,17 @@ where
         if count == 0 {
             return None;
         }
-        let samples: Vec<rodio::Sample> = self
-            .drain_output_span(count)
-            .map(|sample| {
-                num_traits::cast(sample)
-                    .unwrap_or_else(|| panic_msg("resampler sample should be representable as rodio sample"))
-            })
-            .collect();
-        Some(rodio::buffer::SamplesBuffer::new(
-            std::num::NonZero::new(channels as u16)?,
-            std::num::NonZero::new(rate as u32)?,
-            samples,
-        ))
+        Some(SpanSamples {
+            samples: self.drain_output_span(count),
+            channels,
+            sample_rate,
+        })
     }
 
     /// Drops drained spans, then reports the span reads come from: its channel count, its output
     /// rate, the samples ready in it, and whether it is finalized, in which case those samples are
     /// all it will produce.
-    #[cfg(feature = "rodio")]
-    pub(crate) fn output_span_ready(&mut self) -> (usize, usize, usize, bool) {
+    fn output_span_ready(&mut self) -> (usize, usize, usize, bool) {
         self.spans.drop_drained_front_spans();
         let span = self
             .spans
@@ -547,8 +533,7 @@ where
 
     /// Takes up to `count` ready samples from the span reads come from, never crossing into the
     /// next one.
-    #[cfg(feature = "rodio")]
-    pub(crate) fn drain_output_span(&mut self, count: usize) -> impl Iterator<Item = T> + '_ {
+    fn drain_output_span(&mut self, count: usize) -> std::collections::vec_deque::Drain<'_, T> {
         let span = self
             .spans
             .spans
@@ -628,6 +613,44 @@ where
         self.active_input_span().inner.input_sample_processed()
     }
 }
+
+/// Output samples from one span, handed out by [`RealtimeResampler::read_span()`], with the
+/// channel count and rate they are in. Samples it is dropped without handing out are discarded.
+pub struct SpanSamples<'a, T> {
+    samples: std::collections::vec_deque::Drain<'a, T>,
+    channels: usize,
+    sample_rate: usize,
+}
+
+impl<T> SpanSamples<'_, T> {
+    /// The channel count the samples are interleaved in.
+    #[must_use]
+    pub fn channels(&self) -> usize {
+        self.channels
+    }
+
+    /// The rate the samples are at, which is the resampler's output rate.
+    #[must_use]
+    pub fn sample_rate(&self) -> usize {
+        self.sample_rate
+    }
+}
+
+impl<T> Iterator for SpanSamples<'_, T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.samples.next()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.samples.size_hint()
+    }
+}
+
+impl<T> ExactSizeIterator for SpanSamples<'_, T> {}
 
 /// The length of a span in output samples for RealtimeResampler.
 ///
@@ -1731,5 +1754,262 @@ mod tests {
         fresh.pre(vec![1.0; chunk]).unwrap();
 
         assert_eq!(run_stream(&mut reused, &second), run_stream(&mut fresh, &second));
+    }
+
+    fn noise_like(samples: usize, step: f32) -> Vec<f32> {
+        (0..samples)
+            .map(|i| ((i as f32 * step).sin() + (i as f32 * step * 3.7).cos()) * 0.2)
+            .collect()
+    }
+
+    /// Reads every whole span read of `frames` frames, as `(channels, rate, samples)`.
+    fn read_spans(stream: &mut RealtimeResampler<f32>, frames: usize, reads: &mut Vec<(usize, usize, Vec<f32>)>) {
+        while let Some(span) = stream.read_span(frames) {
+            reads.push((span.channels(), span.sample_rate(), span.collect()));
+        }
+    }
+
+    #[test]
+    fn span_api_matches_the_sample_api() {
+        let input = noise_like(2 * 10_000, 0.013);
+        let mut by_samples = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut by_spans = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+
+        let expected = run_stream(&mut by_samples, &input);
+
+        let mut reads = Vec::new();
+        for packet in input.chunks(2 * 1024) {
+            by_spans.write_span(44_100, 2, packet.iter().copied()).unwrap();
+            read_spans(&mut by_spans, 1024, &mut reads);
+        }
+        by_spans.finalize().unwrap();
+        read_spans(&mut by_spans, 1024, &mut reads);
+
+        let actual: Vec<f32> = reads.into_iter().flat_map(|(_, _, samples)| samples).collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn read_span_hands_back_whole_reads_until_finalized() {
+        let mut stream = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut reads = Vec::new();
+        for packet in noise_like(2 * 9_001, 0.007).chunks(2 * 700) {
+            stream.write_span(44_100, 2, packet.iter().copied()).unwrap();
+            while let Some(span) = stream.read_span(1000) {
+                assert_eq!(span.len(), 2 * 1000);
+                reads.push((span.channels(), span.sample_rate(), span.collect::<Vec<_>>()));
+            }
+        }
+        let whole = reads.len();
+        stream.finalize().unwrap();
+        read_spans(&mut stream, 1000, &mut reads);
+
+        assert!(reads.len() > whole, "finalizing hands back the tail");
+        let (_, _, last) = reads.last().unwrap();
+        assert!(last.len() <= 2 * 1000 && last.len().is_multiple_of(2));
+        assert!(
+            reads
+                .iter()
+                .all(|(channels, rate, _)| *channels == 2 && *rate == 48_000)
+        );
+        assert!(stream.is_done());
+    }
+
+    #[test]
+    fn write_span_starts_a_span_at_a_format_change() {
+        let mut stream = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut reads = Vec::new();
+        for packet in noise_like(2 * 6_000, 0.011).chunks(2 * 512) {
+            stream.write_span(44_100, 2, packet.iter().copied()).unwrap();
+        }
+        for packet in noise_like(5_000, 0.017).chunks(512) {
+            stream.write_span(32_000, 1, packet.iter().copied()).unwrap();
+            read_spans(&mut stream, 800, &mut reads);
+        }
+        stream.finalize().unwrap();
+        read_spans(&mut stream, 800, &mut reads);
+
+        let channels: Vec<usize> = reads.iter().map(|(channels, _, _)| *channels).collect();
+        let switch = channels
+            .iter()
+            .position(|&count| count == 1)
+            .expect("the mono span is read");
+        assert!(switch > 0);
+        assert!(channels[..switch].iter().all(|&count| count == 2));
+        assert!(channels[switch..].iter().all(|&count| count == 1));
+        assert!(
+            reads
+                .iter()
+                .all(|(_, rate, samples)| *rate == 48_000 && !samples.is_empty())
+        );
+    }
+
+    #[test]
+    fn dropping_a_span_read_discards_its_samples() {
+        let mut stream = RealtimeResampler::<f32>::new(mono_config(44_100, 48_000)).unwrap();
+        let chunk = input_chunk_frames(&stream);
+        stream.write_span(44_100, 1, sine(chunk * 3, 0.01)).unwrap();
+        let ready = stream.num_samples_ready();
+        assert!(ready > 10);
+
+        drop(stream.read_span(10).unwrap());
+        assert_eq!(stream.num_samples_ready(), ready - 10);
+    }
+
+    /// Reads with `read_sample()` until it underruns or the stream is done.
+    fn read_ready_samples(stream: &mut RealtimeResampler<f32>, output: &mut Vec<f32>) {
+        while let Some(sample) = stream.read_sample() {
+            if RealtimeResampler::sample_is_underrun(sample) {
+                break;
+            }
+            output.push(sample);
+        }
+    }
+
+    #[test]
+    fn sample_at_a_time_matches_the_block_api() {
+        let input = noise_like(2 * 6_000, 0.013);
+        let mut by_blocks = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut by_samples = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+
+        let expected = run_stream(&mut by_blocks, &input);
+
+        let mut actual = Vec::new();
+        for &sample in &input {
+            by_samples.write_sample(sample).unwrap();
+            read_ready_samples(&mut by_samples, &mut actual);
+        }
+        by_samples.finalize().unwrap();
+        read_ready_samples(&mut by_samples, &mut actual);
+
+        assert_eq!(actual, expected);
+        assert!(by_samples.is_done());
+        assert_eq!(by_samples.read_sample(), None);
+    }
+
+    #[test]
+    fn read_sample_emits_underrun_silence_until_primed() {
+        let mut stream = RealtimeResampler::<f32>::new(mono_config(44_100, 48_000)).unwrap();
+        let input = sine(input_chunk_frames(&stream) * 4, 0.01);
+
+        let mut written = 0;
+        loop {
+            stream.write_sample(input[written]).unwrap();
+            written += 1;
+            if stream.is_primed() {
+                break;
+            }
+            let ready = stream.num_samples_ready();
+            let sample = stream.read_sample().unwrap();
+            assert!(
+                RealtimeResampler::sample_is_underrun(sample),
+                "unprimed read {written} returned {sample}"
+            );
+            assert_eq!(stream.num_samples_ready(), ready, "an underrun read consumes nothing");
+        }
+        assert!(written <= stream.estimate_priming_samples());
+
+        let ready = stream.num_samples_ready();
+        assert!(ready > 0);
+        let sample = stream.read_sample().unwrap();
+        assert!(!RealtimeResampler::sample_is_underrun(sample));
+        assert_eq!(stream.num_samples_ready(), ready - 1);
+    }
+
+    #[test]
+    fn read_sample_underruns_when_starved_without_losing_output() {
+        let input = sine(30_000, 0.009);
+        let mut by_blocks = RealtimeResampler::<f32>::new(mono_config(44_100, 48_000)).unwrap();
+        let mut stream = RealtimeResampler::<f32>::new(mono_config(44_100, 48_000)).unwrap();
+        let expected = run_stream(&mut by_blocks, &input);
+
+        let (head, tail) = input.split_at(input_chunk_frames(&stream) * 3);
+        stream.write_samples(head).unwrap();
+        assert!(stream.is_primed());
+
+        let mut actual = Vec::new();
+        read_ready_samples(&mut stream, &mut actual);
+        assert!(!actual.is_empty());
+        assert_eq!(stream.num_samples_ready(), 0);
+        for _ in 0..10 {
+            let sample = stream.read_sample().expect("a starved stream is not done");
+            assert!(RealtimeResampler::sample_is_underrun(sample));
+        }
+        assert!(!stream.is_done());
+
+        for &sample in tail {
+            stream.write_sample(sample).unwrap();
+            read_ready_samples(&mut stream, &mut actual);
+        }
+        stream.finalize().unwrap();
+        read_ready_samples(&mut stream, &mut actual);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn read_sample_drains_a_stream_finalized_before_priming() {
+        let mut by_blocks = RealtimeResampler::<f32>::new(mono_config(44_100, 48_000)).unwrap();
+        let mut stream = RealtimeResampler::<f32>::new(mono_config(44_100, 48_000)).unwrap();
+        let input = sine(input_chunk_frames(&stream) / 2, 0.02);
+        let expected = run_stream(&mut by_blocks, &input);
+
+        for &sample in &input {
+            stream.write_sample(sample).unwrap();
+        }
+        assert!(!stream.is_primed());
+        stream.finalize().unwrap();
+
+        let mut actual = Vec::new();
+        read_ready_samples(&mut stream, &mut actual);
+
+        assert!(!actual.is_empty());
+        assert_eq!(actual, expected);
+        assert!(stream.is_done());
+        assert_eq!(stream.read_sample(), None);
+    }
+
+    #[test]
+    fn read_sample_crosses_a_format_change_in_order() {
+        let stereo = noise_like(2 * 3_000, 0.011);
+        let mono = noise_like(2_500, 0.017);
+
+        let mut by_blocks = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        by_blocks.write_samples(&stereo).unwrap();
+        by_blocks.new_span(32_000, 1).unwrap();
+        let expected = run_stream(&mut by_blocks, &mono);
+
+        let mut stream = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        let mut actual = Vec::new();
+        for &sample in &stereo {
+            stream.write_sample(sample).unwrap();
+            read_ready_samples(&mut stream, &mut actual);
+        }
+        stream.new_span(32_000, 1).unwrap();
+        for &sample in &mono {
+            stream.write_sample(sample).unwrap();
+            read_ready_samples(&mut stream, &mut actual);
+        }
+        stream.finalize().unwrap();
+        read_ready_samples(&mut stream, &mut actual);
+
+        assert_eq!(actual, expected);
+        assert!(stream.is_done());
+    }
+
+    #[test]
+    fn write_sample_rejects_finalizing_a_partial_frame() {
+        let mut stream = RealtimeResampler::<f32>::new(stereo_config(44_100, 48_000)).unwrap();
+        stream.write_sample(0.1).unwrap();
+        assert!(matches!(
+            stream.finalize(),
+            Err(Error::DanglingPartialFrame {
+                channels: 2,
+                samples: 1
+            })
+        ));
+
+        stream.write_sample(0.2).unwrap();
+        assert!(stream.finalize().is_ok());
     }
 }

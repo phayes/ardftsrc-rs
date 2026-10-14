@@ -34,6 +34,7 @@ pub use planar_resampler::PlanarResampler;
 pub use planar_vecs::PlanarVecs;
 pub use realtime::RealtimeResampler;
 pub use realtime::SamplesLeftInSpan;
+pub use realtime::SpanSamples;
 pub use taper::TaperType;
 
 #[cfg(test)]

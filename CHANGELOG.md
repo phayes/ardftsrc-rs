@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.3 - 2026-10-14
+
+### Added
+
+- `RealtimeResampler::write_span()` and `RealtimeResampler::read_span()` replace `write_rodio_buffer()` and `read_rodio_buffer()`. They work without the `rodio` feature and allocate nothing. `write_span()` takes the samples from an iterator, starting a new span when their rate or channel count changes. `read_span()` hands back a `SpanSamples` iterator over one span's output, with its channel count and rate, so a caller can collect it into a buffer it reuses.
+
+### Removed
+
+- `RealtimeResampler::write_rodio_buffer()` and `RealtimeResampler::read_rodio_buffer()`, added in 0.4.2. Pass a `rodio::buffer::SamplesBuffer`'s rate, channel count and samples to `write_span()`, and build one from a `read_span()` result's `channels()`, `sample_rate()` and collected samples.
+
 ## 0.4.2 - 2026-10-13
 
 ### Added
